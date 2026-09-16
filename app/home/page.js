@@ -40,8 +40,16 @@ export default function HomePage(){
    <Section title="Best matches for you" action="See all" onClick={()=>router.push('/match')}><div className="no-scrollbar flex gap-3 overflow-x-auto">{radar.map((r)=><button key={r.title} onClick={()=>router.push(r.href)} className="gold-card min-w-[220px] p-4 text-left"><div className="flex items-center justify-between"><span className="rounded-full bg-gold-grad px-2 py-1 text-[10px] font-black text-[#171100]">{r.score} match</span><r.icon size={17} className="text-gold"/></div><div className="mt-4 text-[14px] font-extrabold">{r.title}</div><div className="mt-1 text-[12px] font-semibold">{r.name}</div><div className="mt-1 text-[10.5px] text-text2">{r.meta}</div></button>)}</div></Section>
    <Section title="Build with the network" action="Open projects" onClick={()=>router.push('/projects')}><div className="grid grid-cols-2 gap-2.5"><Mini icon={Code2} title="Programmers" value="128 projects" onClick={()=>router.push('/programmers')}/><Mini icon={Users} title="Teams" value="64 looking now" onClick={()=>router.push('/projects')}/><Mini icon={Coins} title="Opportunities" value="246 live" onClick={()=>router.push('/opportunities')}/><Mini icon={MessageCircle} title="Messages" value="3 new" onClick={()=>router.push('/messages')}/></div></Section>
    <Section title="Ask the Network" action="Ask" onClick={()=>router.push('/create')}><button onClick={()=>router.push('/create')} className="glass-card flex w-full items-center gap-3 p-4 text-left"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-line text-gold"><Plus size={18}/></span><span className="flex-1"><span className="block text-[13px] font-bold">What do you need help with?</span><span className="block text-[10.5px] text-text3">&ldquo;I need a Flutter developer in Kolkata...&rdquo;</span></span><ArrowRight size={16} className="text-text3"/></button></Section>
-   <FeedAlgorithm />
-   <div className="mx-[18px] mt-5 rounded-2xl border border-line bg-[rgba(217,172,61,.06)] p-4 text-center"><div className="text-[12px] font-extrabold">Welcome back, {profile?.name?.split(' ')[0] || 'there'}.</div><div className="mt-1 text-[10.5px] text-text2">Keep building. Your next opportunity may be one match away.</div></div>
+    <FeedAlgorithm />
+    {useStore.getState().posts.length === 0 && (
+      <div className="mx-[18px] mt-5 rounded-2xl border border-gold/20 bg-gold/5 p-5 text-center">
+        <div className="text-[22px]">🚀</div>
+        <div className="mt-2 text-[14px] font-extrabold">Your feed is empty</div>
+        <div className="mt-1 text-[11.5px] text-text2 max-w-[260px] mx-auto">Follow founders, builders and creators to see their posts here. Start by exploring matches.</div>
+        <button onClick={() => router.push('/match')} className="mt-3 rounded-full bg-gold-grad px-5 py-2.5 text-[12px] font-black text-[#171100]">Find people to follow</button>
+      </div>
+    )}
+    <div className="mx-[18px] mt-5 rounded-2xl border border-line bg-[rgba(217,172,61,.06)] p-4 text-center"><div className="text-[12px] font-extrabold">Welcome back, {profile?.name?.split(' ')[0] || 'there'}.</div><div className="mt-1 text-[10.5px] text-text2">Keep building. Your next opportunity may be one match away.</div></div>
   </div>
   </PullToRefresh>
   <ScrollToTop scrollRef={scrollRef}/>

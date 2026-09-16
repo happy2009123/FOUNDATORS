@@ -25,25 +25,41 @@ export default function FirestoreProvider({ children }) {
 
     const unsubs = [];
 
-    // ── Feed/Posts ──────────────────────────────────────────────────────
-    const postsQ = query(
-      collection(db, 'posts'),
-      orderBy('createdAt', 'desc'),
-      limit(50)
-    );
-    const unsubPosts = onSnapshot(postsQ, (snap) => {
-      const firestorePosts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (firestorePosts.length === 0) return;
-      set((s) => {
-        const existingIds = new Set(s.posts.map((p) => p.id));
-        const newPosts = firestorePosts.filter((p) => !existingIds.has(p.id));
-        if (newPosts.length === 0) return {};
-        return { posts: [...newPosts, ...s.posts].slice(0, 100) };
-      });
-    });
-    unsubs.push(unsubPosts);
+    // ── Posts: ONLY from users this person follows ──────────────────────
+    // For new users with no follows, feed is empty (Instagram-like)
+    const followsQ = query(collection(db, 'users', userId, 'following'));
+    const unsubFollows = onSnapshot(followsQ, (followSnap) => {
+      const followedIds = followSnap.docs.map((d) => d.id);
 
-    // ── Notifications ───────────────────────────────────────────────────
+      // Clean up old post listener
+      const oldPostUnsub = unsubRef.current._posts;
+      if (oldPostUnsub) {
+        try { oldPostUnsub(); } catch (e) {}
+      }
+
+      if (followedIds.length === 0) {
+        set({ posts: [] });
+        return;
+      }
+
+      // Listen to posts from followed users (max 10 at a time for Firestore `in` query)
+      const batch = followedIds.slice(0, 10);
+      const postsQ = query(
+        collection(db, 'posts'),
+        where('authorKey', 'in', batch),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
+      const unsubPosts = onSnapshot(postsQ, (snap) => {
+        const firestorePosts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        set({ posts: firestorePosts });
+      });
+      unsubRef.current._posts = unsubPosts;
+      unsubs.push(unsubPosts);
+    });
+    unsubs.push(unsubFollows);
+
+    // ── Notifications: ONLY this user's ────────────────────────────────
     const notifQ = query(
       collection(db, 'users', userId, 'notifications'),
       orderBy('createdAt', 'desc'),
@@ -51,17 +67,11 @@ export default function FirestoreProvider({ children }) {
     );
     const unsubNotifs = onSnapshot(notifQ, (snap) => {
       const firestoreNotifs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (firestoreNotifs.length === 0) return;
-      set((s) => {
-        const existingIds = new Set(s.notifications.map((n) => n.id));
-        const newNotifs = firestoreNotifs.filter((n) => !existingIds.has(n.id));
-        if (newNotifs.length === 0) return {};
-        return { notifications: [...newNotifs, ...s.notifications].slice(0, 50) };
-      });
+      set({ notifications: firestoreNotifs });
     });
     unsubs.push(unsubNotifs);
 
-    // ── Chats / Contacts ────────────────────────────────────────────────
+    // ── Chats: ONLY chats this user is in ──────────────────────────────
     const chatsQ = query(
       collection(db, 'chats'),
       where('participants', 'array-contains', userId),
@@ -69,35 +79,29 @@ export default function FirestoreProvider({ children }) {
     );
     const unsubChats = onSnapshot(chatsQ, (snap) => {
       const firestoreChats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (firestoreChats.length === 0) return;
-      set((s) => {
-        const merged = { ...s.contacts };
-        firestoreChats.forEach((chat) => {
-          const otherParticipant = chat.participants?.find((p) => p !== userId);
-          const key = otherParticipant || chat.id;
-          if (!merged[key]) {
-            merged[key] = {
-              name: chat.lastMessage || 'Chat',
-              avatar: `https://i.pravatar.cc/160?img=${Math.floor(Math.random() * 70)}`,
-              online: true,
-              status: 'Online',
-              lastActive: 'Now',
-              messages: [],
-              firestoreChatId: chat.id,
-            };
-          } else {
-            merged[key] = { ...merged[key], firestoreChatId: chat.id };
-          }
-        });
-        return { contacts: merged };
+      const contacts = {};
+      firestoreChats.forEach((chat) => {
+        const otherId = chat.participants?.find((p) => p !== userId);
+        if (otherId) {
+          contacts[otherId] = {
+            name: chat.participantNames?.[otherId] || 'User',
+            avatar: chat.participantAvatars?.[otherId] || `https://i.pravatar.cc/160?u=${otherId}`,
+            online: false,
+            status: '',
+            lastActive: '',
+            messages: [],
+            firestoreChatId: chat.id,
+          };
+        }
       });
+      set({ contacts });
     });
     unsubs.push(unsubChats);
 
     unsubRef.current = unsubs;
     return () => {
       unsubs.forEach((u) => {
-        try { u(); } catch (e) { /* already unsubscribed */ }
+        try { u(); } catch (e) {}
       });
       unsubRef.current = [];
     };
