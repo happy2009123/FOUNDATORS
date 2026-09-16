@@ -1,0 +1,78 @@
+   ▲ Next.js 15.3.3
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 34.0s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/59) ...
+   Generating static pages (14/59) 
+   Generating static pages (29/59) 
+   Generating static pages (44/59) 
+ ✓ Generating static pages (59/59)
+   Finalizing page optimization ...
+   Collecting build traces ...
+   Exporting (0/3) ...
+ ✓ Exporting (3/3)
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                    2.98 kB         113 kB
+├ ○ /_not-found                            171 B         101 kB
+├ ○ /ai                                  3.51 kB         113 kB
+├ ○ /challenges                          3.21 kB         113 kB
+├ ○ /create                              1.84 kB         111 kB
+├ ○ /discover                            4.36 kB         114 kB
+├ ● /discussion/[discussionId]           1.71 kB         111 kB
+├   ├ /discussion/saas
+├   └ /discussion/users100
+├ ○ /events                              2.49 kB         112 kB
+├ ○ /help                                1.61 kB         111 kB
+├ ○ /home                                5.19 kB         115 kB
+├ ○ /icon.svg                                0 B            0 B
+├ ○ /ideas                               2.64 kB         112 kB
+├ ● /list/[mode]                         3.18 kB         113 kB
+├   ├ /list/people
+├   ├ /list/startups
+├   └ /list/discussions
+├ ○ /login                                3.1 kB         113 kB
+├ ○ /match                               1.23 kB         111 kB
+├ ● /match/[intent]                      2.97 kB         113 kB
+├   ├ /match/start_business
+├   ├ /match/find_programmer
+├   ├ /match/find_cofounder
+├   └ [+7 more paths]
+├ ○ /messages                            3.96 kB         114 kB
+├ ● /messages/[chatId]                   3.01 kB         113 kB
+├   ├ /messages/sophia
+├   ├ /messages/daniel
+├   ├ /messages/emily
+├   └ [+2 more paths]
+├ ○ /notifications                       2.21 kB         112 kB
+├ ○ /opportunities                       3.48 kB         113 kB
+├ ● /post/[postId]                       1.79 kB         111 kB
+├   ├ /post/arjun_idea
+├   ├ /post/meera_update
+├   ├ /post/rohan_cofounder
+├   └ [+2 more paths]
+├ ○ /profile                             5.56 kB         115 kB
+├ ● /profile/[userId]                     2.6 kB         112 kB
+├   ├ /profile/arjun
+├   ├ /profile/meera
+├   ├ /profile/rohan
+├   └ [+5 more paths]
+├ ○ /programmers                         3.44 kB         113 kB
+├ ○ /projects                            3.17 kB         113 kB
+├ ○ /settings                             1.5 kB         111 kB
+├ ○ /signup                              1.92 kB         112 kB
+└ ● /startup/[startupId]                 1.91 kB         112 kB
+    ├ /startup/learnova
+    ├ /startup/greenmetric
+    └ /startup/payvance
++ First Load JS shared by all             101 kB
+  ├ chunks/4bd1b696-844fe4d4276d00e5.js  53.2 kB
+  ├ chunks/9303-0d2e50580dcc6ded.js        46 kB
+  └ other shared chunks (total)          1.99 kB
+
+
+○  (Static)  prerendered as static content
+●  (SSG)     prerendered as static HTML (uses generateStaticParams)
+

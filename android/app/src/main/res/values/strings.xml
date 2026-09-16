@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Foundators</string>
+    <string name="title_activity_main">Foundators</string>
+    <string name="package_name">com.foundators.app</string>
+    <string name="custom_url_scheme">com.foundators.app</string>
+</resources>

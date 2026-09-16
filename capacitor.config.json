@@ -1,0 +1,35 @@
+{
+  "appId": "com.foundators.app",
+  "appName": "Foundators",
+  "webDir": "out",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "backgroundColor": "#020202"
+  },
+  "android": {
+    "backgroundColor": "#020202",
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#020202",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true,
+      "splashImmersiveFullScreen": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#020202",
+      "overlaysWebView": false
+    },
+    "Keyboard": {
+      "resize": "body",
+      "scrollPadding": false
+    }
+  }
+}

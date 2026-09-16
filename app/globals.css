@@ -1,0 +1,909 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+html, body {
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  overscroll-behavior-y: none;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* ─── Dark theme (default) ─── */
+:root {
+  --bg: #020202;
+  --text: #ffffff;
+  --text2: #999;
+  --text3: #666;
+  --shell-bg: linear-gradient(180deg, #050505, #000000);
+  --card: rgba(255,255,255,0.04);
+  --card-border: rgba(255,255,255,0.08);
+  --linesoft: rgba(255,255,255,0.08);
+  --line: rgba(255,255,255,0.12);
+}
+
+/* ─── Light theme ─── */
+.theme-light {
+  --bg: #f5f3ef;
+  --text: #1a1a1a;
+  --text2: #666;
+  --text3: #999;
+  --shell-bg: linear-gradient(180deg, #f5f3ef, #ebe8e3);
+  --card: rgba(0,0,0,0.03);
+  --card-border: rgba(0,0,0,0.08);
+  --linesoft: rgba(0,0,0,0.08);
+  --line: rgba(0,0,0,0.12);
+}
+.theme-light body { color: var(--text); }
+.theme-light .bg-card { background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.08); }
+.theme-light .glass-card { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.08); }
+.theme-light .gold-card { background: linear-gradient(145deg, rgba(217,172,61,0.08), rgba(255,255,255,0.6)); }
+.theme-light .text-text2 { color: #666; }
+.theme-light .text-text3 { color: #999; }
+.theme-light .border-linesoft { border-color: rgba(0,0,0,0.08); }
+.theme-light .border-line { border-color: rgba(0,0,0,0.12); }
+.theme-light .bg-gold-grad { background: linear-gradient(135deg, #f7dd8f, #d9ac3d, #b8860b); }
+.theme-light .text-gold { color: #b8860b; }
+.theme-light .text-gold-hi { color: #d4a017; }
+.theme-light input { color: #1a1a1a; }
+.theme-light textarea { color: #1a1a1a; }
+.theme-light .border-t-linesoft { border-color: rgba(0,0,0,0.08); }
+.theme-light .bg-white\/5 { background: rgba(0,0,0,0.04); }
+.theme-light ::placeholder { color: #aaa; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(212,175,55,0.45); }
+* { scrollbar-width: thin; scrollbar-color: rgba(212,175,55,0.25) transparent; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* ─── App Shell ─── */
+.app-shell {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--shell-bg);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@media (min-width: 521px) and (max-width: 1023px) {
+  .app-shell { max-width: 100%; }
+}
+@media (min-width: 1024px) {
+  .app-shell {
+    max-width: 720px;
+    margin: 60px auto 0 240px;
+    box-shadow: none;
+    border-left: 1px solid var(--linesoft);
+    border-right: 1px solid var(--linesoft);
+  }
+}
+
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ─── Spring-like Transitions ───
+   These approximate a spring curve using CSS linear().
+   Feels physical and bouncy vs flat ease-in-out. */
+:root {
+  --spring-bounce: linear(0, 0.004, 0.016, 0.035, 0.063, 0.098, 0.141, 0.191, 0.25, 0.316, 0.391, 0.473, 0.563, 0.66, 0.766, 0.878, 1, 1.065, 1.104, 1.119, 1.112, 1.085, 1.043, 0.992, 0.936, 0.879, 0.826, 0.78, 0.743, 0.716, 0.699, 0.691, 0.691, 0.698, 0.711, 0.729, 0.751, 0.775, 0.8, 0.825, 0.849, 0.871, 0.89, 0.906, 0.919, 0.929, 0.937, 0.943, 0.948, 0.951, 0.954, 0.956, 0.957, 0.958, 0.958, 0.959, 0.959, 0.96, 1);
+  --spring-smooth: linear(0, 0.006, 0.025, 0.066, 0.128, 0.213, 0.32, 0.449, 0.598, 0.763, 0.941, 1.05, 1.104, 1.119, 1.112, 1.085, 1.043, 0.992, 0.936, 0.879, 0.826, 0.78, 0.743, 0.716, 0.699, 0.691, 0.691, 0.698, 0.711, 0.729, 0.751, 0.775, 0.8, 0.825, 0.849, 0.871, 0.89, 0.906, 0.919, 0.929, 0.937, 0.943, 0.948, 0.951, 0.954, 0.956, 0.957, 0.958, 0.958, 0.959, 0.959, 0.96, 1);
+  --spring-pop: linear(0, 0.002, 0.01, 0.03, 0.073, 0.143, 0.25, 0.403, 0.61, 0.879, 1.152, 1.286, 1.323, 1.297, 1.23, 1.143, 1.054, 0.975, 0.913, 0.869, 0.841, 0.826, 0.822, 0.826, 0.836, 0.851, 0.869, 0.889, 0.909, 0.928, 0.944, 0.957, 0.967, 0.975, 0.981, 0.985, 0.988, 0.99, 0.992, 0.993, 0.994, 1);
+}
+
+/* ─── Fade-up animation ─── */
+@keyframes fadeUpIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fadeUpIn 0.7s var(--spring-smooth) both; }
+
+/* ─── Like pop animation ─── */
+@keyframes likePop {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.4); }
+  50% { transform: scale(0.9); }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.animate-likePop { animation: likePop 0.4s var(--spring-pop); }
+
+/* ─── Scale in animation ─── */
+@keyframes scaleIn {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.animate-scaleIn { animation: scaleIn 0.3s var(--spring-pop) forwards; }
+
+/* ─── Float animation ─── */
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-float { animation: floatY 3.2s ease-in-out infinite; }
+
+/* ─── Pulse glow ─── */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.12); }
+}
+.animate-pulse-glow { animation: pulseGlow 4.5s ease-in-out infinite; }
+
+/* ─── Shimmer text ─── */
+@keyframes shimmerText {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 250% 50%; }
+}
+.animate-shimmer {
+  background-size: 250% auto;
+  animation: shimmerText 5.5s linear infinite;
+}
+
+/* ─── Screen in ─── */
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-screen-in { animation: screenIn 0.3s var(--spring-smooth); }
+
+/* ─── Animated Gold Gradient Text ─── */
+.text-gold-gradient {
+  background: linear-gradient(
+    90deg,
+    #b8860b 0%,
+    #f7dd8f 20%,
+    #d9ac3d 40%,
+    #f7dd8f 60%,
+    #b8860b 80%,
+    #f7dd8f 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmerText 6s ease-in-out infinite;
+}
+
+/* ─── Glass Card with Animated Border Glow ─── */
+.glass-card {
+  border: 1px solid rgba(212,175,55,0.13);
+  background: rgba(255,255,255,0.04);
+  border-radius: 22px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.glass-card:active {
+  border-color: rgba(212,175,55,0.28);
+  box-shadow: 0 0 12px rgba(212,175,55,0.06);
+}
+
+/* ─── Gold Card with Animated Border Glow ─── */
+.gold-card {
+  border: 1px solid rgba(212,175,55,0.25);
+  background: linear-gradient(145deg, rgba(217,172,61,0.11), rgba(255,255,255,0.018));
+  border-radius: 22px;
+  transition: box-shadow 0.2s ease;
+}
+.gold-card:active {
+  box-shadow: 0 4px 20px rgba(212,175,55,0.08);
+}
+
+/* ─── CTA Button Magnetic Hover ─── */
+.btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #f7dd8f 0%, #e0b74a 45%, #b8860b 100%);
+  color: #171100;
+  font-weight: 900;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-gold:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 10px rgba(217,172,61,0.2);
+}
+
+.btn-outline-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1.3px solid rgba(212,175,55,0.5);
+  color: #f7dd8f;
+  font-weight: 700;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.btn-outline-gold:active {
+  transform: scale(0.97);
+  border-color: rgba(212,175,55,0.8);
+  background: rgba(212,175,55,0.08);
+}
+
+/* ─── Card tap/press feedback ─── */
+.glass-card:active,
+.gold-card:active {
+  transform: scale(0.985);
+}
+
+/* ─── Shimmer Skeleton Loaders ─── */
+@keyframes shimmerWave {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(212,175,55,0.06) 30%,
+    rgba(212,175,55,0.12) 50%,
+    rgba(212,175,55,0.06) 70%,
+    transparent 100%
+  );
+  animation: shimmerWave 1.8s ease-in-out infinite;
+}
+
+/* ─── Animated Spinner for loading states ─── */
+@keyframes spinSlow{to{transform:rotate(360deg)}}
+.animate-spin-slow{animation:spinSlow 14s linear infinite}
+
+/* ─── Slide gold ─── */
+@keyframes slideGold{0%,100%{transform:translateX(-3px);opacity:.65}50%{transform:translateX(3px);opacity:1}}
+.animate-slide-gold{animation:slideGold 2.2s ease-in-out infinite}
+
+/* ─── Page transition wrapper ─── */
+@keyframes pageSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: pageSlideIn 0.35s ease-out both;
+}
+
+/* ─── Stagger children animation ─── */
+.stagger-children > * {
+  animation: fadeUpIn 0.4s ease-out both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.04s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.06s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.08s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.12s; }
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer,
+  .animate-float,
+  .animate-pulse-glow,
+  .animate-spin-slow,
+  .animate-slide-gold,
+  .animate-fade-up,
+  .animate-screen-in,
+  .text-gold-gradient,
+  .stagger-children > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .glass-card,
+  .gold-card,
+  .btn-gold,
+  .btn-outline-gold {
+    transition: none;
+  }
+}
+
+/* ─── Intro splash animations ─── */
+@keyframes toastProgress { from { width: 100%; } to { width: 0%; } }
+@keyframes introSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes introSpinReverse { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes introParticle {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
+  50% { transform: translateY(-12px) scale(1.5); opacity: 0.9; }
+}
+@keyframes introScan {
+  0% { transform: translateY(-30px); opacity: 0; }
+  30% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(30px); opacity: 0; }
+}
+@keyframes introSweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(200%); }
+}
+@keyframes introRayPulse {
+  0%, 100% { opacity: 0; transform: scaleY(0.6); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
+
+/* ─── Focus ring for accessibility ─── */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(212,175,55,0.6);
+  outline-offset: 2px;
+}
+
+/* ─── Prevent overscroll bounce on iOS ─── */
+html {
+  overscroll-behavior: none;
+}
+
+/* ─── Capacitor safe areas ─── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  }
+}
+
+/* ─── Smooth image load ─── */
+img {
+  transition: opacity 0.3s ease;
+}
+
+/* ─── Tap highlight removal for entire app ─── */
+a, button, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Typing indicator dots ─── */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+}
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: typingBounce 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ─── Message bubble press feedback ─── */
+[oncontextmenu] {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* ─── Context menu fade in ─── */
+@keyframes ctxFadeIn {
+  from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ─── Chat input focus ring ─── */
+textarea:focus,
+input:focus {
+  outline: none;
+}
+
+/* ─── Swipe action slide ─── */
+.swipe-actions {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ─── Conversation row hover lift ─── */
+.conversation-row:active {
+  transform: scale(0.98);
+}
+
+/* ─── Send button pulse on active ─── */
+@keyframes sendPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+
+
+/* ── Skip to Content ── */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 1rem;
+  background: #D9AC3D;
+  color: #1a1300;
+  font-weight: 900;
+  font-size: 12px;
+  border-radius: 0.5rem;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+}
+
+/* ── Hover States ── */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+.hover-glow {
+  transition: box-shadow 0.2s ease;
+}
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(217, 172, 61, 0.15);
+}
+.hover-scale {
+  transition: transform 0.15s ease;
+}
+.hover-scale:hover {
+  transform: scale(1.02);
+}
+.hover-scale:active {
+  transform: scale(0.98);
+}
+
+
+
+/* ── Slide Animations (Spring-based) ── */
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  60% { transform: translateY(-3%); opacity: 1; }
+  80% { transform: translateY(1%); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  60% { transform: translateY(3px); opacity: 1; }
+  80% { transform: translateY(-1px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  60% { transform: scale(1.02); opacity: 1; }
+  80% { transform: scale(0.99); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-slideUp { animation: slideUp 0.4s var(--spring-smooth); }
+.animate-slideDown { animation: slideDown 0.35s var(--spring-smooth); }
+.animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+.animate-scaleIn { animation: scaleIn 0.3s var(--spring-smooth); }
+
+/* ── Hover States ── */
+.hover-lift {
+  transition: transform 0.2s var(--spring-smooth), box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4);
+}
+.hover-lift:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ── Focus Visible ── */
+*:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ── Sticky Header ── */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(2, 2, 2, 0.85);
+  border-bottom: 1px solid rgba(42, 42, 42, 0.5);
+}
+
+
+
+/* ── Empty State ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-pulse, .animate-spin, .animate-bounce, .animate-float, .animate-pulse-glow {
+    animation: none !important;
+  }
+}
+
+/* ── Focus Visible ── */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ── Skip Link ── */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--gold);
+  color: #1a1300;
+  padding: 8px 16px;
+  z-index: 999;
+  font-weight: 700;
+  font-size: 14px;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* ── Inert styles ── */
+[aria-hidden="true"] {
+  pointer-events: none;
+}
+
+/* ── Live region ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ══════════════════════════════════════════════════════
+   POLISH PASS — Premium micro-interactions & effects
+   ══════════════════════════════════════════════════════ */
+
+/* ── Card hover glow (desktop) ── */
+@media (hover: hover) {
+  .glass-card:hover {
+    border-color: rgba(212,175,55,0.22);
+    box-shadow: 0 4px 20px rgba(212,175,55,0.06);
+  }
+  .gold-card:hover {
+    box-shadow: 0 4px 30px rgba(212,175,55,0.1);
+  }
+}
+
+/* ── Button press feedback ── */
+button:active, [role="button"]:active {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
+}
+
+/* ── Gradient border glow ── */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(212,175,55,0.4), transparent 40%, transparent 60%, rgba(212,175,55,0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.gradient-border:hover::before {
+  opacity: 1;
+}
+
+/* ── Notification badge bounce ── */
+@keyframes badgeBounce {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.3); }
+  60% { transform: scale(0.9); }
+}
+.badge-bounce {
+  animation: badgeBounce 0.4s var(--spring-pop);
+}
+
+/* ── Smooth toggle switch ── */
+.toggle-switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.1);
+  position: relative;
+  transition: background 0.3s var(--spring-smooth);
+  cursor: pointer;
+}
+.toggle-switch.active {
+  background: #d9ac3d;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.3s var(--spring-pop);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.toggle-switch.active::after {
+  transform: translateX(20px);
+}
+
+/* ── Stagger fade in (for lists) ── */
+.stagger-fade > * {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: fadeUpIn 0.4s var(--spring-smooth) forwards;
+}
+.stagger-fade > *:nth-child(1) { animation-delay: 0.03s; }
+.stagger-fade > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger-fade > *:nth-child(3) { animation-delay: 0.09s; }
+.stagger-fade > *:nth-child(4) { animation-delay: 0.12s; }
+.stagger-fade > *:nth-child(5) { animation-delay: 0.15s; }
+.stagger-fade > *:nth-child(6) { animation-delay: 0.18s; }
+.stagger-fade > *:nth-child(7) { animation-delay: 0.21s; }
+.stagger-fade > *:nth-child(8) { animation-delay: 0.24s; }
+.stagger-fade > *:nth-child(9) { animation-delay: 0.27s; }
+.stagger-fade > *:nth-child(10) { animation-delay: 0.30s; }
+
+/* ── Gold shimmer effect on hover ── */
+@keyframes goldShimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.gold-shimmer {
+  background: linear-gradient(90deg, transparent 30%, rgba(212,175,55,0.15) 50%, transparent 70%);
+  background-size: 200% 100%;
+}
+.gold-shimmer:hover {
+  animation: goldShimmer 1.5s ease-in-out;
+}
+
+/* ── Tooltip ── */
+.tooltip {
+  position: relative;
+}
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: #1a1a1a;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.tooltip:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+/* ── Ripple effect on buttons ── */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+.ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--ripple-x, 50%) var(--ripple-y, 50%), rgba(255,255,255,0.2) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.ripple:active::after {
+  opacity: 1;
+}
+
+/* ── Chat message slide-in ── */
+@keyframes msgSlideIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.msg-enter {
+  animation: msgSlideIn 0.25s var(--spring-smooth);
+}
+
+/* ── Floating label input ── */
+.float-label {
+  position: relative;
+}
+.float-label input:focus + label,
+.float-label input:not(:placeholder-shown) + label {
+  transform: translateY(-20px) scale(0.85);
+  color: #d9ac3d;
+}
+.float-label label {
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  color: var(--text3);
+  font-size: 14px;
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+
+/* ── Ambient glow behind gold elements ── */
+.glow-ambient {
+  position: relative;
+}
+.glow-ambient::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  background: radial-gradient(ellipse at center, rgba(212,175,55,0.08) 0%, transparent 70%);
+  z-index: -1;
+  border-radius: inherit;
+}
+
+/* ── Desktop sidebar item hover ── */
+@media (hover: hover) {
+  .sidebar-item:hover {
+    background: rgba(255,255,255,0.06);
+    padding-left: 16px;
+  }
+  .sidebar-item.active {
+    background: rgba(212,175,55,0.08);
+  }
+}
+
+/* ── Smooth scrollbar ── */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212,175,55,0.2);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212,175,55,0.4);
+}
+
+/* ── Login page background gradient ── */
+.login-bg {
+  background: radial-gradient(ellipse at 20% 50%, rgba(212,175,55,0.06) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, rgba(212,175,55,0.04) 0%, transparent 50%),
+              var(--bg);
+}
+
+/* ── Image hover zoom ── */
+.img-hover-zoom {
+  overflow: hidden;
+  border-radius: inherit;
+}
+.img-hover-zoom img {
+  transition: transform 0.4s ease;
+}
+.img-hover-zoom:hover img {
+  transform: scale(1.05);
+}
+
+/* ── Smooth height transitions ── */
+.height-transition {
+  transition: max-height 0.4s var(--spring-smooth), opacity 0.3s ease;
+  overflow: hidden;
+}
+
+/* ── Avatar online indicator ── */
+.avatar-online::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+}
+
+/* ── Card selection ring ── */
+.card-selected {
+  box-shadow: 0 0 0 2px rgba(212,175,55,0.6);
+}
+
+/* ── Typing indicator ── */
+@keyframes typingPulse {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+.typing-indicator span {
+  animation: typingPulse 1.4s ease-in-out infinite;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── Notification bell ring ── */
+@keyframes bellRing {
+  0%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(8deg); }
+  20%, 40% { transform: rotate(-8deg); }
+  60% { transform: rotate(0); }
+}
+.bell-ring {
+  animation: bellRing 0.6s ease;
+}
+
+/* ── Gradient text shimmer (faster) ── */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── Smooth page entrance ── */
+.page-entrance {
+  animation: pageSlideIn 0.4s var(--spring-smooth) both;
+}
+
+/* ── Desktop content wider ── */
+@media (min-width: 1024px) {
+  .desktop-wide { max-width: 720px; }
+}
+
+/* ── Mobile bottom padding for nav ── */
+@media (max-width: 1023px) {
+  .pb-bottom-nav { padding-bottom: 72px; }
+}
+
