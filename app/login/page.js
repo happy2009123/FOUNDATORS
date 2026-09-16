@@ -122,7 +122,7 @@ export default function LoginPage() {
         </div>
 
         <button
-          onClick={() => showToast('Password reset — feature coming soon')}
+          onClick={() => router.push('/forgot-password')}
           className="mb-5 block text-right text-xs font-semibold text-gold"
         >
           Forgot password?

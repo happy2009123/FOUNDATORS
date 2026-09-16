@@ -6,6 +6,8 @@ import { useStore } from '@/lib/store';
 import { useSecurityAudit } from '@/lib/useSecurityAudit';
 import { initErrorTracking } from '@/lib/errorTracking';
 import { syncProfileToFirestore } from '@/lib/useFirestore';
+import FirestoreProvider from './FirestoreProvider';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import DesktopShell from '@/components/DesktopShell';
 import Toast from '@/components/Toast';
 import Drawer from '@/components/Drawer';
@@ -27,7 +29,6 @@ export default function Providers({ children }) {
     initErrorTracking();
   }, []);
 
-  // System-aware theme detection
   useEffect(() => {
     if (theme !== 'system') return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -53,15 +54,11 @@ export default function Providers({ children }) {
   useEffect(() => {
     if (!isLoggedIn || !sessionExpiry) return;
     const remaining = sessionExpiry - Date.now();
-    if (remaining <= 0) {
-      logout();
-      return;
-    }
+    if (remaining <= 0) { logout(); return; }
     const timer = setTimeout(() => logout(), remaining);
     return () => clearTimeout(timer);
   }, [isLoggedIn, sessionExpiry, logout]);
 
-  // Sync profile to Firestore when logged in
   const profile = useStore((s) => s.profile);
   useEffect(() => {
     if (isLoggedIn && profile?.id) {
@@ -70,18 +67,18 @@ export default function Providers({ children }) {
   }, [isLoggedIn, profile?.name, profile?.handle, profile?.bio, profile?.avatar]);
 
   return (
-    <>
-      <SkipToContent />
-      <KeyboardShortcuts />
-      <OfflineBanner />
-      <PushRegistrar />
-      <DesktopShell />
-      <div id="main-content">
-        {children}
-      </div>
-      <Drawer />
-      <Toast />
-      <CookieBanner />
-    </>
+    <ErrorBoundary>
+      <FirestoreProvider>
+        <SkipToContent />
+        <KeyboardShortcuts />
+        <OfflineBanner />
+        <PushRegistrar />
+        <DesktopShell />
+        <div id="main-content">{children}</div>
+        <Drawer />
+        <Toast />
+        <CookieBanner />
+      </FirestoreProvider>
+    </ErrorBoundary>
   );
 }

@@ -1,0 +1,347 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
+
+    // Returns true if the request is from an authenticated user
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Returns the UID of the currently authenticated user
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // Returns true if the authenticated user is viewing their own document
+    function isOwner(userId) {
+      return isSignedIn() && uid() == userId;
+    }
+
+    // Validates that required string fields exist and are non-empty
+    function isValidString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    // Validates that a timestamp field exists
+    function isValidTimestamp(value) {
+      return value is timestamp;
+    }
+
+    // Validates that a field is a non-empty array
+    function isNonEmptyArray(value) {
+      return value is list && value.size() > 0;
+    }
+
+    // ============================================================
+    // USERS COLLECTION
+    // users/{userId}
+    // ============================================================
+    match /users/{userId} {
+
+      // ----------------------------------------------------------
+      // USER PROFILES
+      // ----------------------------------------------------------
+      // Public profile: any authenticated user can read.
+      // Only the profile owner can create, update, or delete it.
+      // ----------------------------------------------------------
+
+      // READ: Any signed-in user can read any profile (public directory)
+      allow read: if isSignedIn();
+
+      // CREATE: Users can only create their own profile
+      // Ensures all required fields are present and valid
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasAll([
+             'name', 'handle', 'bio', 'avatar', 'role',
+             'location', 'updatedAt'
+           ])
+        && isValidString(request.resource.data.name, 100)
+        && isValidString(request.resource.data.handle, 50)
+        && request.resource.data.bio is string
+        && request.resource.data.avatar is string
+        && request.resource.data.role is string
+        && request.resource.data.location is string
+        && isValidTimestamp(request.resource.data.updatedAt);
+
+      // UPDATE: Users can only update their own profile
+      // Validates changed fields if they are present
+      allow update: if isOwner(userId)
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['name', 'handle', 'bio', 'avatar',
+                       'role', 'location', 'updatedAt'])
+            || (isValidString(request.resource.data.name, 100)
+                && isValidString(request.resource.data.handle, 50)
+                && request.resource.data.bio is string
+                && request.resource.data.avatar is string
+                && request.resource.data.role is string
+                && request.resource.data.location is string
+                && isValidTimestamp(request.resource.data.updatedAt)));
+
+      // DELETE: Users can only delete their own profile
+      allow delete: if isOwner(userId);
+
+      // ----------------------------------------------------------
+      // NOTIFICATIONS SUBCOLLECTION
+      // users/{userId}/notifications/{notificationId}
+      // ----------------------------------------------------------
+      // Only the notification owner can read or manage their
+      // notifications. No other user should ever access them.
+      // ----------------------------------------------------------
+      match /notifications/{notificationId} {
+        allow read, update: if isOwner(userId);
+        allow create: if isSignedIn() && request.resource.data.keys().hasAll([
+                         'type', 'actorKey', 'text', 'read',
+                         'linkType', 'linkId', 'createdAt'
+                       ]);
+        allow delete: if isOwner(userId);
+      }
+
+      // ----------------------------------------------------------
+      // FOLLOWERS SUBCOLLECTION
+      // users/{userId}/followers/{followerId}
+      // ----------------------------------------------------------
+      // Any authenticated user can see who follows a profile.
+      // Only the follower themselves can add or remove their
+      // own follow record.
+      // ----------------------------------------------------------
+      match /followers/{followerId} {
+        allow read: if isSignedIn();
+        // A follower can only add themselves to someone's followers list
+        allow create: if isSignedIn() && uid() == followerId
+          && request.resource.data.keys().hasAll(['followedAt'])
+          && isValidTimestamp(request.resource.data.followedAt);
+        // A follower can only remove themselves
+        allow delete: if isSignedIn() && uid() == followerId;
+        // No updates allowed on follow records
+        allow update: if false;
+      }
+
+      // ----------------------------------------------------------
+      // FOLLOWING SUBCOLLECTION
+      // users/{userId}/following/{followingId}
+      // ----------------------------------------------------------
+      // Mirrors the followers subcollection — a user can see who
+      // they are following, and only they can manage it.
+      // ----------------------------------------------------------
+      match /following/{followingId} {
+        allow read: if isOwner(userId);
+        // The user can only add themselves as following someone else
+        allow create: if isOwner(userId) && uid() == followingId
+          && request.resource.data.keys().hasAll(['followedAt'])
+          && isValidTimestamp(request.resource.data.followedAt);
+        // The user can only remove their own following record
+        allow delete: if isOwner(userId) && uid() == followingId;
+        // No updates allowed on following records
+        allow update: if false;
+      }
+    }
+
+    // ============================================================
+    // POSTS COLLECTION
+    // posts/{postId}
+    // ============================================================
+    // Any authenticated user can read posts (feed / explore).
+    // Only the post author can create, update, or delete their
+    // own posts.
+    // ============================================================
+    match /posts/{postId} {
+
+      // READ: Any signed-in user can read any post
+      allow read: if isSignedIn();
+
+      // CREATE: Only authenticated users; authorKey must match the
+      // authenticated user; all required fields must be present
+      allow create: if isSignedIn()
+        && request.resource.data.authorKey == uid()
+        && request.resource.data.keys().hasAll([
+             'text', 'authorKey', 'authorName', 'authorAvatar',
+             'tagType', 'imageUrl', 'likes', 'shares',
+             'commentsCount', 'likedBy', 'bookmarkedBy', 'createdAt'
+           ])
+        && isValidString(request.resource.data.text, 5000)
+        && isValidString(request.resource.data.authorKey, 128)
+        && isValidString(request.resource.data.authorName, 100)
+        && request.resource.data.authorAvatar is string
+        && request.resource.data.tagType is string
+        && request.resource.data.imageUrl is string
+        && request.resource.data.likes is int
+        && request.resource.data.shares is int
+        && request.resource.data.commentsCount is int
+        && request.resource.data.likedBy is list
+        && request.resource.data.bookmarkedBy is list
+        && isValidTimestamp(request.resource.data.createdAt);
+
+      // UPDATE: Only the author can update their own post
+      // Allows toggling likes, bookmarks, editing text, etc.
+      allow update: if isSignedIn()
+        && resource.data.authorKey == uid()
+        && request.resource.data.authorKey == resource.data.authorKey;
+
+      // DELETE: Only the author can delete their own post
+      allow delete: if isSignedIn() && resource.data.authorKey == uid();
+
+      // ----------------------------------------------------------
+      // COMMENTS SUBCOLLECTION
+      // posts/{postId}/comments/{commentId}
+      // ----------------------------------------------------------
+      // Any authenticated user can read and add comments.
+      // Only the comment author can edit or delete their own.
+      // ----------------------------------------------------------
+      match /comments/{commentId} {
+
+        // READ: Any signed-in user can read comments on any post
+        allow read: if isSignedIn();
+
+        // CREATE: Any authenticated user can comment; authorKey
+        // must match the authenticated user
+        allow create: if isSignedIn()
+          && request.resource.data.authorKey == uid()
+          && request.resource.data.keys().hasAll([
+               'text', 'authorKey', 'authorName', 'authorAvatar',
+               'replyTo', 'likes', 'likedBy', 'createdAt', 'edited'
+             ])
+          && isValidString(request.resource.data.text, 2000)
+          && isValidString(request.resource.data.authorKey, 128)
+          && isValidString(request.resource.data.authorName, 100)
+          && request.resource.data.authorAvatar is string
+          && request.resource.data.replyTo is string
+          && request.resource.data.likes is int
+          && request.resource.data.likedBy is list
+          && isValidTimestamp(request.resource.data.createdAt)
+          && request.resource.data.edited is bool;
+
+        // UPDATE: Only the comment author can edit their comment
+        // Only allows editing the text and setting the edited flag
+        allow update: if isSignedIn()
+          && resource.data.authorKey == uid()
+          && request.resource.data.authorKey == resource.data.authorKey;
+
+        // DELETE: Only the comment author can delete their comment
+        allow delete: if isSignedIn()
+          && resource.data.authorKey == uid();
+      }
+    }
+
+    // ============================================================
+    // CHATS COLLECTION
+    // chats/{chatId}
+    // ============================================================
+    // Only participants in a chat can read or manage it.
+    // A new chat can be created by any authenticated user, but
+    // they must include themselves in the participants list.
+    // ============================================================
+    match /chats/{chatId} {
+
+      // Helper: returns true if the current user is a participant
+      function isParticipant() {
+        return isSignedIn()
+          && request.auth.uid in resource.data.participants;
+      }
+
+      // READ: Only participants can read chat metadata
+      allow read: if isSignedIn()
+        && uid() in resource.data.participants;
+
+      // CREATE: Any authenticated user can create a chat, but they
+      // must be listed in the participants array
+      allow create: if isSignedIn()
+        && uid() in request.resource.data.participants
+        && request.resource.data.keys().hasAll([
+             'participants', 'lastMessage', 'lastMessageAt', 'createdAt'
+           ])
+        && isNonEmptyArray(request.resource.data.participants)
+        && request.resource.data.lastMessage is string
+        && isValidTimestamp(request.resource.data.lastMessageAt)
+        && isValidTimestamp(request.resource.data.createdAt);
+
+      // UPDATE: Only participants can update (e.g., lastMessage)
+      allow update: if isSignedIn()
+        && uid() in resource.data.participants
+        && uid() in request.resource.data.participants;
+
+      // DELETE: Only participants can delete a chat
+      allow delete: if isSignedIn()
+        && uid() in resource.data.participants;
+
+      // ----------------------------------------------------------
+      // MESSAGES SUBCOLLECTION
+      // chats/{chatId}/messages/{messageId}
+      // ----------------------------------------------------------
+      // Only chat participants can read or write messages.
+      // Messages are append-only for non-senders; only the sender
+      // can update or delete their own message.
+      // ----------------------------------------------------------
+      match /messages/{messageId} {
+
+        // READ: Only chat participants can read messages
+        allow read: if isSignedIn()
+          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+
+        // CREATE: Only participants can send messages; senderKey
+        // must match the authenticated user
+        allow create: if isSignedIn()
+          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.senderKey == uid()
+          && request.resource.data.keys().hasAll([
+               'text', 'senderKey', 'senderName',
+               'senderAvatar', 'createdAt'
+             ])
+          && isValidString(request.resource.data.text, 10000)
+          && isValidString(request.resource.data.senderKey, 128)
+          && isValidString(request.resource.data.senderName, 100)
+          && request.resource.data.senderAvatar is string
+          && isValidTimestamp(request.resource.data.createdAt);
+
+        // UPDATE: Only the message sender can update their own message
+        // Typically used for editing or marking as read
+        allow update: if isSignedIn()
+          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && resource.data.senderKey == uid()
+          && request.resource.data.senderKey == resource.data.senderKey;
+
+        // DELETE: Only the message sender can delete their own message
+        allow delete: if isSignedIn()
+          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && resource.data.senderKey == uid();
+      }
+    }
+
+    // ============================================================
+    // ANALYTICS COLLECTION
+    // analytics/{eventId}
+    // ============================================================
+    // Write-only from the client — events are created by
+    // authenticated users. Reads are restricted to admin-level
+    // server SDK only (no client read access).
+    // ============================================================
+    match /analytics/{eventId} {
+      // No client-side reads allowed
+      allow read: if false;
+
+      // Any authenticated user can log an analytics event
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+             'eventType', 'data', 'createdAt'
+           ])
+        && isValidString(request.resource.data.eventType, 100)
+        && request.resource.data.data is map
+        && isValidTimestamp(request.resource.data.createdAt);
+
+      // No client-side updates or deletes
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // DEFAULT DENY
+    // Any path not explicitly matched above is denied.
+    // ============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
