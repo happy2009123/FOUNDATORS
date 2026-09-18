@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { TrendingUp, Search, Hash, Users, Rocket, Code2, Lightbulb, Target, Flame, ArrowRight, X } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import TopBar from '@/components/TopBar';
-import { USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { useStore } from '@/lib/store';
 import Avatar from '@/components/Avatar';
 
@@ -21,31 +22,44 @@ const TRENDING_TAGS = [
 ];
 
 const TRENDING_POSTS = [
-  { id: 't1', user: 'sophia', text: 'Just raised our Series A! 🎉 The journey from idea to this moment has been incredible. Grateful for the amazing team and investors who believe in our vision.', likes: 2341, comments: 89, tag: 'Funding' },
-  { id: 't2', user: 'arjun', text: 'Building an AI-powered code review tool. Early results are promising - catching 40% more bugs than traditional linting. Who wants to beta test?', likes: 1892, comments: 67, tag: 'AI' },
-  { id: 't3', user: 'meera', text: 'HealthSync just hit 10K users in 3 cities! The power of solving a real problem. Healthtech is underserved and we\'re changing that.', likes: 1567, comments: 45, tag: 'HealthTech' },
-  { id: 't4', user: 'rohan', text: 'FitTrack beta launching next week! AI-powered fitness coaching that adapts to your body. Early testers get lifetime premium.', likes: 1234, comments: 78, tag: 'AI' },
-  { id: 't5', user: 'daniel', text: 'Just open-sourced our React component library. 50+ accessible components, fully typed. Star us on GitHub!', likes: 987, comments: 34, tag: 'OpenSource' },
-  { id: 't6', user: 'emily', text: 'Growth marketing tip: Your landing page copy should focus on the problem, not the solution. People buy outcomes, not features.', likes: 876, comments: 23, tag: 'Design' },
-  { id: 't7', user: 'ishita', text: 'New design system drop! 200+ components, dark mode, fully responsive. Free for all Foundators users.', likes: 765, comments: 56, tag: 'Design' },
-  { id: 't8', user: 'james', text: 'Product roadmap for Q3 is ready. Key focus: reliability, speed, and user-requested features. What do you want to see?', likes: 654, comments: 43, tag: 'StartupLife' },
-];
-
-const SUGGESTED_USERS = [
-  { key: 'arjun', reason: 'Building AI tools for developers' },
-  { key: 'meera', reason: 'HealthTech founder' },
-  { key: 'rohan', reason: 'AI-powered fitness' },
-  { key: 'sophia', reason: 'Angel investor & advisor' },
-  { key: 'ishita', reason: 'Design systems expert' },
-  { key: 'daniel', reason: 'Open source contributor' },
+  { id: 't1', userId: 'sophia', text: 'Just raised our Series A! 🎉 The journey from idea to this moment has been incredible. Grateful for the amazing team and investors who believe in our vision.', likes: 2341, comments: 89, tag: 'Funding' },
+  { id: 't2', userId: 'arjun', text: 'Building an AI-powered code review tool. Early results are promising - catching 40% more bugs than traditional linting. Who wants to beta test?', likes: 1892, comments: 67, tag: 'AI' },
+  { id: 't3', userId: 'meera', text: 'HealthSync just hit 10K users in 3 cities! The power of solving a real problem. Healthtech is underserved and we\'re changing that.', likes: 1567, comments: 45, tag: 'HealthTech' },
+  { id: 't4', userId: 'rohan', text: 'FitTrack beta launching next week! AI-powered fitness coaching that adapts to your body. Early testers get lifetime premium.', likes: 1234, comments: 78, tag: 'AI' },
+  { id: 't5', userId: 'daniel', text: 'Just open-sourced our React component library. 50+ accessible components, fully typed. Star us on GitHub!', likes: 987, comments: 34, tag: 'OpenSource' },
+  { id: 't6', userId: 'emily', text: 'Growth marketing tip: Your landing page copy should focus on the problem, not the solution. People buy outcomes, not features.', likes: 876, comments: 23, tag: 'Design' },
+  { id: 't7', userId: 'ishita', text: 'New design system drop! 200+ components, dark mode, fully responsive. Free for all Foundators users.', likes: 765, comments: 56, tag: 'Design' },
+  { id: 't8', userId: 'james', text: 'Product roadmap for Q3 is ready. Key focus: reliability, speed, and user-requested features. What do you want to see?', likes: 654, comments: 43, tag: 'StartupLife' },
 ];
 
 export default function ExplorePage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('trending');
+  const [users, setUsers] = useState({});
+  const [loading, setLoading] = useState(true);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const followedUsers = useStore((s) => s.followedUsers);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchUsers() {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        if (!cancelled) {
+          const map = {};
+          snap.docs.forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+          setUsers(map);
+        }
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchUsers();
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredTags = TRENDING_TAGS.filter((t) =>
     t.tag.toLowerCase().includes(searchQuery.toLowerCase())
@@ -60,13 +74,11 @@ export default function ExplorePage() {
     <MainScreenShell>
       <TopBar />
       <div className="no-scrollbar flex-1 overflow-y-auto pb-20">
-        {/* Header */}
         <div className="px-4 pt-3 pb-2">
           <h1 className="text-[22px] font-black">Explore</h1>
           <p className="text-[12px] text-text2">Discover trending content and people</p>
         </div>
 
-        {/* Search */}
         <div className="px-4 mb-4">
           <div className="flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-4 py-3">
             <Search size={16} className="text-text3" />
@@ -86,7 +98,6 @@ export default function ExplorePage() {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 px-4 mb-4">
           {[
             { key: 'trending', label: 'Trending', icon: Flame },
@@ -108,10 +119,8 @@ export default function ExplorePage() {
           ))}
         </div>
 
-        {/* Trending tab */}
         {activeTab === 'trending' && (
           <div className="space-y-4">
-            {/* Trending tags */}
             <div className="px-4">
               <h2 className="mb-3 text-[14px] font-bold">Trending Topics</h2>
               <div className="flex flex-wrap gap-2">
@@ -129,12 +138,11 @@ export default function ExplorePage() {
               </div>
             </div>
 
-            {/* Trending posts */}
             <div className="px-4">
               <h2 className="mb-3 text-[14px] font-bold">Top Posts</h2>
               <div className="space-y-3">
                 {filteredPosts.map((post) => {
-                  const user = USERS[post.user];
+                  const user = users[post.userId];
                   return (
                     <div
                       key={post.id}
@@ -146,7 +154,7 @@ export default function ExplorePage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1">
                             <span className="text-[13px] font-bold">{user?.name}</span>
-                            {user?.verified && <span className="text-gold text-[10px]">✓</span>}
+                            {user?.verified && <span className="text-gold text-[10px]">&#10003;</span>}
                           </div>
                           <div className="text-[11px] text-text2">{user?.role}</div>
                         </div>
@@ -165,7 +173,6 @@ export default function ExplorePage() {
           </div>
         )}
 
-        {/* Tags tab */}
         {activeTab === 'tags' && (
           <div className="px-4 space-y-3">
             {filteredTags.map((tag) => (
@@ -186,36 +193,40 @@ export default function ExplorePage() {
           </div>
         )}
 
-        {/* People tab */}
         {activeTab === 'people' && (
           <div className="px-4 space-y-3">
-            {SUGGESTED_USERS.map(({ key, reason }) => {
-              const user = USERS[key];
-              if (!user) return null;
-              const isFollowing = !!followedUsers[key];
-              return (
-                <div key={key} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-4">
-                  <Avatar src={user.avatar} name={user.name} size={48} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[14px] font-bold">{user.name}</span>
-                      {user.verified && <span className="text-gold text-[10px]">✓</span>}
+            {loading ? (
+              <div className="py-12 text-center text-[13px] text-text3">Loading users...</div>
+            ) : Object.values(users).length === 0 ? (
+              <div className="py-12 text-center text-[13px] text-text2">No users found</div>
+            ) : (
+              Object.values(users).map((user) => {
+                const key = user.id;
+                const isFollowing = !!followedUsers[key];
+                return (
+                  <div key={key} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-4">
+                    <Avatar src={user.avatar} name={user.name} size={48} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[14px] font-bold">{user.name}</span>
+                        {user.verified && <span className="text-gold text-[10px]">&#10003;</span>}
+                      </div>
+                      <div className="text-[11px] text-text2">{user.role || user.bio || 'Foundator'}</div>
                     </div>
-                    <div className="text-[11px] text-text2">{reason}</div>
+                    <button
+                      onClick={() => toggleFollowUser(key)}
+                      className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
+                        isFollowing
+                          ? 'border-transparent bg-gold text-[#1a1300]'
+                          : 'border-gold text-gold'
+                      }`}
+                    >
+                      {isFollowing ? 'Following' : 'Follow'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => toggleFollowUser(key)}
-                    className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
-                      isFollowing
-                        ? 'border-transparent bg-gold text-[#1a1300]'
-                        : 'border-gold text-gold'
-                    }`}
-                  >
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </button>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Code2, Coins, Filter, Search, Sparkles, UserPlus, Users } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -8,15 +8,9 @@ import PullToRefresh from '@/components/PullToRefresh';
 import ScrollToTop from '@/components/ScrollToTop';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
-import { USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
-const matches=[
- {key:'arjun',score:94,type:'Co-founder',reason:'AI + EdTech + Product',need:'Looking for a product co-founder',location:'Bangalore'},
- {key:'daniel',score:91,type:'Programmer',reason:'React + Python + AI',need:'Open to startup projects',location:'Bangalore'},
- {key:'ishita',score:89,type:'Design Engineer',reason:'Product + Design + Dev',need:'Available for collaboration',location:'Pune'},
- {key:'sophia',score:87,type:'Investor',reason:'Early-stage + Strategy',need:'Open to founder introductions',location:'San Francisco'},
- {key:'emily',score:85,type:'Growth Partner',reason:'Marketing + Growth',need:'Looking for ambitious products',location:'Mumbai'},
-];
 const filters=['All','Co-founder','Programmer','Investor','Mentor','Freelancer'];
 
 export default function DiscoverPage(){
@@ -25,9 +19,49 @@ export default function DiscoverPage(){
  const [q,setQ]=useState('');
  const [near,setNear]=useState(false);
  const scrollRef=useRef(null);
+ const [users, setUsers] = useState({});
+ const [loading, setLoading] = useState(true);
  const handleRefresh=useCallback(()=>new Promise(r=>setTimeout(r,1200)),[]);
 
- const list=useMemo(()=>matches.filter(m=>(filter==='All'||m.type===filter)&&(!q||`${USERS[m.key].name} ${USERS[m.key].role} ${m.reason}`.toLowerCase().includes(q.toLowerCase()))&&(!near||m.location==='Bangalore')),[filter,q,near]);
+ useEffect(() => {
+   let cancelled = false;
+   async function fetchUsers() {
+     try {
+       const snap = await getDocs(collection(db, 'users'));
+       if (!cancelled) {
+         const map = {};
+         snap.docs.forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+         setUsers(map);
+       }
+     } catch {
+       // silently fail
+     } finally {
+       if (!cancelled) setLoading(false);
+     }
+   }
+   fetchUsers();
+   return () => { cancelled = true; };
+ }, []);
+
+ const matches = useMemo(() => {
+   return Object.values(users).map((u, i) => ({
+     key: u.id,
+     score: Math.max(70, 95 - i * 3),
+     type: i % 3 === 0 ? 'Co-founder' : i % 3 === 1 ? 'Programmer' : 'Investor',
+     reason: (u.skills || []).slice(0, 3).join(' + ') || 'General',
+     need: 'Open to connect',
+     location: u.location || 'Unknown',
+   }));
+ }, [users]);
+
+ const list=useMemo(()=>matches.filter(m=>{
+   const user = users[m.key];
+   if (!user) return false;
+   if (filter!=='All' && m.type!==filter) return false;
+   if (q && !`${user.name||''} ${user.role||''} ${m.reason}`.toLowerCase().includes(q.toLowerCase())) return false;
+   if (near && m.location!=='Bangalore') return false;
+   return true;
+ }),[filter,q,near,matches,users]);
 
  return <MainScreenShell><TopBar/>
   <PullToRefresh onRefresh={handleRefresh}>
@@ -46,11 +80,13 @@ export default function DiscoverPage(){
    <div className="mt-5 flex items-center justify-between">
     <div><div className="text-[14px] font-extrabold">{near?'Near you':'Top matches'}</div><div className="text-[10px] text-text3">{list.length} people ready to connect</div></div>
    </div>
-   {list.length===0 ? (
+   {loading ? (
+    <div className="py-12 text-center text-[13px] text-text3">Loading users...</div>
+   ) : list.length===0 ? (
     <EmptyState icon={Users} title="No matches found" description="Try adjusting your search or filters." />
    ) : (
     <div className="mt-3 space-y-3 stagger-children">
-     {list.map(m=>{const user=USERS[m.key];return <MatchCard key={m.key} match={m} user={user} onOpen={()=>router.push(`/profile/${m.key}`)} onConnect={()=>router.push('/messages')} onInvite={()=>router.push('/create')}/>})}
+     {list.map(m=>{const user=users[m.key];return <MatchCard key={m.key} match={m} user={user} onOpen={()=>router.push(`/profile/${m.key}`)} onConnect={()=>router.push('/messages')} onInvite={()=>router.push('/create')}/>})}
     </div>
    )}
    <div className="mt-6 mb-2 grid grid-cols-2 gap-2.5 stagger-children">
@@ -65,6 +101,6 @@ export default function DiscoverPage(){
  </MainScreenShell>
 }
 
-function MatchCard({match,user,onOpen,onConnect,onInvite}){return <div className="gold-card p-4"><div className="flex gap-3"><Avatar src={user.avatar} name={user.name} size={48} className="rounded-2xl" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><button onClick={onOpen} className="text-[14px] font-extrabold">{user.name}</button><div className="text-[10.5px] text-text2">{user.role}</div></div><div className="rounded-full bg-gold-grad px-2 py-1 text-[9.5px] font-black text-[#171100]">{match.score}%</div></div><div className="mt-2 text-[10.5px] text-gold-hi">{match.type} · {match.reason}</div><div className="mt-1 text-[10px] text-text3">{match.need}</div></div></div><div className="mt-3 flex gap-2"><button onClick={onConnect} className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]">Connect</button><button onClick={onInvite} className="flex-1 rounded-xl border border-line py-2.5 text-[10.5px] font-bold text-gold-hi">Invite to project</button></div></div>}
+function MatchCard({match,user,onOpen,onConnect,onInvite}){return <div className="gold-card p-4"><div className="flex gap-3"><Avatar src={user?.avatar} name={user?.name} size={48} className="rounded-2xl" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><button onClick={onOpen} className="text-[14px] font-extrabold">{user?.name}</button><div className="text-[10.5px] text-text2">{user?.role}</div></div><div className="rounded-full bg-gold-grad px-2 py-1 text-[9.5px] font-black text-[#171100]">{match.score}%</div></div><div className="mt-2 text-[10.5px] text-gold-hi">{match.type} · {match.reason}</div><div className="mt-1 text-[10px] text-text3">{match.need}</div></div></div><div className="mt-3 flex gap-2"><button onClick={onConnect} className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]">Connect</button><button onClick={onInvite} className="flex-1 rounded-xl border border-line py-2.5 text-[10.5px] font-bold text-gold-hi">Invite to project</button></div></div>}
 
 function Action({icon:Icon,title,onClick}){return <button onClick={onClick} className="glass-card flex flex-col items-center gap-2 p-3 text-center"><Icon size={18} className="text-gold"/><span className="text-[10px] font-bold text-text2">{title}</span></button>}

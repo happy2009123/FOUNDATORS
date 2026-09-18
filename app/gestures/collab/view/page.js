@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, useCallback, useState } from 'react';
+import { Suspense, useMemo, useCallback, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -17,8 +17,18 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useStore } from '@/lib/store';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
-import { getPerson } from '@/lib/data';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 function CollabViewInner() {
   const router = useRouter();
@@ -34,6 +44,8 @@ function CollabViewInner() {
 
   const [copied, setCopied] = useState(false);
   const [showSignatures, setShowSignatures] = useState(false);
+  const [owner, setOwner] = useState(null);
+  const [sigAuthors, setSigAuthors] = useState({});
 
   const collab = useMemo(
     () => collabGestures.find((c) => c.id === id) || null,
@@ -50,16 +62,23 @@ function CollabViewInner() {
     [collab]
   );
 
-  const owner = useMemo(() => (collab ? getPerson(collab.ownerKey) : null), [collab]);
+  useEffect(() => {
+    if (collab?.ownerKey) fetchUser(collab.ownerKey).then(setOwner);
+  }, [collab?.ownerKey]);
+
+  useEffect(() => {
+    if (!collab) return;
+    const keys = [...new Set(collab.signatures.map((s) => s.authorKey).filter(Boolean))];
+    keys.forEach((key) => {
+      if (!sigAuthors[key]) {
+        fetchUser(key).then((u) => { if (u) setSigAuthors((prev) => ({ ...prev, [key]: u })); });
+      }
+    });
+  }, [collab]);
 
   const recipientNames = useMemo(() => {
     if (!collab) return '';
-    return collab.recipients
-      .map((key) => {
-        const person = getPerson(key);
-        return person?.name || key;
-      })
-      .join(', ');
+    return collab.recipients.join(', ');
   }, [collab]);
 
   const isOwner = collab && profile?.key === collab.ownerKey;
@@ -256,7 +275,7 @@ function CollabViewInner() {
             </div>
             <div className="space-y-2.5">
               {collab.signatures.map((sig, i) => {
-                const author = getPerson(sig.authorKey);
+                const author = sigAuthors[sig.authorKey];
                 return (
                   <div
                     key={i}

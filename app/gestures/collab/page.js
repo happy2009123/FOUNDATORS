@@ -59,9 +59,13 @@ function StepIndicator({ current, total }) {
 function Step1({ onSelect }) {
   return (
     <div className="animate-fadeIn">
-      <h2 className="text-xl font-bold text-white mb-1">Start a Group Card</h2>
-      <p className="text-[#888] text-sm mb-6">Get friends to sign a greeting together.</p>
+      <div className="mb-8 text-center">
+        <div className="text-5xl mb-4">🤝</div>
+        <h2 className="text-xl font-bold text-white mb-1">No active collaborations</h2>
+        <p className="text-[#888] text-sm">Start a group card and get friends to sign a greeting together.</p>
+      </div>
 
+      <h3 className="text-sm font-bold text-white mb-3">Choose an occasion</h3>
       <div className="grid grid-cols-2 gap-3">
         {CATEGORIES.map((cat) => (
           <button
@@ -302,7 +306,7 @@ function Step3({ data, collabId, onDone }) {
   );
 }
 
-export default function CreateCollabPage() {
+export default function CollabPage() {
   const router = useRouter();
   const ready = useRequireAuth();
   const createCollab = useStore((s) => s.createCollab);

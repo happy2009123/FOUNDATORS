@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo } from 'react';
+import { Suspense, useMemo, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Star, GitFork, Users, MapPin, CheckCircle, ExternalLink, Code2, Award } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -9,7 +9,8 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useStore } from '@/lib/store';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
-import { getPerson } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -26,6 +27,15 @@ const STATUS_BADGE = {
   closed: 'bg-[rgba(158,158,158,0.12)] text-[#9e9e9e]',
 };
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 function CreatorProfileInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,9 +50,13 @@ function CreatorProfileInner() {
   const toggleFollowCreator = useStore((s) => s.toggleFollowCreator);
   const getCreatorStats = useStore((s) => s.getCreatorStats);
 
-  const person = getPerson(creatorKey);
+  const [person, setPerson] = useState(null);
   const stats = getCreatorStats(creatorKey);
   const isFollowed = !!followedCreators[creatorKey];
+
+  useEffect(() => {
+    fetchUser(creatorKey).then(setPerson);
+  }, [creatorKey]);
 
   const templates = useMemo(
     () => communityTemplates.filter((t) => t.authorKey === creatorKey),

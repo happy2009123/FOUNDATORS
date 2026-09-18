@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, ArrowLeft, Check, Sparkles, Users, Rocket, Code2, Lightbulb, Target, UserPlus } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { USERS } from '@/lib/data';
 import Avatar from '@/components/Avatar';
+import { db } from '@/lib/firebase';
+import { doc, getDocs, collection } from 'firebase/firestore';
 
 const STEPS = ['welcome', 'role', 'interests', 'follow', 'done'];
 
@@ -25,14 +26,15 @@ const INTERESTS = [
   'Product Design', 'Marketing', 'Fundraising', 'No-Code', 'Open Source',
 ];
 
-const SUGGESTED_USERS = [
-  { key: 'arjun', reason: 'AI + EdTech' },
-  { key: 'meera', reason: 'HealthTech' },
-  { key: 'rohan', reason: 'SaaS + AI' },
-  { key: 'sophia', reason: 'Investor' },
-  { key: 'ishita', reason: 'Design' },
-  { key: 'daniel', reason: 'Full-stack' },
-];
+const SUGGESTED_KEYS = ['arjun', 'meera', 'rohan', 'sophia', 'ishita', 'daniel'];
+const SUGGESTED_REASONS = {
+  arjun: 'AI + EdTech',
+  meera: 'HealthTech',
+  rohan: 'SaaS + AI',
+  sophia: 'Investor',
+  ishita: 'Design',
+  daniel: 'Full-stack',
+};
 
 export default function Onboarding() {
   const router = useRouter();
@@ -46,8 +48,20 @@ export default function Onboarding() {
   const [role, setRole] = useState('');
   const [selectedInterests, setSelectedInterests] = useState([]);
   const [name, setName] = useState('');
+  const [suggestedUsers, setSuggestedUsers] = useState({});
 
   const currentStep = STEPS[step];
+
+  useEffect(() => {
+    const keys = SUGGESTED_KEYS;
+    keys.forEach((key) => {
+      getDocs(collection(db, 'users')).then((snap) => {
+        const users = {};
+        snap.forEach((d) => { users[d.id] = { id: d.id, ...d.data() }; });
+        setSuggestedUsers(users);
+      }).catch(() => {});
+    });
+  }, []);
 
   const next = useCallback(() => {
     vibrate('light');
@@ -178,9 +192,10 @@ export default function Onboarding() {
             <h2 className="text-[22px] font-black text-center mb-2">Find people to follow</h2>
             <p className="text-[13px] text-text2 text-center mb-6">Follow at least 3 to populate your feed</p>
             <div className="space-y-3">
-              {SUGGESTED_USERS.map(({ key, reason }) => {
-                const user = USERS[key];
+              {SUGGESTED_KEYS.map((key) => {
+                const user = suggestedUsers[key];
                 if (!user) return null;
+                const reason = SUGGESTED_REASONS[key] || '';
                 const isFollowing = !!followedUsers[key];
                 return (
                   <div key={key} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">

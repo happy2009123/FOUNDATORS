@@ -1,13 +1,14 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Code2, Star, GitFork, ArrowLeft, Search } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import ScrollToTop from '@/components/ScrollToTop';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { getPerson } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORIES = [
   { key: 'all', label: 'All' },
@@ -30,18 +31,37 @@ const CATEGORY_BADGE = {
   congrats: 'bg-[rgba(76,175,80,0.12)] text-[#4caf50]',
 };
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function CommunityTemplatesPage() {
   const router = useRouter();
   const scrollRef = useRef(null);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [sortBy, setSortBy] = useState('stars');
+  const [authors, setAuthors] = useState({});
 
   const communityTemplates = useStore((s) => s.communityTemplates);
   const starTemplate = useStore((s) => s.starTemplate);
   const userKey = useStore((s) => s.profile?.id);
   const featuredTemplates = useStore((s) => s.featuredTemplates);
   const { vibrate } = useHaptics();
+
+  useEffect(() => {
+    const keys = [...new Set(communityTemplates.map((t) => t.authorKey).filter(Boolean))];
+    keys.forEach((key) => {
+      if (!authors[key]) {
+        fetchUser(key).then((u) => { if (u) setAuthors((prev) => ({ ...prev, [key]: u })); });
+      }
+    });
+  }, [communityTemplates]);
 
   const filtered = useMemo(() => {
     let templates = [...communityTemplates];
@@ -182,7 +202,7 @@ export default function CommunityTemplatesPage() {
           ) : (
             <div className="grid grid-cols-2 gap-2.5">
               {filtered.map((t) => {
-                const author = getPerson(t.authorKey);
+                const author = authors[t.authorKey];
                 const isStarred = t.starredBy?.[userKey];
                 return (
                   <button

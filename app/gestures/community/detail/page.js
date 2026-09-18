@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -17,8 +17,9 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { useRequireAuth } from '@/lib/useRequireAuth';
-import { getPerson } from '@/lib/data';
 import { sanitize } from '@/lib/security';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -31,6 +32,15 @@ const CATEGORY_BADGE = {
 };
 
 const GOLD_THEME = { primary: '#D9AC3D', bg: '#1a1300', accent: '#f5d780' };
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 function highlightSyntax(code) {
   let html = code
@@ -149,6 +159,7 @@ function TemplateDetailInner() {
   const ready = useRequireAuth();
   const [copiedCode, setCopiedCode] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [author, setAuthor] = useState(null);
 
   const communityTemplates = useStore((s) => s.communityTemplates);
   const starTemplate = useStore((s) => s.starTemplate);
@@ -171,10 +182,22 @@ function TemplateDetailInner() {
     [communityTemplates, templateId]
   );
 
-  const author = useMemo(
-    () => (template ? getPerson(template.authorKey) : null),
-    [template]
-  );
+  useEffect(() => {
+    if (template?.authorKey) fetchUser(template.authorKey).then(setAuthor);
+  }, [template?.authorKey]);
+
+  const [commentAuthors, setCommentAuthors] = useState({});
+
+  const comments = useMemo(() => templateComments?.[template?.id] || [], [templateComments, template?.id]);
+
+  useEffect(() => {
+    const keys = [...new Set(comments.map((c) => c.authorKey).filter(Boolean))];
+    keys.forEach((key) => {
+      if (!commentAuthors[key]) {
+        fetchUser(key).then((u) => { if (u) setCommentAuthors((prev) => ({ ...prev, [key]: u })); });
+      }
+    });
+  }, [comments]);
 
   const isStarred = template?.starredBy?.[userKey];
 
@@ -512,9 +535,9 @@ function TemplateDetailInner() {
         {template && (
           <div className="mt-6 px-[18px]">
             <h3 className="mb-3 text-[13px] font-extrabold">
-              Comments ({(templateComments?.[template.id] || []).length})
+              Comments ({comments.length})
             </h3>
-            
+
             {/* Add Comment */}
             <div className="mb-4">
               <div className="flex gap-2">
@@ -542,8 +565,8 @@ function TemplateDetailInner() {
 
             {/* Comment List */}
             <div className="space-y-3">
-              {(templateComments?.[template.id] || []).map((comment) => {
-                const commenter = getPerson(comment.authorKey);
+              {comments.map((comment) => {
+                const commenter = commentAuthors[comment.authorKey];
                 return (
                   <div key={comment.id} className="glass-card p-3">
                     <div className="flex items-center gap-2">
@@ -569,7 +592,7 @@ function TemplateDetailInner() {
                   </div>
                 );
               })}
-              {(templateComments?.[template.id] || []).length === 0 && (
+              {comments.length === 0 && (
                 <p className="text-center text-[11px] text-text3 py-4">No comments yet. Be the first!</p>
               )}
             </div>

@@ -6,10 +6,20 @@ import { Send, Heart, Reply, MoreHorizontal, Pencil, Trash2, ArrowUpDown, Check,
 import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { getPerson, USERS } from '@/lib/data';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import Avatar from '@/components/Avatar';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function PostCommentsPage() {
   const ready = useRequireAuth();
@@ -36,7 +46,11 @@ export default function PostCommentsPage() {
   const inputRef = useRef(null);
 
   const post = posts.find((p) => p.id === postId);
-  const author = post ? getPerson(post.authorKey) : null;
+  const [author, setAuthor] = useState(null);
+
+  useEffect(() => {
+    if (post?.authorKey) fetchUser(post.authorKey).then(setAuthor);
+  }, [post?.authorKey]);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [postId]);
 
@@ -96,9 +110,17 @@ export default function PostCommentsPage() {
   const getReplies = (parentId) => comments.filter((c) => c.replyTo === parentId);
 
   function CommentItem({ comment, isReply = false }) {
-    const commenter = comment.who === 'me'
-      ? { name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13', key: useStore.getState().profile?.id }
-      : getPerson(comment.who);
+    const [commenter, setCommenter] = useState(null);
+
+    useEffect(() => {
+      if (comment.who === 'me') {
+        const p = useStore.getState().profile;
+        setCommenter({ name: p?.name || 'You', avatar: p?.avatar || 'https://i.pravatar.cc/100?img=1', key: p?.id });
+      } else {
+        fetchUser(comment.who).then(setCommenter);
+      }
+    }, [comment.who]);
+
     const replies = getReplies(comment.id);
     const isEditing = editingId === comment.id;
     const isOwn = comment.who === 'me';
@@ -223,20 +245,12 @@ export default function PostCommentsPage() {
 
       {/* Reply preview */}
       {replyTo && (
-        <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
-          <Reply size={14} className="flex-none text-gold" />
-          <div className="min-w-0 flex-1 truncate text-[11.5px] text-text2">
-            Replying to <span className="text-white font-bold">{getPerson(replyTo.who)?.name || 'someone'}</span>: {replyTo.text?.slice(0, 50)}
-          </div>
-          <button onClick={() => setReplyTo(null)} className="flex-none text-text3" aria-label="Cancel reply">
-            <X size={14} />
-          </button>
-        </div>
+        <ReplyPreview who={replyTo.who} text={replyTo.text} onCancel={() => setReplyTo(null)} />
       )}
 
       <div className="safe-bottom flex flex-none items-center gap-2.5 border-t border-linesoft px-3.5 py-2.5">
         <div className="flex flex-1 items-center gap-2 rounded-full border border-linesoft bg-card px-3.5 py-2.5">
-          <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={replyTo ? `Reply to ${getPerson(replyTo.who)?.name || 'someone'}...` : 'Add a comment...'} aria-label="Add a comment" className="flex-1 bg-transparent text-[13.5px] text-white placeholder:text-text3 focus:outline-none" />
+          <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={replyTo ? `Replying...` : 'Add a comment...'} aria-label="Add a comment" className="flex-1 bg-transparent text-[13.5px] text-white placeholder:text-text3 focus:outline-none" />
         </div>
         <button onClick={handleSend} disabled={!input.trim()} className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-gold-grad text-[#1a1300] disabled:opacity-40" aria-label="Send"><Send size={17} /></button>
       </div>
@@ -255,6 +269,29 @@ export default function PostCommentsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReplyPreview({ who, text, onCancel }) {
+  const [name, setName] = useState('someone');
+  useEffect(() => {
+    if (who === 'me') {
+      setName(useStore.getState().profile?.name || 'someone');
+    } else {
+      fetchUser(who).then((u) => { if (u) setName(u.name); });
+    }
+  }, [who]);
+
+  return (
+    <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
+      <Reply size={14} className="flex-none text-gold" />
+      <div className="min-w-0 flex-1 truncate text-[11.5px] text-text2">
+        Replying to <span className="text-white font-bold">{name}</span>: {text?.slice(0, 50)}
+      </div>
+      <button onClick={onCancel} className="flex-none text-text3" aria-label="Cancel reply">
+        <X size={14} />
+      </button>
     </div>
   );
 }

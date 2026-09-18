@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Heart, MessageCircle, Users, UserPlus, TrendingUp, AtSign } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { getPerson } from '@/lib/data';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const TYPE_META = {
   like: { icon: Heart, cls: 'bg-[rgba(224,52,76,0.15)] text-[#ff6b6b]' },
@@ -19,18 +20,35 @@ const TYPE_META = {
   mention: { icon: AtSign, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-hi' },
 };
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function NotificationsPage() {
   const ready = useRequireAuth();
   const router = useRouter();
   const notifications = useStore((s) => s.notifications);
   const markAllNotificationsRead = useStore((s) => s.markAllNotificationsRead);
   const showToast = useStore((s) => s.showToast);
+  const [actors, setActors] = useState({});
 
   useEffect(() => {
-    // opening the screen marks everything read, same as tapping the bell
     markAllNotificationsRead();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const keys = [...new Set(notifications.filter((n) => n.actorKey).map((n) => n.actorKey))];
+    keys.forEach((key) => {
+      if (!actors[key]) {
+        fetchUser(key).then((u) => { if (u) setActors((prev) => ({ ...prev, [key]: u })); });
+      }
+    });
+  }, [notifications]);
 
   if (!ready) return <AuthSkeleton />;
 
@@ -62,14 +80,14 @@ export default function NotificationsPage() {
         }
       />
       <div className="no-scrollbar flex-1 overflow-y-auto">
-        <Section label="Today" items={today} onOpen={handleOpen} />
-        <Section label="Earlier" items={earlier} onOpen={handleOpen} />
+        <Section label="Today" items={today} onOpen={handleOpen} actors={actors} />
+        <Section label="Earlier" items={earlier} onOpen={handleOpen} actors={actors} />
       </div>
     </div>
   );
 }
 
-function Section({ label, items, onOpen }) {
+function Section({ label, items, onOpen, actors }) {
   if (!items.length) return null;
   return (
     <>
@@ -78,7 +96,7 @@ function Section({ label, items, onOpen }) {
         {items.map((n) => {
           const meta = TYPE_META[n.type];
           const Icon = meta.icon;
-          const actor = n.actorKey ? getPerson(n.actorKey) : null;
+          const actor = n.actorKey ? actors[n.actorKey] : null;
           return (
             <button
               key={n.id}

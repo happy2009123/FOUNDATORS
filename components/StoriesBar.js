@@ -6,22 +6,14 @@ import { Plus } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import StoryViewer from './StoryViewer';
 
-const STORIES = [
-  { key: 'sophia', name: 'Sophia', avatar: 'https://i.pravatar.cc/160?img=47', hasStory: true, viewed: false },
-  { key: 'arjun', name: 'Arjun', avatar: 'https://i.pravatar.cc/160?img=12', hasStory: true, viewed: false },
-  { key: 'meera', name: 'Meera', avatar: 'https://i.pravatar.cc/160?img=44', hasStory: true, viewed: true },
-  { key: 'rohan', name: 'Rohan', avatar: 'https://i.pravatar.cc/160?img=15', hasStory: true, viewed: false },
-  { key: 'daniel', name: 'Daniel', avatar: 'https://i.pravatar.cc/160?img=52', hasStory: false },
-  { key: 'emily', name: 'Emily', avatar: 'https://i.pravatar.cc/160?img=45', hasStory: true, viewed: true },
-  { key: 'james', name: 'James', avatar: 'https://i.pravatar.cc/160?img=14', hasStory: false },
-  { key: 'ishita', name: 'Ishita', avatar: 'https://i.pravatar.cc/160?img=48', hasStory: true, viewed: false },
-];
-
 export default function StoriesBar() {
   const router = useRouter();
   const scrollRef = useRef(null);
   const profile = useStore((s) => s.profile);
+  const stories = useStore((s) => s.stories);
   const [viewingStory, setViewingStory] = useState(null);
+
+  const hasStories = stories && stories.length > 0;
 
   return (
     <>
@@ -47,33 +39,15 @@ export default function StoriesBar() {
             <span className="text-[10px] text-text3">Your story</span>
           </button>
 
-          {STORIES.filter((s) => s.key !== profile?.id).map((story) => (
-            <button
-              key={story.key}
-              onClick={() => story.hasStory && setViewingStory(story.key)}
-              aria-label={`${story.name}'s story${story.viewed ? ' (viewed)' : ''}`}
-              className="flex flex-none flex-col items-center gap-1"
-            >
-              <div
-                className={`rounded-full p-[2px] ${
-                  story.hasStory && !story.viewed
-                    ? 'bg-gradient-to-br from-yellow-400 via-red-500 to-purple-500'
-                    : story.hasStory && story.viewed
-                    ? 'bg-text3'
-                    : 'bg-transparent'
-                }`}
-              >
-                <div className="rounded-full bg-[#020202] p-[2px]">
-                  <img
-                    src={story.avatar}
-                    alt={story.name}
-                    className="h-[56px] w-[56px] rounded-full object-cover"
-                  />
-                </div>
+          {!hasStories && (
+            <div className="flex flex-1 items-center justify-center py-4">
+              <div className="text-center">
+                <div className="text-[24px]">📸</div>
+                <div className="mt-1 text-[10px] text-text3">No stories yet</div>
+                <div className="text-[9px] text-text3">Be the first to post!</div>
               </div>
-              <span className="text-[10px] text-text2">{story.name}</span>
-            </button>
-          ))}
+            </div>
+          )}
         </div>
       </div>
 

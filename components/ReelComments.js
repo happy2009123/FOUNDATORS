@@ -4,8 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Heart, Send, MoreHorizontal } from 'lucide-react';
 import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
 import { useHaptics } from '@/lib/useHaptics';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const MOCK_COMMENTS = [
   { id: 'c1', user: 'arjun', text: 'This is fire 🔥', time: '2h', likes: 12, replies: [] },
@@ -15,6 +16,15 @@ const MOCK_COMMENTS = [
   { id: 'c3', user: 'daniel', text: 'Bookmarked this', time: '30m', likes: 3, replies: [] },
 ];
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ReelComments({ reelId, onClose }) {
   const { vibrate } = useHaptics();
   const [comments, setComments] = useState(MOCK_COMMENTS);
@@ -23,6 +33,16 @@ export default function ReelComments({ reelId, onClose }) {
   const [likedComments, setLikedComments] = useState({});
   const profile = useStore((s) => s.profile);
   const inputRef = useRef(null);
+  const [users, setUsers] = useState({});
+
+  useEffect(() => {
+    const keys = [...new Set([...comments.map((c) => c.user), ...comments.flatMap((c) => c.replies?.map((r) => r.user) || [])])];
+    keys.forEach((key) => {
+      if (key && !users[key]) {
+        fetchUser(key).then((u) => { if (u) setUsers((prev) => ({ ...prev, [key]: u })); });
+      }
+    });
+  }, [comments]);
 
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
@@ -88,7 +108,7 @@ export default function ReelComments({ reelId, onClose }) {
       {/* Comments list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {comments.map((comment) => {
-          const commentUser = USERS[comment.user];
+          const commentUser = users[comment.user];
           return (
             <div key={comment.id} className="space-y-3">
               <div className="flex gap-3">
@@ -126,7 +146,7 @@ export default function ReelComments({ reelId, onClose }) {
               {comment.replies?.length > 0 && (
                 <div className="ml-10 space-y-3 border-l-2 border-linesoft pl-3">
                   {comment.replies.map((reply) => {
-                    const replyUser = USERS[reply.user];
+                    const replyUser = users[reply.user];
                     return (
                       <div key={reply.id} className="flex gap-2.5">
                         <Avatar src={replyUser?.avatar} name={replyUser?.name} size={24} />

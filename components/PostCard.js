@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Lightbulb,
@@ -21,11 +21,12 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { getPerson } from '@/lib/data';
 import { useHaptics } from '@/lib/useHaptics';
 import VerifiedBadge from './VerifiedBadge';
 import Avatar from './Avatar';
 import RichText from './RichText';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const TAG_META = {
   idea: { label: 'Idea', icon: Lightbulb, cls: 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)]' },
@@ -33,9 +34,18 @@ const TAG_META = {
   cofounder: { label: 'Looking for Co-founder', icon: Users, cls: 'bg-[rgba(91,141,255,0.14)] text-brandblue border-[rgba(91,141,255,0.4)]' },
 };
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 export default memo(function PostCard({ post }) {
   const router = useRouter();
-  const author = getPerson(post.authorKey);
+  const [author, setAuthor] = useState(null);
   const liked = useStore((s) => !!s.likedPosts[post.id]);
   const bookmarked = useStore((s) => !!s.bookmarkedPosts[post.id]);
   const commentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
@@ -51,6 +61,10 @@ export default memo(function PostCard({ post }) {
   const [likeAnimation, setLikeAnimation] = useState(false);
   const profile = useStore((s) => s.profile);
   const isOwnPost = post.authorKey === profile?.id;
+
+  useEffect(() => {
+    if (post.authorKey) fetchUser(post.authorKey).then(setAuthor);
+  }, [post.authorKey]);
 
   const tagInfo = TAG_META[post.tagType];
   const TagIcon = tagInfo?.icon;
@@ -95,11 +109,11 @@ export default memo(function PostCard({ post }) {
     <div className="rounded-[20px] border border-linesoft bg-card p-4 gradient-border transition-all duration-200 hover:border-gold/20 hover:shadow-[0_4px_20px_rgba(212,175,55,0.06)]">
       <div className="mb-3 flex items-start justify-between">
         <button onClick={goToAuthor} className="flex gap-2.5 text-left">
-          <Avatar src={author.avatar} name={author.name} size={42} />
+          <Avatar src={author?.avatar} name={author?.name} size={42} />
           <div>
             <div className="flex items-center gap-1 text-[14.5px] font-bold">
-              {author.name}
-              {author.verified && <VerifiedBadge />}
+              {author?.name}
+              {author?.verified && <VerifiedBadge />}
             </div>
             <div className="mt-0.5 text-xs text-text2">{post.meta}</div>
           </div>
@@ -226,7 +240,7 @@ export default memo(function PostCard({ post }) {
             )}
           </div>
           <button
-            onClick={() => showToast(`Collaboration request sent to ${author.name.split(' ')[0]}`)}
+            onClick={() => showToast(`Collaboration request sent to ${author?.name?.split(' ')[0] || 'user'}`)}
             className="w-full rounded-[9px] border-[1.4px] border-brandblue py-[11px] text-sm font-bold text-brandblue active:bg-[rgba(91,141,255,0.12)]"
           >
             Collaborate

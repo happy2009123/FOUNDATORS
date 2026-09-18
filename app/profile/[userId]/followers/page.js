@@ -1,69 +1,97 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Search } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
-
-const MOCK_FOLLOWERS = [
-  { key: 'arjun', mutual: 5 },
-  { key: 'meera', mutual: 3 },
-  { key: 'rohan', mutual: 8 },
-  { key: 'sophia', mutual: 2 },
-  { key: 'daniel', mutual: 6 },
-  { key: 'emily', mutual: 1 },
-  { key: 'ishita', mutual: 4 },
-  { key: 'james', mutual: 7 },
-];
-
-const MOCK_FOLLOWING = [
-  { key: 'arjun' },
-  { key: 'sophia' },
-  { key: 'rohan' },
-  { key: 'meera' },
-];
 
 export default function FollowersPage() {
   const router = useRouter();
   const { userId } = useParams();
   const [tab, setTab] = useState('followers');
   const [search, setSearch] = useState('');
+  const [followers, setFollowers] = useState([]);
+  const [followingList, setFollowingList] = useState([]);
+  const [loading, setLoading] = useState(true);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const followedUsers = useStore((s) => s.followedUsers);
   const { vibrate } = useHaptics();
 
-  const list = tab === 'followers' ? MOCK_FOLLOWERS : MOCK_FOLLOWING;
-  const filtered = list.filter((item) => {
-    const user = USERS[item.key];
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchFollowers() {
+      try {
+        // Try to fetch followers subcollection
+        const followersSnap = await getDocs(collection(db, 'users', userId, 'followers'));
+        const followerIds = followersSnap.docs.map((d) => d.id);
+
+        // Fetch each follower's profile
+        const followerProfiles = await Promise.all(
+          followerIds.map(async (fid) => {
+            const snap = await getDoc(doc(db, 'users', fid));
+            return snap.exists() ? { id: fid, ...snap.data() } : null;
+          })
+        );
+
+        // Try to fetch following subcollection
+        const followingSnap = await getDocs(collection(db, 'users', userId, 'following'));
+        const followingIds = followingSnap.docs.map((d) => d.id);
+
+        const followingProfiles = await Promise.all(
+          followingIds.map(async (fid) => {
+            const snap = await getDoc(doc(db, 'users', fid));
+            return snap.exists() ? { id: fid, ...snap.data() } : null;
+          })
+        );
+
+        if (!cancelled) {
+          setFollowers(followerProfiles.filter(Boolean));
+          setFollowingList(followingProfiles.filter(Boolean));
+        }
+      } catch {
+        // Subcollections may not exist yet — show empty
+        if (!cancelled) {
+          setFollowers([]);
+          setFollowingList([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    if (userId) fetchFollowers();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const list = tab === 'followers' ? followers : followingList;
+  const filtered = list.filter((user) => {
     if (!user) return false;
-    return user.name.toLowerCase().includes(search.toLowerCase()) || user.handle?.toLowerCase().includes(search.toLowerCase());
+    return user.name?.toLowerCase().includes(search.toLowerCase()) || user.handle?.toLowerCase().includes(search.toLowerCase());
   });
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
       <SubpageHeader title={tab === 'followers' ? 'Followers' : 'Following'} />
 
-      {/* Tabs */}
       <div className="flex border-b border-linesoft">
         <button
           onClick={() => setTab('followers')}
           className={`flex-1 py-3 text-[13px] font-bold transition-colors ${tab === 'followers' ? 'text-gold border-b-2 border-gold' : 'text-text3'}`}
         >
-          Followers ({MOCK_FOLLOWERS.length})
+          Followers ({followers.length})
         </button>
         <button
           onClick={() => setTab('following')}
           className={`flex-1 py-3 text-[13px] font-bold transition-colors ${tab === 'following' ? 'text-gold border-b-2 border-gold' : 'text-text3'}`}
         >
-          Following ({MOCK_FOLLOWING.length})
+          Following ({followingList.length})
         </button>
       </div>
 
-      {/* Search */}
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-4 py-2.5">
           <Search size={14} className="text-text3" />
@@ -78,37 +106,35 @@ export default function FollowersPage() {
         </div>
       </div>
 
-      {/* List */}
       <div className="flex-1 overflow-y-auto px-4 space-y-2">
-        {filtered.map((item) => {
-          const user = USERS[item.key];
-          if (!user) return null;
-          const isFollowing = !!followedUsers[item.key];
-          return (
-            <div key={item.key} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
-              <Avatar src={user.avatar} name={user.name} size={44} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1">
-                  <span className="text-[13px] font-bold">{user.name}</span>
-                  {user.verified && <span className="text-gold text-[10px]">✓</span>}
+        {loading ? (
+          <div className="py-12 text-center text-[13px] text-text3">Loading...</div>
+        ) : (
+          filtered.map((user) => {
+            const isFollowing = !!followedUsers[user.id];
+            return (
+              <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
+                <Avatar src={user.avatar} name={user.name} size={44} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[13px] font-bold">{user.name}</span>
+                    {user.verified && <span className="text-gold text-[10px]">&#10003;</span>}
+                  </div>
+                  <div className="text-[11px] text-text2">{user.role}</div>
                 </div>
-                <div className="text-[11px] text-text2">{user.role}</div>
-                {item.mutual && (
-                  <div className="text-[10px] text-text3">{item.mutual} mutual connections</div>
-                )}
+                <button
+                  onClick={() => { vibrate('light'); toggleFollowUser(user.id); }}
+                  className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
+                    isFollowing ? 'border-transparent bg-gold text-[#1a1300]' : 'border-gold text-gold'
+                  }`}
+                >
+                  {isFollowing ? 'Following' : 'Follow'}
+                </button>
               </div>
-              <button
-                onClick={() => { vibrate('light'); toggleFollowUser(item.key); }}
-                className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
-                  isFollowing ? 'border-transparent bg-gold text-[#1a1300]' : 'border-gold text-gold'
-                }`}
-              >
-                {isFollowing ? 'Following' : 'Follow'}
-              </button>
-            </div>
-          );
-        })}
-        {filtered.length === 0 && (
+            );
+          })
+        )}
+        {!loading && filtered.length === 0 && (
           <div className="py-12 text-center text-[13px] text-text2">No users found</div>
         )}
       </div>

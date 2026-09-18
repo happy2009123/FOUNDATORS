@@ -6,8 +6,18 @@ import { ArrowLeft, Share2, Heart } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
-import { getPerson } from '@/lib/data';
 import ShareModal from '@/components/gestures/ShareModal';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function GestureViewPageWrapper() {
   return (
@@ -27,6 +37,7 @@ function GestureViewPage() {
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
   const [showShare, setShowShare] = useState(false);
+  const [author, setAuthor] = useState(null);
 
   const gesture = useMemo(() => gestures.find((g) => g.id === gestureId), [gestures, gestureId]);
   const template = useMemo(() => gesture ? TEMPLATES.find((t) => t.key === gesture.templateKey) : null, [gesture]);
@@ -35,6 +46,10 @@ function GestureViewPage() {
   useEffect(() => {
     if (gestureId) incrementGestureViews(gestureId);
   }, [gestureId, incrementGestureViews]);
+
+  useEffect(() => {
+    if (gesture?.authorKey) fetchUser(gesture.authorKey).then(setAuthor);
+  }, [gesture?.authorKey]);
 
   const gestureUrl = typeof window !== 'undefined' ? `${window.location.origin}/gestures/view?id=${gestureId}` : '';
 
@@ -95,7 +110,7 @@ function GestureViewPage() {
       {/* Reactions & info */}
       <div className="px-4 pb-6 pt-3">
         <div className="text-center text-[11px] text-white/40">
-          From <span className="font-bold text-white/70">{getPerson(gesture.authorKey)?.name || 'Someone'}</span> · {new Date(gesture.createdAt).toLocaleDateString()}
+          From <span className="font-bold text-white/70">{author?.name || 'Someone'}</span> · {new Date(gesture.createdAt).toLocaleDateString()}
         </div>
 
         {/* Reaction buttons */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PenSquare, MessageCircle, AtSign, Users, MoreHorizontal, Plus, Send, Pin, Archive, Trash2, Clock, Star } from 'lucide-react';
 import Logo, { Wordmark } from '@/components/Logo';
@@ -9,7 +9,8 @@ import ScrollToTop from '@/components/ScrollToTop';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
-import { KABIR, USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -17,13 +18,6 @@ const TABS = [
   { key: 'unread', label: 'Unread', icon: Clock },
   { key: 'groups', label: 'Groups', icon: Users },
   { key: 'archived', label: 'Archived', icon: Archive },
-];
-
-const QUICK_CONTACTS = [
-  { key: 'sophia', label: 'Sophia', emoji: '🎨' },
-  { key: 'daniel', label: 'Daniel', emoji: '👨‍💻' },
-  { key: 'emily', label: 'Emily', emoji: '📊' },
-  { key: 'james', label: 'James', emoji: '🚀' },
 ];
 
 export default function MessagesPage() {
@@ -70,23 +64,33 @@ export default function MessagesPage() {
     [rows, pinned]
   );
 
-  const allUsers = useMemo(() => {
-    const users = [KABIR, ...Object.values(USERS)];
-    if (!userSearch.trim()) return users;
-    const q = userSearch.toLowerCase();
-    return users.filter((u) =>
-      u.uniqueId?.toLowerCase().includes(q) ||
-      u.name.toLowerCase().includes(q) ||
-      u.handle.toLowerCase().includes(q)
-    );
-  }, [userSearch]);
+  const [allUsers, setAllUsers] = useState([]);
 
-  const ALLOWED_CHAT_KEYS = useMemo(() => {
-    const keys = new Set(['sophia', 'daniel', 'emily', 'community', 'james']);
-    Object.keys(USERS).forEach((k) => keys.add(k));
-    keys.add(KABIR.key);
-    return Array.from(keys);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchUsers() {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        if (!cancelled) {
+          setAllUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        }
+      } catch {
+        // silently fail
+      }
+    }
+    fetchUsers();
+    return () => { cancelled = true; };
   }, []);
+
+  const filteredUsers = useMemo(() => {
+    if (!userSearch.trim()) return allUsers;
+    const q = userSearch.toLowerCase();
+    return allUsers.filter((u) =>
+      u.uniqueId?.toLowerCase().includes(q) ||
+      u.name?.toLowerCase().includes(q) ||
+      u.handle?.toLowerCase().includes(q)
+    );
+  }, [userSearch, allUsers]);
 
   function handleStartConvo() {
     const val = newConvo.trim();
@@ -96,19 +100,17 @@ export default function MessagesPage() {
     }
     setNewConvo('');
     const lower = val.toLowerCase();
-    const matchedUser = Object.values(USERS).find(
-      (u) => u.uniqueId?.toLowerCase() === lower || u.name.toLowerCase().includes(lower) || u.handle?.toLowerCase().includes(lower)
-    ) || (KABIR.uniqueId?.toLowerCase() === lower || KABIR.name.toLowerCase().includes(lower) ? KABIR : null);
+    const matchedUser = filteredUsers.find(
+      (u) => u.uniqueId?.toLowerCase() === lower || u.name?.toLowerCase().includes(lower) || u.handle?.toLowerCase().includes(lower)
+    );
     let key;
     if (matchedUser) {
-      key = ensureContactForUser(matchedUser.key, matchedUser);
+      key = ensureContactForUser(matchedUser.id, matchedUser);
     } else {
       showToast('Try a name or ID like FD001, FD002...');
       return;
     }
-    if (key && ALLOWED_CHAT_KEYS.includes(key)) {
-      router.push(`/messages/${key}`);
-    } else if (key) {
+    if (key) {
       router.push(`/messages/${key}`);
     } else {
       showToast('Conversation created — tap it in the list');
@@ -280,14 +282,12 @@ export default function MessagesPage() {
           <div className="mb-3 px-[18px]">
             <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text3">Quick message</div>
             <div className="flex gap-3">
-              {QUICK_CONTACTS.map((qc) => {
-                const c = contacts[qc.key];
-                if (!c) return null;
-                const unread = unreadByContact[qc.key] || 0;
+              {Object.entries(contacts).filter(([, c]) => !c.isGroup).slice(0, 4).map(([key, c]) => {
+                const unread = unreadByContact[key] || 0;
                 return (
                   <button
-                    key={qc.key}
-                    onClick={() => { vibrate('light'); router.push(`/messages/${qc.key}`); }}
+                    key={key}
+                    onClick={() => { vibrate('light'); router.push(`/messages/${key}`); }}
                     className="flex flex-col items-center gap-1.5"
                   >
                     <div className="relative">
@@ -301,7 +301,7 @@ export default function MessagesPage() {
                         <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#0a0a0a] bg-brandgreen" />
                       )}
                     </div>
-                    <span className="text-[10px] font-semibold text-text2">{qc.label}</span>
+                    <span className="text-[10px] font-semibold text-text2">{c.name?.split(' ')[0]}</span>
                   </button>
                 );
               })}
@@ -333,12 +333,8 @@ export default function MessagesPage() {
                   onSwipe={handleSwipe}
                   onTogglePin={togglePin}
                   onOpen={() => {
-                    if (ALLOWED_CHAT_KEYS.includes(key)) {
-                      vibrate('light');
-                      router.push(`/messages/${key}`);
-                    } else {
-                      showToast('This contact is not available yet');
-                    }
+                    vibrate('light');
+                    router.push(`/messages/${key}`);
                   }}
                 />
               ))}
@@ -363,12 +359,8 @@ export default function MessagesPage() {
               onSwipe={handleSwipe}
               onTogglePin={togglePin}
               onOpen={() => {
-                if (ALLOWED_CHAT_KEYS.includes(key)) {
-                  vibrate('light');
-                  router.push(`/messages/${key}`);
-                } else {
-                  showToast('This contact is not available yet');
-                }
+                vibrate('light');
+                router.push(`/messages/${key}`);
               }}
             />
           ))}

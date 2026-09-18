@@ -4,19 +4,18 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, X, Clock, TrendingUp, Hash, Users, Filter, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 
 const TRENDING = [
   { type: 'tag', text: '#AI', posts: 1240 },
   { type: 'tag', text: '#StartupLife', posts: 890 },
-  { type: 'user', key: 'arjun' },
   { type: 'tag', text: '#Funding', posts: 423 },
-  { type: 'user', key: 'sophia' },
 ];
 
-const RECENT_SEARCHES = ['#ReactNative', 'arjun', '#HealthTech', 'meera'];
+const RECENT_SEARCHES = ['#ReactNative', '#HealthTech'];
 
 export default function SearchPage() {
   const router = useRouter();
@@ -24,12 +23,34 @@ export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [searchHistory, setSearchHistory] = useState(RECENT_SEARCHES);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const followedUsers = useStore((s) => s.followedUsers);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchUsers() {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        if (!cancelled) {
+          setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        }
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchUsers();
+    return () => { cancelled = true; };
+  }, []);
+
   const results = query.trim() ? {
-    users: Object.entries(USERS).filter(([key, u]) =>
-      key !== 'kabir' && (u.name.toLowerCase().includes(query.toLowerCase()) || u.handle?.toLowerCase().includes(query.toLowerCase()) || u.role?.toLowerCase().includes(query.toLowerCase()))
+    users: users.filter((u) =>
+      u.name?.toLowerCase().includes(query.toLowerCase()) ||
+      u.handle?.toLowerCase().includes(query.toLowerCase()) ||
+      u.role?.toLowerCase().includes(query.toLowerCase())
     ),
     tags: TRENDING.filter((t) => t.type === 'tag' && t.text.toLowerCase().includes(query.toLowerCase())),
   } : { users: [], tags: [] };
@@ -44,7 +65,6 @@ export default function SearchPage() {
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
-      {/* Search bar */}
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-4 py-3">
           <Search size={16} className="text-text3" />
@@ -65,7 +85,6 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {/* Filters */}
       {query.trim() && (
         <div className="flex gap-2 px-4 pb-3">
           {['all', 'people', 'tags', 'posts'].map((f) => (
@@ -83,14 +102,13 @@ export default function SearchPage() {
       )}
 
       <div className="flex-1 overflow-y-auto px-4">
-        {/* Search results */}
         {query.trim() ? (
           <div className="space-y-4">
-            {/* People */}
             {(filter === 'all' || filter === 'people') && results.users.length > 0 && (
               <div>
                 <h3 className="text-[12px] font-bold text-text3 mb-2">People</h3>
-                {results.users.map(([key, user]) => {
+                {results.users.map((user) => {
+                  const key = user.id;
                   const isFollowing = !!followedUsers[key];
                   return (
                     <div key={key} className="flex items-center gap-3 py-3">
@@ -98,7 +116,7 @@ export default function SearchPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1">
                           <span className="text-[13px] font-bold">{user.name}</span>
-                          {user.verified && <span className="text-gold text-[10px]">✓</span>}
+                          {user.verified && <span className="text-gold text-[10px]">&#10003;</span>}
                         </div>
                         <div className="text-[11px] text-text2">{user.role}</div>
                       </div>
@@ -116,7 +134,6 @@ export default function SearchPage() {
               </div>
             )}
 
-            {/* Tags */}
             {(filter === 'all' || filter === 'tags') && results.tags.length > 0 && (
               <div>
                 <h3 className="text-[12px] font-bold text-text3 mb-2">Tags</h3>
@@ -140,7 +157,6 @@ export default function SearchPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Recent searches */}
             {searchHistory.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -159,19 +175,22 @@ export default function SearchPage() {
               </div>
             )}
 
-            {/* Trending */}
             <div>
               <h3 className="text-[12px] font-bold text-text3 mb-2">Trending</h3>
               {TRENDING.map((item, i) => (
                 <div key={i} className="flex items-center gap-3 py-2.5">
                   <TrendingUp size={14} className="text-gold" />
-                  <button onClick={() => setQuery(item.type === 'tag' ? item.text : USERS[item.key]?.name || '')} className="flex-1 text-left">
-                    <div className="text-[13px] font-bold">{item.type === 'tag' ? item.text : USERS[item.key]?.name}</div>
-                    <div className="text-[10px] text-text3">{item.type === 'tag' ? `${item.posts.toLocaleString()} posts` : USERS[item.key]?.role}</div>
+                  <button onClick={() => setQuery(item.text)} className="flex-1 text-left">
+                    <div className="text-[13px] font-bold">{item.text}</div>
+                    <div className="text-[10px] text-text3">{item.posts.toLocaleString()} posts</div>
                   </button>
                 </div>
               ))}
             </div>
+
+            {loading && (
+              <div className="py-6 text-center text-[12px] text-text3">Loading users...</div>
+            )}
           </div>
         )}
       </div>

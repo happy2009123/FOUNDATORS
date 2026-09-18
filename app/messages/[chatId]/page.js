@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Phone, Video, Plus, Smile, Send, FileText, Download, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
@@ -17,6 +18,7 @@ export default function ChatPage() {
   const ready = useRequireAuth();
   const router = useRouter();
   const { chatId } = useParams();
+  const profile = useStore((s) => s.profile);
   const contact = useStore((s) => s.contacts[chatId]);
   const sendMessage = useStore((s) => s.sendMessage);
   const deleteMessage = useStore((s) => s.deleteMessage);
@@ -50,7 +52,6 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [contact?.messages.length, typing]);
 
-  // Simulate typing indicator when user starts typing
   useEffect(() => {
     if (!contact?.online || contact?.isGroup) return;
     if (input.length > 0) {
@@ -165,8 +166,8 @@ export default function ChatPage() {
       showToast('Group info coming soon');
       return;
     }
-    const matched = Object.values(USERS).find((u) => u.name === contact?.name);
-    if (matched) router.push(`/profile/${matched.key}`);
+    // Navigate to profile using the chatId (which is the user ID)
+    router.push(`/profile/${chatId}`);
   }
 
   function handleKeyDown(e) {
@@ -193,7 +194,6 @@ export default function ChatPage() {
     );
   }
 
-  // Group messages by date
   const groupedMessages = [];
   let lastDate = '';
   contact.messages.forEach((m, i) => {
@@ -214,7 +214,6 @@ export default function ChatPage() {
 
   return (
     <div className="app-shell flex min-h-0 flex-1 flex-col">
-      {/* Header */}
       <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3">
         <button
           onClick={() => router.push('/messages')}
@@ -254,9 +253,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Messages area */}
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-3.5 py-3">
-        {/* Encrypted notice */}
         <div className="mb-4 flex items-center justify-center gap-1.5 text-[10px] text-text3">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
           Messages are end-to-end encrypted
@@ -322,7 +319,6 @@ export default function ChatPage() {
                   <span className={`text-[9.5px] ${isOut ? 'text-[#1a1300]' : 'text-text3'}`}>{m.time}</span>
                   {isOut && <CheckCheck size={13} className="text-[#1a1300]" />}
                 </div>
-                {/* Reaction */}
                 {messageReactions[item.index] && (
                   <div className={`absolute -bottom-2 ${isOut ? 'left-2' : 'right-2'} flex h-5 items-center justify-center rounded-full bg-card border border-linesoft px-1.5 text-[11px]`}>
                     {messageReactions[item.index]}
@@ -330,7 +326,6 @@ export default function ChatPage() {
                 )}
               </div>
 
-              {/* Reaction picker */}
               {showReactionPicker === item.index && (
                 <div className="absolute bottom-full mb-1 z-40 flex gap-1 rounded-full border border-linesoft bg-card p-1.5 shadow-xl">
                   {['❤️', '🔥', '👏', '😂', '😮', '😢'].map((emoji) => (
@@ -349,7 +344,6 @@ export default function ChatPage() {
           );
         })}
 
-        {/* Typing indicator */}
         {typing && (
           <div className="mb-2 flex items-center gap-2">
             <Avatar src={contact.avatar} name={contact.name} size={24} className="flex-none" />
@@ -362,7 +356,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Context menu */}
       {ctxMenu && (
         <>
           <div className="fixed inset-0 z-50" onClick={() => setCtxMenu(null)} />
@@ -383,7 +376,6 @@ export default function ChatPage() {
         </>
       )}
 
-      {/* Reply preview */}
       {replyTo && (
         <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
           <Reply size={14} className="flex-none text-gold" />
@@ -396,7 +388,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Emoji bar */}
       {showEmoji && (
         <div className="flex gap-2 border-t border-linesoft bg-card px-4 py-2.5">
           {['😊', '😂', '❤️', '🔥', '👍', '🎉', '💡', '🚀', '💪', '✨', '🙏', '😍'].map((e) => (
@@ -405,7 +396,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Image preview */}
       {showImagePreview && (
         <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
           <div className="relative">
@@ -421,7 +411,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Recording indicator */}
       {isRecording && (
         <div className="flex items-center gap-3 border-t border-linesoft bg-card px-4 py-3">
           <div className="h-3 w-3 rounded-full bg-red animate-pulse" />
@@ -438,7 +427,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Input area */}
       <div className="safe-bottom flex flex-none items-end gap-2 border-t border-linesoft px-3 py-2.5">
         <div className="relative">
           <button
@@ -487,7 +475,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Active call */}
       {activeCall && (
         <CallScreen
           userId={chatId}

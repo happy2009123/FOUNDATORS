@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useCallback, useMemo } from 'react';
+import { Suspense, useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -16,8 +16,18 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useStore } from '@/lib/store';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
-import { getPerson } from '@/lib/data';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 function SignCollabInner() {
   const router = useRouter();
@@ -35,6 +45,7 @@ function SignCollabInner() {
   const [hasSigned, setHasSigned] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [owner, setOwner] = useState(null);
 
   const collab = useMemo(
     () => collabGestures.find((c) => c.id === id) || null,
@@ -51,9 +62,11 @@ function SignCollabInner() {
     [collab]
   );
 
-  const isClosed = collab && (!collab.isOpen || collab.signatures.length >= collab.maxSigners || (collab.deadline && new Date(collab.deadline) < new Date()));
+  useEffect(() => {
+    if (collab?.ownerKey) fetchUser(collab.ownerKey).then(setOwner);
+  }, [collab?.ownerKey]);
 
-  const owner = useMemo(() => (collab ? getPerson(collab.ownerKey) : null), [collab]);
+  const isClosed = collab && (!collab.isOpen || collab.signatures.length >= collab.maxSigners || (collab.deadline && new Date(collab.deadline) < new Date()));
 
   const handleSign = useCallback(() => {
     if (!name.trim() || !message.trim() || !collab) return;

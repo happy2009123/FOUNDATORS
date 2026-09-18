@@ -6,8 +6,18 @@ import { Send } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { getPerson } from '@/lib/data';
 import AuthSkeleton from '@/components/AuthSkeleton';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function DiscussionPage() {
   const ready = useRequireAuth();
@@ -50,18 +60,9 @@ export default function DiscussionPage() {
           </div>
         </div>
 
-        {discussion.comments.map((c, i) => {
-          const commenter = c.who === 'me' ? { name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13' } : getPerson(c.who);
-          return (
-            <div key={i} className="mb-3 flex items-end gap-2">
-              <img src={commenter?.avatar} alt={`${commenter?.name}'s avatar`} className="h-[26px] w-[26px] flex-none rounded-full object-cover" />
-              <div className="max-w-[80%] rounded-[18px] rounded-bl-[5px] border border-linesoft bg-card px-3.5 py-[11px] text-[13.8px] leading-snug">
-                <b className="mb-0.5 block text-[11.5px] text-gold-hi">{commenter?.name}</b>
-                {c.text}
-              </div>
-            </div>
-          );
-        })}
+        {discussion.comments.map((c, i) => (
+          <DiscussionComment key={i} comment={c} />
+        ))}
       </div>
       <div className="safe-bottom flex flex-none items-center gap-2.5 border-t border-linesoft px-3.5 py-2.5">
         <div className="flex flex-1 items-center gap-2 rounded-full border border-linesoft bg-card px-3.5 py-2.5">
@@ -78,6 +79,28 @@ export default function DiscussionPage() {
         <button onClick={handleSend} className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-gold-grad text-[#1a1300]">
           <Send size={17} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function DiscussionComment({ comment }) {
+  const [commenter, setCommenter] = useState(null);
+
+  useEffect(() => {
+    if (comment.who === 'me') {
+      setCommenter({ name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13' });
+    } else {
+      fetchUser(comment.who).then(setCommenter);
+    }
+  }, [comment.who]);
+
+  return (
+    <div className="mb-3 flex items-end gap-2">
+      <img src={commenter?.avatar} alt={`${commenter?.name}'s avatar`} className="h-[26px] w-[26px] flex-none rounded-full object-cover" />
+      <div className="max-w-[80%] rounded-[18px] rounded-bl-[5px] border border-linesoft bg-card px-3.5 py-[11px] text-[13.8px] leading-snug">
+        <b className="mb-0.5 block text-[11.5px] text-gold-hi">{commenter?.name}</b>
+        {comment.text}
       </div>
     </div>
   );

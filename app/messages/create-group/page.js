@@ -1,29 +1,48 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Search, Users, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
 import { useHaptics } from '@/lib/useHaptics';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import Avatar from '@/components/Avatar';
 
 export default function CreateGroupPage() {
   const router = useRouter();
   const { vibrate, notification } = useHaptics();
   const showToast = useStore((s) => s.showToast);
+  const profile = useStore((s) => s.profile);
   const [groupName, setGroupName] = useState('');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState([]);
+  const [users, setUsers] = useState([]);
 
-  const filteredUsers = Object.entries(USERS).filter(([key, user]) =>
-    user.name.toLowerCase().includes(search.toLowerCase()) && key !== 'kabir'
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        const list = [];
+        snap.forEach((d) => {
+          if (d.id !== profile?.id) {
+            list.push({ id: d.id, ...d.data() });
+          }
+        });
+        setUsers(list);
+      } catch (e) {}
+    };
+    fetchUsers();
+  }, [profile?.id]);
+
+  const filteredUsers = users.filter((u) =>
+    u.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const toggleUser = useCallback((key) => {
+  const toggleUser = useCallback((id) => {
     vibrate('light');
     setSelected((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
     );
   }, [vibrate]);
 
@@ -47,7 +66,6 @@ export default function CreateGroupPage() {
         <h1 className="text-[16px] font-bold">New Group</h1>
       </div>
 
-      {/* Group name */}
       <div className="px-4 py-3 border-b border-linesoft">
         <input
           type="text"
@@ -59,15 +77,14 @@ export default function CreateGroupPage() {
         />
       </div>
 
-      {/* Selected users */}
       {selected.length > 0 && (
         <div className="flex gap-2 px-4 py-3 overflow-x-auto border-b border-linesoft">
-          {selected.map((key) => {
-            const user = USERS[key];
+          {selected.map((id) => {
+            const user = users.find((u) => u.id === id);
             return (
-              <div key={key} className="flex items-center gap-1.5 rounded-full bg-gold/10 px-3 py-1.5 flex-none">
+              <div key={id} className="flex items-center gap-1.5 rounded-full bg-gold/10 px-3 py-1.5 flex-none">
                 <span className="text-[11px] font-bold text-gold">{user?.name?.split(' ')[0]}</span>
-                <button onClick={() => toggleUser(key)} className="text-gold" aria-label={`Remove ${user?.name}`}>
+                <button onClick={() => toggleUser(id)} className="text-gold" aria-label={`Remove ${user?.name}`}>
                   <X size={12} />
                 </button>
               </div>
@@ -76,7 +93,6 @@ export default function CreateGroupPage() {
         </div>
       )}
 
-      {/* Search */}
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-4 py-2.5">
           <Search size={14} className="text-text3" />
@@ -91,23 +107,21 @@ export default function CreateGroupPage() {
         </div>
       </div>
 
-      {/* User list */}
       <div className="flex-1 overflow-y-auto px-4 space-y-1">
-        {filteredUsers.map(([key, user]) => {
-          const isSelected = selected.includes(key);
+        {filteredUsers.map((user) => {
+          const isSelected = selected.includes(user.id);
           return (
             <button
-              key={key}
-              onClick={() => toggleUser(key)}
+              key={user.id}
+              onClick={() => toggleUser(user.id)}
               className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-white/5"
             >
               <Avatar src={user.avatar} name={user.name} size={40} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1">
                   <span className="text-[13px] font-bold">{user.name}</span>
-                  {user.verified && <span className="text-gold text-[10px]">✓</span>}
                 </div>
-                <div className="text-[11px] text-text2">{user.role}</div>
+                <div className="text-[11px] text-text2">{user.role || 'Member'}</div>
               </div>
               <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'border-gold bg-gold' : 'border-white/20'}`}>
                 {isSelected && <Check size={14} className="text-[#1a1300]" />}
@@ -115,9 +129,11 @@ export default function CreateGroupPage() {
             </button>
           );
         })}
+        {filteredUsers.length === 0 && (
+          <div className="text-center py-8 text-text3 text-[13px]">No other users found</div>
+        )}
       </div>
 
-      {/* Create button */}
       <div className="px-4 py-4 border-t border-linesoft">
         <button
           onClick={createGroup}

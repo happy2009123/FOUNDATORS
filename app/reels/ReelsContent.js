@@ -18,10 +18,11 @@ import {
   X,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { USERS } from '@/lib/data';
 import MainScreenShell from '@/components/MainScreenShell';
 import ReelComments from '@/components/ReelComments';
 import { useHaptics } from '@/lib/useHaptics';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const REELS = [
   {
@@ -86,6 +87,15 @@ const REELS = [
   },
 ];
 
+async function fetchUser(key) {
+  try {
+    const snap = await getDoc(doc(db, 'users', key));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatCount(n) {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(n);
@@ -107,6 +117,7 @@ export default function ReelsContent() {
   const [likeAnimations, setLikeAnimations] = useState({});
   const [progress, setProgress] = useState({});
   const [showPlayOverlay, setShowPlayOverlay] = useState({});
+  const [reelUsers, setReelUsers] = useState({});
 
   const containerRef = useRef(null);
   const lastTapRef = useRef(0);
@@ -114,7 +125,16 @@ export default function ReelsContent() {
   const touchStartRef = useRef(null);
 
   const currentReel = REELS[currentIndex];
-  const user = USERS[currentReel.user];
+
+  useEffect(() => {
+    REELS.forEach((reel) => {
+      if (!reelUsers[reel.user]) {
+        fetchUser(reel.user).then((u) => { if (u) setReelUsers((prev) => ({ ...prev, [reel.user]: u })); });
+      }
+    });
+  }, []);
+
+  const user = reelUsers[currentReel.user];
 
   useEffect(() => {
     if (pausedReels[currentReel.id]) return;
@@ -255,7 +275,7 @@ export default function ReelsContent() {
 
         {/* Reel Content */}
         {REELS.map((reel, index) => {
-          const reelUser = USERS[reel.user];
+          const reelUser = reelUsers[reel.user];
           const isLiked = !!likedReels[reel.id];
           const isBookmarked = !!bookmarkedReels[reel.id];
           const isMuted = !!mutedReels[reel.id];
