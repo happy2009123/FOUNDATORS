@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npx next build",
+  "outputDirectory": "out",
+  "framework": "nextjs",
+  "nodeVersion": "22.x"
+}
