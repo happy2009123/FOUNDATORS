@@ -22,68 +22,20 @@ import MainScreenShell from '@/components/MainScreenShell';
 import ReelComments from '@/components/ReelComments';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
-const REELS = [
+const FALLBACK_REELS = [
   {
     id: 'r1',
-    user: 'sophia',
+    authorKey: 'sophia',
     type: 'tip',
-    content: '3 things every founder should know before raising funding:',
+    text: '3 things every founder should know before raising funding:',
     details: '1. Know your metrics\n2. Build relationships before you need money\n3. Have a clear use of funds',
     likes: 2341,
     comments: 89,
     shares: 156,
     audio: 'Original Audio',
     gradient: 'from-purple-900 to-blue-900',
-  },
-  {
-    id: 'r2',
-    user: 'arjun',
-    type: 'demo',
-    content: 'Just shipped this feature in 24 hours 🚀',
-    details: 'AI-powered code review is live! Try it now.',
-    likes: 1892,
-    comments: 67,
-    shares: 234,
-    audio: 'Trending Sound',
-    gradient: 'from-green-900 to-teal-900',
-  },
-  {
-    id: 'r3',
-    user: 'meera',
-    type: 'milestone',
-    content: 'We just hit 10,000 users! 🎉',
-    details: 'HealthSync is growing faster than we expected. Thank you to everyone who believed in us.',
-    likes: 4521,
-    comments: 234,
-    shares: 567,
-    audio: 'Celebration',
-    gradient: 'from-pink-900 to-red-900',
-  },
-  {
-    id: 'r4',
-    user: 'rohan',
-    type: 'question',
-    content: 'What is the hardest part of building a startup?',
-    details: 'For me, it is finding the right co-founder. What about you?',
-    likes: 876,
-    comments: 312,
-    shares: 45,
-    audio: 'Thinking Time',
-    gradient: 'from-orange-900 to-yellow-900',
-  },
-  {
-    id: 'r5',
-    user: 'daniel',
-    type: 'tutorial',
-    content: 'How I built my portfolio in 1 hour',
-    details: 'Step 1: Pick a template\nStep 2: Add your projects\nStep 3: Deploy to Vercel\nDone!',
-    likes: 1234,
-    comments: 78,
-    shares: 189,
-    audio: 'Coding Beats',
-    gradient: 'from-indigo-900 to-purple-900',
   },
 ];
 
@@ -108,6 +60,8 @@ export default function ReelsContent() {
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const showToast = useStore((s) => s.showToast);
 
+  const [reels, setReels] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [likedReels, setLikedReels] = useState({});
   const [bookmarkedReels, setBookmarkedReels] = useState({});
@@ -124,19 +78,54 @@ export default function ReelsContent() {
   const progressIntervals = useRef({});
   const touchStartRef = useRef(null);
 
-  const currentReel = REELS[currentIndex];
-
   useEffect(() => {
-    REELS.forEach((reel) => {
-      if (!reelUsers[reel.user]) {
-        fetchUser(reel.user).then((u) => { if (u) setReelUsers((prev) => ({ ...prev, [reel.user]: u })); });
+    setLoading(true);
+    const q = query(collection(db, 'reels'), orderBy('createdAt', 'desc'), limit(20));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const fetched = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            authorKey: data.authorKey || '',
+            text: data.text || '',
+            details: data.text || '',
+            videoUrl: data.videoUrl || null,
+            type: data.effect || 'update',
+            audio: data.sound || 'Original Audio',
+            likes: data.likes || 0,
+            comments: data.comments || 0,
+            shares: data.shares || 0,
+            gradient: 'from-purple-900 to-blue-900',
+          };
+        });
+        setReels(fetched.length > 0 ? fetched : FALLBACK_REELS);
+        setLoading(false);
+      },
+      (err) => {
+        console.warn('Reels listener error:', err);
+        setReels(FALLBACK_REELS);
+        setLoading(false);
       }
-    });
+    );
+    return () => unsub();
   }, []);
 
-  const user = reelUsers[currentReel.user];
+  const currentReel = reels[currentIndex];
 
   useEffect(() => {
+    if (!currentReel) return;
+    const userKey = currentReel.authorKey;
+    if (userKey && !reelUsers[userKey]) {
+      fetchUser(userKey).then((u) => {
+        if (u) setReelUsers((prev) => ({ ...prev, [userKey]: u }));
+      });
+    }
+  }, [currentReel, reelUsers]);
+
+  useEffect(() => {
+    if (!currentReel) return;
     if (pausedReels[currentReel.id]) return;
     if (progressIntervals.current[currentReel.id]) {
       clearInterval(progressIntervals.current[currentReel.id]);
@@ -153,7 +142,7 @@ export default function ReelsContent() {
         clearInterval(progressIntervals.current[currentReel.id]);
       }
     };
-  }, [currentIndex, pausedReels, currentReel.id]);
+  }, [currentIndex, pausedReels, currentReel?.id]);
 
   const toggleLike = useCallback((reelId) => {
     vibrate('light');
@@ -202,22 +191,22 @@ export default function ReelsContent() {
     if (touchStartRef.current === null) return;
     const diff = touchStartRef.current - e.changedTouches[0].clientY;
     if (Math.abs(diff) > 80) {
-      if (diff > 0 && currentIndex < REELS.length - 1) {
+      if (diff > 0 && currentIndex < reels.length - 1) {
         setCurrentIndex((prev) => prev + 1);
       } else if (diff < 0 && currentIndex > 0) {
         setCurrentIndex((prev) => prev - 1);
       }
     }
     touchStartRef.current = null;
-  }, [currentIndex]);
+  }, [currentIndex, reels.length]);
 
   const handleWheel = useCallback((e) => {
-    if (e.deltaY > 50 && currentIndex < REELS.length - 1) {
+    if (e.deltaY > 50 && currentIndex < reels.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else if (e.deltaY < -50 && currentIndex > 0) {
       setCurrentIndex((prev) => prev - 1);
     }
-  }, [currentIndex]);
+  }, [currentIndex, reels.length]);
 
   const [showComments, setShowComments] = useState(null);
   const [showShare, setShowShare] = useState(null);
@@ -253,7 +242,7 @@ export default function ReelsContent() {
       >
         {/* Progress Bar */}
         <div className="absolute left-0 right-0 top-0 z-30 flex gap-1 px-2 pt-2">
-          {REELS.map((reel, i) => (
+          {reels.map((reel, i) => (
             <div key={reel.id} className="relative h-[2px] flex-1 overflow-hidden rounded-full bg-white/20">
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-white transition-all duration-100"
@@ -274,13 +263,13 @@ export default function ReelsContent() {
         </button>
 
         {/* Reel Content */}
-        {REELS.map((reel, index) => {
-          const reelUser = reelUsers[reel.user];
+        {reels.map((reel, index) => {
+          const reelUser = reelUsers[reel.authorKey];
           const isLiked = !!likedReels[reel.id];
           const isBookmarked = !!bookmarkedReels[reel.id];
           const isMuted = !!mutedReels[reel.id];
           const isPaused = !!pausedReels[reel.id];
-          const isFollowed = !!followedUsers[reel.user];
+          const isFollowed = !!followedUsers[reel.authorKey];
           const isAnimating = !!likeAnimations[reel.id];
           const isActive = index === currentIndex;
           const reelProgress = progress[reel.id] || 0;
@@ -323,7 +312,7 @@ export default function ReelsContent() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleFollow(reel.user);
+                      handleFollow(reel.authorKey);
                     }}
                     className={`flex items-center gap-1 rounded-full px-3.5 py-1.5 text-[11px] font-bold transition-all ${
                       isFollowed
@@ -355,7 +344,7 @@ export default function ReelsContent() {
                   {/* Reel Text Content */}
                   <div className="max-w-[80%]">
                     <h2 className="text-[20px] font-black leading-tight text-white drop-shadow-lg">
-                      {reel.content}
+                      {reel.text}
                     </h2>
                     <div className="mt-3 whitespace-pre-line text-[13px] leading-5 text-white/80 drop-shadow">
                       {reel.details}
@@ -531,7 +520,7 @@ export default function ReelsContent() {
               {/* Reel Index Indicator */}
               <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2">
                 <span className="rounded-full bg-black/50 px-3 py-1 text-[10px] font-bold text-white backdrop-blur-sm">
-                  {index + 1} / {REELS.length}
+                  {index + 1} / {reels.length}
                 </span>
               </div>
             </div>
@@ -549,7 +538,7 @@ export default function ReelsContent() {
             </svg>
           </button>
         )}
-        {currentIndex < REELS.length - 1 && (
+        {currentIndex < reels.length - 1 && (
           <button
             onClick={() => setCurrentIndex((prev) => prev + 1)}
             className="absolute right-16 top-1/2 z-30 hidden -translate-y-1/2 rounded-full bg-black/50 p-3 backdrop-blur-sm transition-transform hover:scale-110 md:flex"

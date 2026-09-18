@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { X, Camera, Type, Palette, Sparkles, Send, Image, Check, ChevronLeft } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { uploadImage } from '@/lib/firestore';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import Avatar from '@/components/Avatar';
 
 const BACKGROUNDS = [
@@ -36,6 +39,7 @@ export default function StoryCreator() {
   const [font, setFont] = useState(FONTS[0]);
   const [fontSize, setFontSize] = useState(28);
   const [imagePreview, setImagePreview] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -47,6 +51,7 @@ export default function StoryCreator() {
       showToast('Only images allowed');
       return;
     }
+    setSelectedFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => {
       setImagePreview(ev.target.result);
@@ -56,16 +61,49 @@ export default function StoryCreator() {
     e.target.value = '';
   }, [showToast]);
 
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback(async () => {
+    if (!profile?.id) {
+      showToast('You must be logged in to post a story');
+      return;
+    }
     vibrate('medium');
     setIsUploading(true);
-    setTimeout(() => {
+    try {
+      let imageUrl = null;
+
+      if (mode === 'photo' && selectedFile) {
+        const result = await uploadImage(selectedFile, `stories/${profile.id}/${Date.now()}`);
+        if (!result.success) {
+          showToast('Failed to upload image: ' + result.error);
+          setIsUploading(false);
+          return;
+        }
+        imageUrl = result.data;
+      }
+
+      await addDoc(collection(db, 'stories'), {
+        authorKey: profile.id,
+        authorName: profile.name,
+        authorAvatar: profile.avatar,
+        imageUrl,
+        text: mode === 'text' ? text.trim() : null,
+        bg: mode === 'text' ? bg : null,
+        font: mode === 'text' ? font : null,
+        fontSize: mode === 'text' ? fontSize : null,
+        mode,
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+
       notification('success');
       showToast('Story shared!');
-      setIsUploading(false);
       router.push('/home');
-    }, 1500);
-  }, [vibrate, notification, showToast, router]);
+    } catch (err) {
+      showToast('Failed to share story: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [profile, mode, text, bg, font, fontSize, selectedFile, vibrate, notification, showToast, router]);
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">

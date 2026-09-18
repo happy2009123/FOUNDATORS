@@ -10,7 +10,10 @@ import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import {
+  collection, getDocs, query, orderBy, limit,
+  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
+} from 'firebase/firestore';
 
 const FILTER_TABS = ['All', 'Today', 'This Week', 'Online', 'Free'];
 const CATEGORY_OPTIONS = ['Meetup', 'Workshop', 'Hackathon', 'Pitch Night', 'Conference', 'Social'];
@@ -25,12 +28,12 @@ const CATEGORY_COLORS = {
 
 export default function Events() {
   const showToast = useStore((s) => s.showToast);
-  const toggleJoinEvent = useStore((s) => s.toggleJoinEvent);
-  const joinedEvents = useStore((s) => s.joinedEvents);
+  const profile = useStore((s) => s.profile);
   const { vibrate, notification } = useHaptics();
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -66,21 +69,50 @@ export default function Events() {
     } else if (activeFilter === 'This Week') {
       filtered = filtered.filter((e) => e.isToday || e.date?.toLowerCase().startsWith('today') || e.date?.includes('Sat') || e.date?.includes('Sun') || e.date?.includes('Mon') || e.date?.includes('Tue') || e.date?.includes('Wed') || e.date?.includes('Thu') || e.date?.includes('Fri'));
     } else if (activeFilter === 'Online') {
-      filtered = filtered.filter((e) => e.isOnline);
+      filtered = filtered.filter((e) => e.isOnline || e.location?.toLowerCase().includes('online'));
     } else if (activeFilter === 'Free') {
       filtered = filtered.filter((e) => !e.priceValue || e.priceValue === 0);
     }
     return filtered;
   }, [events, activeFilter, searchQuery]);
 
-  function toggleRsvp(eventId, eventName) {
+  async function toggleRsvp(event) {
+    if (!profile?.id) { showToast('Please sign in to RSVP'); return; }
     vibrate('medium');
-    toggleJoinEvent(eventId);
-    if (joinedEvents[eventId]) { notification('warning'); showToast(`Removed from ${eventName}`); }
-    else { notification('success'); showToast(`RSVP'd to ${eventName}`); }
+    const attendees = event.attendees || [];
+    const isGoing = attendees.includes(profile.id);
+    try {
+      const eventRef = doc(db, 'events', event.id);
+      await updateDoc(eventRef, {
+        attendees: isGoing ? arrayRemove(profile.id) : arrayUnion(profile.id),
+      });
+      setEvents((prev) => prev.map((e) => {
+        if (e.id !== event.id) return e;
+        const updated = isGoing
+          ? (e.attendees || []).filter((id) => id !== profile.id)
+          : [...(e.attendees || []), profile.id];
+        return { ...e, attendees: updated };
+      }));
+      if (isGoing) { notification('warning'); showToast(`Removed from ${event.name}`); }
+      else { notification('success'); showToast(`RSVP'd to ${event.name}`); }
+    } catch (err) {
+      console.error('RSVP failed:', err);
+      showToast('Failed to RSVP. Please try again.');
+    }
   }
 
-  function handleShare(event) { vibrate('light'); showToast(`Share link copied for ${event.name}`); }
+  function handleShare(event) {
+    vibrate('light');
+    const url = `${window.location.origin}/events`;
+    if (navigator.share) {
+      navigator.share({ title: event.name, text: `${event.name} — ${event.description || ''}`, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => showToast('Event link copied!'));
+    } else {
+      showToast('Event link copied!');
+    }
+  }
+
   function handleView(event) { vibrate('light'); setSelectedEvent(event); }
 
   function validateForm() {
@@ -93,26 +125,59 @@ export default function Events() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleCreateEvent() {
+  async function handleCreateEvent() {
     if (!validateForm()) { vibrate('heavy'); notification('error'); showToast('Please fill in all fields'); return; }
-    vibrate('heavy'); notification('success');
-    const created = {
-      id: `user_${Date.now()}`, name: newEvent.name.trim(), date: newEvent.date.trim(),
-      isToday: newEvent.date.toLowerCase().startsWith('today'), location: newEvent.location.trim(),
-      isOnline: newEvent.location.toLowerCase().includes('online'), attendees: 1,
-      category: newEvent.category, price: 'Free', priceValue: 0,
-      description: newEvent.description.trim(),
-      categoryColor: CATEGORY_COLORS[newEvent.category] || 'bg-[rgba(217,172,61,0.15)] text-gold-hi',
-      isUserCreated: true,
-    };
-    setEvents((prev) => [created, ...prev]);
-    setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' });
-    setFormErrors({}); setShowCreateForm(false);
-    showToast(`"${created.name}" created successfully!`);
+    if (!profile?.id) { showToast('Please sign in to create events'); return; }
+    setCreating(true);
+    try {
+      const docRef = await addDoc(collection(db, 'events'), {
+        name: newEvent.name.trim(),
+        description: newEvent.description.trim(),
+        date: newEvent.date.trim(),
+        location: newEvent.location.trim(),
+        category: newEvent.category,
+        isToday: newEvent.date.toLowerCase().startsWith('today'),
+        isOnline: newEvent.location.toLowerCase().includes('online'),
+        price: 'Free',
+        priceValue: 0,
+        creatorKey: profile.id,
+        creatorName: profile.name,
+        attendees: [profile.id],
+        createdAt: serverTimestamp(),
+      });
+      const created = {
+        id: docRef.id,
+        name: newEvent.name.trim(),
+        description: newEvent.description.trim(),
+        date: newEvent.date.trim(),
+        location: newEvent.location.trim(),
+        category: newEvent.category,
+        isToday: newEvent.date.toLowerCase().startsWith('today'),
+        isOnline: newEvent.location.toLowerCase().includes('online'),
+        price: 'Free',
+        priceValue: 0,
+        creatorKey: profile.id,
+        creatorName: profile.name,
+        attendees: [profile.id],
+        categoryColor: CATEGORY_COLORS[newEvent.category] || 'bg-[rgba(217,172,61,0.15)] text-gold-hi',
+      };
+      vibrate('heavy'); notification('success');
+      setEvents((prev) => [created, ...prev]);
+      setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' });
+      setFormErrors({}); setShowCreateForm(false);
+      showToast(`"${created.name}" created successfully!`);
+    } catch (err) {
+      console.error('Failed to create event:', err);
+      vibrate('heavy'); notification('error');
+      showToast('Failed to create event. Please try again.');
+    } finally {
+      setCreating(false);
+    }
   }
 
   if (selectedEvent) {
-    const isGoing = !!joinedEvents[selectedEvent.id];
+    const attendees = selectedEvent.attendees || [];
+    const isGoing = attendees.includes(profile?.id);
     return (
       <MainScreenShell>
         <SubpageHeader title="Event Details" onBack={() => setSelectedEvent(null)} />
@@ -120,7 +185,7 @@ export default function Events() {
           <div className="gold-card mt-3 p-5">
             <div className="flex items-center gap-2">
               <CalendarDays className="text-gold" size={18} />
-              <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold ${selectedEvent.categoryColor || 'bg-[rgba(217,172,61,0.15)] text-gold-hi'}`}>{selectedEvent.category}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold ${selectedEvent.categoryColor || CATEGORY_COLORS[selectedEvent.category] || 'bg-[rgba(217,172,61,0.15)] text-gold-hi'}`}>{selectedEvent.category}</span>
             </div>
             <h1 className="mt-3 text-[20px] font-black leading-tight">{selectedEvent.name}</h1>
             <p className="mt-2 text-[11.5px] leading-5 text-text2">{selectedEvent.description}</p>
@@ -128,10 +193,10 @@ export default function Events() {
           <div className="mt-3 space-y-2">
             <div className="glass-card flex items-center gap-3 p-3.5"><CalendarDays size={16} className="text-gold" /><div className="text-[12.5px] font-bold">{selectedEvent.date}</div></div>
             <div className="glass-card flex items-center gap-3 p-3.5"><MapPin size={16} className="text-gold" /><div><div className="text-[12.5px] font-bold">{selectedEvent.location}</div>{selectedEvent.isOnline && <div className="text-[10px] text-text3">Virtual Event</div>}</div></div>
-            <div className="glass-card flex items-center gap-3 p-3.5"><Users size={16} className="text-gold" /><div className="text-[12.5px] font-bold">{selectedEvent.attendees?.toLocaleString() || 1} attending</div></div>
+            <div className="glass-card flex items-center gap-3 p-3.5"><Users size={16} className="text-gold" /><div className="text-[12.5px] font-bold">{attendees.length} attending</div></div>
           </div>
           <div className="mt-4 space-y-2.5">
-            <button onClick={() => toggleRsvp(selectedEvent.id, selectedEvent.name)} className={`w-full rounded-xl py-3 text-[12px] font-black transition-all ${isGoing ? 'bg-[rgba(46,204,113,0.15)] text-brandgreen border border-brandgreen/30' : 'bg-gold-grad text-[#171100]'}`}>
+            <button onClick={() => toggleRsvp(selectedEvent)} className={`w-full rounded-xl py-3 text-[12px] font-black transition-all ${isGoing ? 'bg-[rgba(46,204,113,0.15)] text-brandgreen border border-brandgreen/30' : 'bg-gold-grad text-[#171100]'}`}>
               {isGoing ? 'Going ✓' : 'RSVP'}
             </button>
             <button onClick={() => handleShare(selectedEvent)} className="w-full rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-gold-hi">Share Event</button>
@@ -185,7 +250,9 @@ export default function Events() {
             </div>
             <div className="flex gap-2.5 pt-2">
               <button onClick={() => { setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
-              <button onClick={handleCreateEvent} className="flex-1 rounded-xl bg-gold-grad py-3 text-[12px] font-black text-[#171100]">Create Event</button>
+              <button onClick={handleCreateEvent} disabled={creating} className="flex-1 rounded-xl bg-gold-grad py-3 text-[12px] font-black text-[#171100] disabled:opacity-50">
+                {creating ? 'Creating...' : 'Create Event'}
+              </button>
             </div>
           </div>
         </div>
@@ -236,7 +303,8 @@ export default function Events() {
         ) : (
           <div className="mt-4 space-y-3">
             {filteredEvents.map((event) => {
-              const isGoing = !!joinedEvents[event.id];
+              const attendees = event.attendees || [];
+              const isGoing = attendees.includes(profile?.id);
               return (
                 <div key={event.id} className="glass-card p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -252,10 +320,10 @@ export default function Events() {
                   <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-text2">
                     <span className="flex items-center gap-1"><CalendarDays size={11} /> {event.date}</span>
                     <span className="flex items-center gap-1"><MapPin size={11} /> {event.location}</span>
-                    <span className="flex items-center gap-1"><Users size={11} /> {event.attendees?.toLocaleString() || 1} attending</span>
+                    <span className="flex items-center gap-1"><Users size={11} /> {attendees.length} attending</span>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    <button onClick={() => toggleRsvp(event.id, event.name)} className={`flex-1 rounded-xl py-2.5 text-[10.5px] font-black transition-all ${isGoing ? 'bg-[rgba(46,204,113,0.15)] text-brandgreen border border-brandgreen/30' : 'bg-gold-grad text-[#171100]'}`}>{isGoing ? 'Going ✓' : 'RSVP'}</button>
+                    <button onClick={() => toggleRsvp(event)} className={`flex-1 rounded-xl py-2.5 text-[10.5px] font-black transition-all ${isGoing ? 'bg-[rgba(46,204,113,0.15)] text-brandgreen border border-brandgreen/30' : 'bg-gold-grad text-[#171100]'}`}>{isGoing ? 'Going ✓' : 'RSVP'}</button>
                     <button onClick={() => handleView(event)} className="flex-1 rounded-xl border border-linesoft py-2.5 text-[10.5px] font-bold text-gold-hi">View</button>
                   </div>
                 </div>

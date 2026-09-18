@@ -6,6 +6,7 @@ import { X, Plus, Save, Image as ImageIcon } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { updateUserProfile } from '@/lib/firestore';
 import SubpageHeader from '@/components/SubpageHeader';
 import ProfilePhotoEditor from '@/components/ProfilePhotoEditor';
 import Avatar from '@/components/Avatar';
@@ -53,12 +54,12 @@ export default function EditProfilePage() {
     setSkills((s) => s.filter((k) => k !== skill));
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       showToast('Name cannot be empty');
       return;
     }
-    updateProfile({
+    const data = {
       name: name.trim(),
       handle: handle.trim(),
       bio: bio.trim(),
@@ -66,6 +67,14 @@ export default function EditProfilePage() {
       location: location.trim(),
       skills,
       avatar: avatarUrl.trim(),
+    };
+    updateProfile(data);
+    await updateUserProfile(profile.id, {
+      name: data.name,
+      bio: data.bio,
+      role: data.role,
+      location: data.location,
+      avatar: data.avatar,
     });
     notification('success');
     showToast('Profile updated');

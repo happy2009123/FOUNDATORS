@@ -8,12 +8,14 @@ import { useHaptics } from '@/lib/useHaptics';
 export default function ModerationSheet({ userKey, userName, onClose }) {
   const { vibrate, notification } = useHaptics();
   const showToast = useStore((s) => s.showToast);
+  const profile = useStore((s) => s.profile);
   const isMuted = useStore((s) => !!s.mutedUsers[userKey]);
   const isRestricted = useStore((s) => !!s.restrictedUsers[userKey]);
   const isBlocked = useStore((s) => !!s.blockedUsers[userKey]);
   const toggleMuteUser = useStore((s) => s.toggleMuteUser);
   const toggleRestrictUser = useStore((s) => s.toggleRestrictUser);
   const blockUser = useStore((s) => s.blockUser);
+  const reportItem = useStore((s) => s.reportItem);
 
   const handleMute = useCallback(() => {
     vibrate('light');
@@ -83,7 +85,18 @@ export default function ModerationSheet({ userKey, userName, onClose }) {
             </div>
           </button>
 
-          <button onClick={() => { vibrate('light'); showToast('Report submitted'); onClose(); }} className="flex w-full items-center gap-4 rounded-2xl border border-linesoft p-4 text-left transition-colors hover:bg-white/5">
+          <button onClick={() => {
+            vibrate('light');
+            reportItem({
+              targetUserId: userKey,
+              targetUserName: userName,
+              reason: 'reported',
+              details: `Reported by ${profile.name}`,
+            });
+            notification('success');
+            showToast('Report submitted');
+            onClose();
+          }} className="flex w-full items-center gap-4 rounded-2xl border border-linesoft p-4 text-left transition-colors hover:bg-white/5">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-text2"><Flag size={20} /></div>
             <div className="flex-1">
               <div className="text-[14px] font-bold">Report {userName}</div>

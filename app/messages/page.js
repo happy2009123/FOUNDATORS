@@ -11,6 +11,7 @@ import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
+import { subscribeToChats, createChat } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -36,15 +37,51 @@ export default function MessagesPage() {
   const [pinned, setPinned] = useState(['sophia']);
   const [userSearch, setUserSearch] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
+  const [fsChats, setFsChats] = useState([]);
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const unsub = subscribeToChats(profile.id, (chats) => {
+      setFsChats(chats);
+    });
+    return () => unsub();
+  }, [profile?.id]);
 
   const totalUnread = useMemo(
     () => Object.values(unreadByContact).reduce((a, b) => a + b, 0),
     [unreadByContact]
   );
 
+  const mergedContacts = useMemo(() => {
+    const merged = { ...contacts };
+    fsChats.forEach((chat) => {
+      if (!merged[chat.id]) {
+        const otherName = chat.participantNames
+          ? Object.values(chat.participantNames).find((n) => n !== profile.name) || 'Chat'
+          : 'Chat';
+        const otherAvatar = chat.participantAvatars
+          ? Object.values(chat.participantAvatars).find((a) => a !== profile.avatar) || null
+          : null;
+        merged[chat.id] = {
+          name: chat.isGroup ? (chat.groupName || 'Group') : otherName,
+          avatar: chat.isGroup ? null : otherAvatar,
+          online: true,
+          status: 'Online',
+          lastActive: 'Now',
+          isGroup: !!chat.isGroup,
+          messages: chat.lastMessage ? [{ text: chat.lastMessage, who: 'them' }] : [],
+          chatId: chat.id,
+        };
+      } else {
+        merged[chat.id] = { ...merged[chat.id], chatId: chat.id };
+      }
+    });
+    return merged;
+  }, [contacts, fsChats, profile?.name, profile?.avatar]);
+
   const rows = useMemo(() => {
-    return Object.entries(contacts).filter(([key, c]) => {
+    return Object.entries(mergedContacts).filter(([key, c]) => {
       if (tab === 'unread') return (unreadByContact[key] || 0) > 0;
       if (tab === 'groups') return c.isGroup;
       if (tab === 'archived') return false;
@@ -53,7 +90,7 @@ export default function MessagesPage() {
       const lastMsg = c.messages[c.messages.length - 1];
       return c.name.toLowerCase().includes(q) || (lastMsg?.text || '').toLowerCase().includes(q);
     });
-  }, [contacts, query, tab, unreadByContact]);
+  }, [mergedContacts, query, tab, unreadByContact]);
 
   const pinnedRows = useMemo(
     () => rows.filter(([key]) => pinned.includes(key)),
@@ -92,7 +129,7 @@ export default function MessagesPage() {
     );
   }, [userSearch, allUsers]);
 
-  function handleStartConvo() {
+  async function handleStartConvo() {
     const val = newConvo.trim();
     if (!val) {
       showToast('Type a name or ID to start a conversation');
@@ -103,17 +140,27 @@ export default function MessagesPage() {
     const matchedUser = filteredUsers.find(
       (u) => u.uniqueId?.toLowerCase() === lower || u.name?.toLowerCase().includes(lower) || u.handle?.toLowerCase().includes(lower)
     );
-    let key;
-    if (matchedUser) {
-      key = ensureContactForUser(matchedUser.id, matchedUser);
-    } else {
+    if (!matchedUser) {
       showToast('Try a name or ID like FD001, FD002...');
       return;
     }
-    if (key) {
-      router.push(`/messages/${key}`);
+
+    ensureContactForUser(matchedUser.id, matchedUser);
+
+    const result = await createChat({
+      participants: [profile.id, matchedUser.id],
+      participantNames: { [profile.id]: profile.name, [matchedUser.id]: matchedUser.name },
+      participantAvatars: { [profile.id]: profile.avatar, [matchedUser.id]: matchedUser.avatar },
+      isGroup: false,
+      lastMessage: '',
+      lastMessageAt: new Date(),
+      createdAt: new Date(),
+    });
+
+    if (result.success) {
+      router.push(`/messages/${result.data}`);
     } else {
-      showToast('Conversation created — tap it in the list');
+      router.push(`/messages/${matchedUser.id}`);
     }
   }
 
@@ -282,12 +329,12 @@ export default function MessagesPage() {
           <div className="mb-3 px-[18px]">
             <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text3">Quick message</div>
             <div className="flex gap-3">
-              {Object.entries(contacts).filter(([, c]) => !c.isGroup).slice(0, 4).map(([key, c]) => {
+              {Object.entries(mergedContacts).filter(([, c]) => !c.isGroup).slice(0, 4).map(([key, c]) => {
                 const unread = unreadByContact[key] || 0;
                 return (
                   <button
                     key={key}
-                    onClick={() => { vibrate('light'); router.push(`/messages/${key}`); }}
+                    onClick={() => { vibrate('light'); router.push(`/messages/${c.chatId || key}`); }}
                     className="flex flex-col items-center gap-1.5"
                   >
                     <div className="relative">
@@ -334,7 +381,7 @@ export default function MessagesPage() {
                   onTogglePin={togglePin}
                   onOpen={() => {
                     vibrate('light');
-                    router.push(`/messages/${key}`);
+                    router.push(`/messages/${c.chatId || key}`);
                   }}
                 />
               ))}
@@ -360,7 +407,7 @@ export default function MessagesPage() {
               onTogglePin={togglePin}
               onOpen={() => {
                 vibrate('light');
-                router.push(`/messages/${key}`);
+                router.push(`/messages/${c.chatId || key}`);
               }}
             />
           ))}

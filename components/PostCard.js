@@ -275,15 +275,22 @@ export default memo(function PostCard({ post }) {
             {commentCount}
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               notification('success');
               const url = typeof window !== 'undefined' ? window.location.origin + '/post/' + post.id : '';
               if (navigator.share) {
-                navigator.share({ title: 'Foundators', text: post.text.slice(0, 120), url }).catch(() => {});
+                try {
+                  await navigator.share({
+                    title: `Post by ${author?.name || post.authorName || 'User'}`,
+                    text: post.text?.slice(0, 120) || '',
+                    url,
+                  });
+                } catch (e) {}
               } else if (navigator.clipboard) {
-                navigator.clipboard.writeText(url).then(() => showToast('Link copied to clipboard'));
+                await navigator.clipboard.writeText(url);
+                showToast('Link copied!');
               } else {
-                showToast('Link: ' + url);
+                showToast('Link copied!');
               }
             }}
             aria-label="Share post"

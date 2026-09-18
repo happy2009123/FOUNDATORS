@@ -11,7 +11,10 @@ import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import {
+  collection, getDocs, query, orderBy, limit,
+  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
+} from 'firebase/firestore';
 
 const STAGE_COLORS = { MVP: '#22c55e', Concept: '#3b82f6', Prototype: '#f59e0b', Launched: '#a855f7' };
 
@@ -25,6 +28,7 @@ const EMPTY_FORM = { name: '', tagline: '', stage: 'Concept', description: '', p
 export default function Ideas() {
   const router = useRouter();
   const showToast = useStore((s) => s.showToast);
+  const profile = useStore((s) => s.profile);
   const ideaVotes = useStore((s) => s.ideaVotes);
   const toggleIdeaVote = useStore((s) => s.toggleIdeaVote);
   const { vibrate } = useHaptics();
@@ -37,6 +41,8 @@ export default function Ideas() {
   const [commentLikes, setCommentLikes] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
+  const [commenting, setCommenting] = useState(false);
 
   useEffect(() => {
     async function fetchIdeas() {
@@ -57,48 +63,150 @@ export default function Ideas() {
 
   const openIdea = useCallback((id) => { vibrate('light'); setOpenId(id); }, [vibrate]);
   const closeIdea = useCallback(() => { vibrate('light'); setOpenId(null); setNewComment(''); }, [vibrate]);
-  const handleVote = useCallback((ideaId) => { vibrate('medium'); toggleIdeaVote(ideaId); }, [toggleIdeaVote, vibrate]);
 
-  const handleAddComment = useCallback(() => {
-    if (!newComment.trim()) return;
+  const handleVote = useCallback(async (ideaId) => {
+    if (!profile?.id) { showToast('Please sign in to vote'); return; }
+    vibrate('medium');
+    const idea = ideas.find((i) => i.id === ideaId);
+    if (!idea) return;
+    const upvotedBy = idea.upvotedBy || [];
+    const isUpvoted = upvotedBy.includes(profile.id);
+    try {
+      const ideaRef = doc(db, 'ideas', ideaId);
+      await updateDoc(ideaRef, {
+        upvotedBy: isUpvoted ? arrayRemove(profile.id) : arrayUnion(profile.id),
+      });
+      setIdeas((prev) => prev.map((i) => {
+        if (i.id !== ideaId) return i;
+        const updated = isUpvoted
+          ? (i.upvotedBy || []).filter((id) => id !== profile.id)
+          : [...(i.upvotedBy || []), profile.id];
+        return { ...i, upvotedBy: updated };
+      }));
+    } catch (err) {
+      console.error('Vote failed:', err);
+    }
+  }, [profile, ideas, vibrate, showToast]);
+
+  const handleAddComment = useCallback(async () => {
+    if (!newComment.trim() || !openId) return;
+    if (!profile?.id) { showToast('Please sign in to comment'); return; }
     vibrate('light');
-    setIdeas((prev) => prev.map((idea) => {
-      if (idea.id !== openId) return idea;
-      return { ...idea, comments: [...(idea.comments || []), { id: `c_${Date.now()}`, authorKey: 'me', authorName: 'You', text: newComment.trim(), time: 'Just now', likes: 0 }] };
-    }));
-    setNewComment('');
-  }, [newComment, openId, vibrate]);
+    setCommenting(true);
+    try {
+      const ideaRef = doc(db, 'ideas', openId);
+      const comment = {
+        id: `c_${Date.now()}`,
+        authorKey: profile.id,
+        authorName: profile.name,
+        authorAvatar: profile.avatar,
+        text: newComment.trim(),
+        time: 'Just now',
+        likes: 0,
+      };
+      await updateDoc(ideaRef, {
+        comments: arrayUnion(comment),
+      });
+      setIdeas((prev) => prev.map((idea) => {
+        if (idea.id !== openId) return idea;
+        return { ...idea, comments: [...(idea.comments || []), comment] };
+      }));
+      setNewComment('');
+    } catch (err) {
+      console.error('Comment failed:', err);
+      showToast('Failed to add comment.');
+    } finally {
+      setCommenting(false);
+    }
+  }, [newComment, openId, profile, vibrate, showToast]);
 
   const handleLikeComment = useCallback((ideaId, commentId) => {
     vibrate('light');
     setCommentLikes((prev) => ({ ...prev, [`${ideaId}_${commentId}`]: !prev[`${ideaId}_${commentId}`] }));
   }, [vibrate]);
 
-  const handleSubmitIdea = useCallback(() => {
+  async function handleSubmitIdea() {
     if (!form.name.trim() || !form.tagline.trim() || !form.description.trim()) {
       showToast('Please fill in name, tagline, and description'); return;
     }
-    vibrate('medium');
-    const newIdea = {
-      id: `user_${Date.now()}`, name: form.name.trim(), tagline: form.tagline.trim(),
-      stage: form.stage, authorKey: 'me', authorName: 'You', votes: 0,
-      createdAt: new Date().toISOString().slice(0, 10), description: form.description.trim(),
-      problem: form.problem.trim(), solution: form.solution.trim(),
-      audience: form.audience.trim(), tech: form.tech.trim(), comments: [],
-    };
-    setIdeas((prev) => [newIdea, ...prev]);
-    setForm(EMPTY_FORM); setShowForm(false); showToast('Idea published!');
-  }, [form, vibrate, showToast]);
+    if (!profile?.id) { showToast('Please sign in to submit ideas'); return; }
+    setCreating(true);
+    try {
+      const docRef = await addDoc(collection(db, 'ideas'), {
+        name: form.name.trim(),
+        tagline: form.tagline.trim(),
+        stage: form.stage,
+        description: form.description.trim(),
+        problem: form.problem.trim(),
+        solution: form.solution.trim(),
+        audience: form.audience.trim(),
+        tech: form.tech.trim(),
+        authorKey: profile.id,
+        authorName: profile.name,
+        authorAvatar: profile.avatar,
+        upvotedBy: [],
+        votes: 0,
+        comments: [],
+        createdAt: serverTimestamp(),
+      });
+      const newIdea = {
+        id: docRef.id,
+        name: form.name.trim(),
+        tagline: form.tagline.trim(),
+        stage: form.stage,
+        description: form.description.trim(),
+        problem: form.problem.trim(),
+        solution: form.solution.trim(),
+        audience: form.audience.trim(),
+        tech: form.tech.trim(),
+        authorKey: profile.id,
+        authorName: profile.name,
+        authorAvatar: profile.avatar,
+        upvotedBy: [],
+        votes: 0,
+        comments: [],
+        createdAt: new Date().toISOString().slice(0, 10),
+      };
+      vibrate('medium');
+      setIdeas((prev) => [newIdea, ...prev]);
+      setForm(EMPTY_FORM); setShowForm(false); showToast('Idea published!');
+    } catch (err) {
+      console.error('Failed to submit idea:', err);
+      showToast('Failed to publish idea.');
+    } finally {
+      setCreating(false);
+    }
+  }
 
-  const getVote = (ideaId) => !!ideaVotes[ideaId];
+  const getVote = (ideaId) => {
+    const idea = ideas.find((i) => i.id === ideaId);
+    if (!idea) return false;
+    return (idea.upvotedBy || []).includes(profile?.id);
+  };
+
+  const getVoteCount = (idea) => {
+    return (idea.upvotedBy || []).length || idea.votes || 0;
+  };
 
   const sortedIdeas = [...ideas].sort((a, b) => {
-    if (filter === 'trending') return (b.votes || 0) - (a.votes || 0);
+    if (filter === 'trending') return getVoteCount(b) - getVoteCount(a);
     return new Date(b.createdAt) - new Date(a.createdAt);
   });
 
   const openIdeaData = ideas.find((i) => i.id === openId);
   const updateField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  function handleShareIdea(idea) {
+    vibrate('light');
+    const url = `${window.location.origin}/ideas`;
+    if (navigator.share) {
+      navigator.share({ title: idea.name, text: `${idea.name} — ${idea.tagline || ''}`, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => showToast('Idea link copied!'));
+    } else {
+      showToast('Idea link copied!');
+    }
+  }
 
   return (
     <MainScreenShell>
@@ -135,6 +243,8 @@ export default function Ideas() {
           <div className="mt-5 space-y-3">
             {sortedIdeas.map((idea) => {
               const voted = getVote(idea.id);
+              const voteCount = getVoteCount(idea);
+              const comments = idea.comments || [];
               return (
                 <div key={idea.id} className="glass-card p-4">
                   <div className="flex items-start justify-between">
@@ -151,20 +261,20 @@ export default function Ideas() {
                       <div className="h-5 w-5 rounded-full bg-gold/20 flex items-center justify-center"><span className="text-[9px] font-bold text-gold">{idea.authorName?.[0] || '?'}</span></div>
                       <span className="text-[10px] text-text2">{idea.authorName || 'Anonymous'}</span>
                       <span className="text-[9px] text-text2">·</span>
-                      <span className="text-[9px] text-text2">{idea.createdAt}</span>
+                      <span className="text-[9px] text-text2">{typeof idea.createdAt === 'string' ? idea.createdAt : ''}</span>
                     </div>
                     <div className="flex items-center gap-3 text-[10px] text-text2">
-                      <span className="flex items-center gap-1"><MessageCircle size={11} /> {idea.comments?.length || 0}</span>
+                      <span className="flex items-center gap-1"><MessageCircle size={11} /> {comments.length}</span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <div className="flex items-center rounded-xl border border-line bg-[rgba(255,255,255,.03)]">
                       <button onClick={() => handleVote(idea.id)} className={`flex items-center gap-1 rounded-l-xl px-3 py-2 transition-all ${voted ? 'text-[#D9AC3D]' : 'text-text2 hover:text-gold-hi'}`}><ChevronUp size={14} /></button>
-                      <span className="border-x border-line px-2 py-2 text-[10px] font-bold text-text2">{(idea.votes || 0) + (voted ? 1 : 0)}</span>
+                      <span className="border-x border-line px-2 py-2 text-[10px] font-bold text-text2">{voteCount}</span>
                       <button onClick={() => handleVote(idea.id)} className={`flex items-center gap-1 rounded-r-xl px-3 py-2 transition-all ${voted ? 'text-red-400' : 'text-text2 hover:text-red-400'}`}><ChevronDown size={14} /></button>
                     </div>
                     <button onClick={() => openIdea(idea.id)} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line py-2.5 text-[10px] font-bold text-gold-hi"><Eye size={12} /> View</button>
-                    <button onClick={() => { vibrate('light'); showToast('Idea shared!'); }} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={13} /></button>
+                    <button onClick={() => handleShareIdea(idea)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={13} /></button>
                   </div>
                 </div>
               );
@@ -183,7 +293,7 @@ export default function Ideas() {
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <button onClick={() => { vibrate('light'); setShowForm(false); }} className="p-1 text-text2"><X size={20} /></button>
               <span className="text-[13px] font-extrabold">Submit Idea</span>
-              <button onClick={handleSubmitIdea} className="rounded-lg bg-gold-grad px-3 py-1.5 text-[10px] font-black text-[#171100]">Publish</button>
+              <button onClick={handleSubmitIdea} disabled={creating} className="rounded-lg bg-gold-grad px-3 py-1.5 text-[10px] font-black text-[#171100] disabled:opacity-50">{creating ? 'Publishing...' : 'Publish'}</button>
             </div>
             <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
               <label className="mt-2 block text-[10px] font-bold text-text2">Name *</label>
@@ -231,18 +341,18 @@ export default function Ideas() {
               <div className="mt-5 flex items-center gap-3">
                 <div className="flex items-center rounded-xl border border-line bg-[rgba(255,255,255,.03)]">
                   <button onClick={() => handleVote(openIdeaData.id)} className={`flex items-center gap-1 rounded-l-xl px-4 py-2.5 transition-all ${getVote(openIdeaData.id) ? 'text-[#D9AC3D]' : 'text-text2 hover:text-gold-hi'}`}><ChevronUp size={16} /></button>
-                  <span className="border-x border-line px-3 py-2.5 text-[11px] font-bold text-text2">{(openIdeaData.votes || 0) + (getVote(openIdeaData.id) ? 1 : 0)}</span>
+                  <span className="border-x border-line px-3 py-2.5 text-[11px] font-bold text-text2">{getVoteCount(openIdeaData)}</span>
                   <button onClick={() => handleVote(openIdeaData.id)} className={`flex items-center gap-1 rounded-r-xl px-4 py-2.5 transition-all ${getVote(openIdeaData.id) ? 'text-red-400' : 'text-text2 hover:text-red-400'}`}><ChevronDown size={16} /></button>
                 </div>
-                <button onClick={() => { vibrate('light'); showToast('Idea shared!'); }} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={15} /></button>
+                <button onClick={() => handleShareIdea(openIdeaData)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={15} /></button>
                 <button onClick={() => { vibrate('light'); router.push('/match/find_programmer'); }} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[11px] font-black text-[#171100]">Build team <ArrowRight size={13} /></button>
               </div>
 
               <div className="mt-5 border-t border-line pt-4">
                 <h3 className="flex items-center gap-1.5 text-[12px] font-extrabold text-gold-hi"><MessageCircle size={13} /> Comments ({openIdeaData.comments?.length || 0})</h3>
                 <div className="mt-3 flex items-center gap-2">
-                  <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} placeholder="Add a comment..." className="flex-1 rounded-xl border border-line bg-[rgba(255,255,255,.03)] px-3 py-2.5 text-[11px] text-text placeholder:text-text2 focus:border-gold/50 focus:outline-none" />
-                  <button onClick={handleAddComment} disabled={!newComment.trim()} className="rounded-xl bg-gold-grad p-2.5 text-[#171100] transition-opacity disabled:opacity-30"><Send size={14} /></button>
+                  <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !commenting && handleAddComment()} placeholder="Add a comment..." className="flex-1 rounded-xl border border-line bg-[rgba(255,255,255,.03)] px-3 py-2.5 text-[11px] text-text placeholder:text-text2 focus:border-gold/50 focus:outline-none" />
+                  <button onClick={handleAddComment} disabled={!newComment.trim() || commenting} className="rounded-xl bg-gold-grad p-2.5 text-[#171100] transition-opacity disabled:opacity-30"><Send size={14} /></button>
                 </div>
                 <div className="mt-3 space-y-3">
                   {(openIdeaData.comments || []).map((comment) => {

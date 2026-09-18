@@ -313,18 +313,98 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // STORIES COLLECTION
+    // stories/{storyId}
+    // ============================================================
+    match /stories/{storyId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorKey == uid();
+      allow delete: if isSignedIn()
+        && resource.data.authorKey == uid();
+      allow update: if false;
+    }
+
+    // ============================================================
+    // REELS COLLECTION
+    // reels/{reelId}
+    // ============================================================
+    match /reels/{reelId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorKey == uid();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+        && resource.data.authorKey == uid();
+    }
+
+    // ============================================================
+    // EVENTS COLLECTION
+    // events/{eventId}
+    // ============================================================
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.creatorKey == uid();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+        && resource.data.creatorKey == uid();
+    }
+
+    // ============================================================
+    // CHALLENGES COLLECTION
+    // challenges/{challengeId}
+    // ============================================================
+    match /challenges/{challengeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.creatorKey == uid();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+        && resource.data.creatorKey == uid();
+    }
+
+    // ============================================================
+    // IDEAS COLLECTION
+    // ideas/{ideaId}
+    // ============================================================
+    match /ideas/{ideaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorKey == uid();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+        && resource.data.authorKey == uid();
+    }
+
+    // ============================================================
+    // REPORTS COLLECTION
+    // reports/{reportId}
+    // ============================================================
+    match /reports/{reportId} {
+      allow read: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.reporterId == uid();
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // BLOCKED SUBCOLLECTION (under users)
+    // users/{userId}/blocked/{blockedId}
+    // ============================================================
+    match /users/{userId}/blocked/{blockedId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow delete: if isOwner(userId);
+      allow update: if false;
+    }
+
+    // ============================================================
     // ANALYTICS COLLECTION
     // analytics/{eventId}
     // ============================================================
-    // Write-only from the client — events are created by
-    // authenticated users. Reads are restricted to admin-level
-    // server SDK only (no client read access).
-    // ============================================================
     match /analytics/{eventId} {
-      // No client-side reads allowed
       allow read: if false;
-
-      // Any authenticated user can log an analytics event
       allow create: if isSignedIn()
         && request.resource.data.keys().hasAll([
              'eventType', 'data', 'createdAt'
@@ -332,14 +412,11 @@ service cloud.firestore {
         && isValidString(request.resource.data.eventType, 100)
         && request.resource.data.data is map
         && isValidTimestamp(request.resource.data.createdAt);
-
-      // No client-side updates or deletes
       allow update, delete: if false;
     }
 
     // ============================================================
     // DEFAULT DENY
-    // Any path not explicitly matched above is denied.
     // ============================================================
     match /{document=**} {
       allow read, write: if false;

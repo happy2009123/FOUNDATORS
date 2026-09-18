@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
+import { createChat } from '@/lib/firestore';
 import Avatar from '@/components/Avatar';
 
 export default function CreateGroupPage() {
@@ -46,16 +47,42 @@ export default function CreateGroupPage() {
     );
   }, [vibrate]);
 
-  const createGroup = useCallback(() => {
+  const createGroup = useCallback(async () => {
     if (!groupName.trim() || selected.length < 2) {
       showToast('Add a name and at least 2 members');
       return;
     }
     vibrate('medium');
-    notification('success');
-    showToast(`Group "${groupName}" created!`);
-    router.push('/messages');
-  }, [groupName, selected, vibrate, notification, showToast, router]);
+
+    const participantNames = { [profile.id]: profile.name };
+    const participantAvatars = { [profile.id]: profile.avatar };
+    selected.forEach((id) => {
+      const user = users.find((u) => u.id === id);
+      if (user) {
+        participantNames[id] = user.name;
+        participantAvatars[id] = user.avatar;
+      }
+    });
+
+    const result = await createChat({
+      participants: [profile.id, ...selected],
+      participantNames,
+      participantAvatars,
+      isGroup: true,
+      groupName: groupName.trim(),
+      lastMessage: '',
+      lastMessageAt: new Date(),
+      createdAt: new Date(),
+    });
+
+    if (result.success) {
+      notification('success');
+      showToast(`Group "${groupName}" created!`);
+      router.push(`/messages/${result.data}`);
+    } else {
+      showToast('Failed to create group');
+    }
+  }, [groupName, selected, users, profile, vibrate, notification, showToast, router]);
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">

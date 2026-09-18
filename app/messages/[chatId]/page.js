@@ -7,12 +7,32 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const EMOJI_SHORTCUTS = { ':)': '😊', ':(': '😢', ':D': '😃', '<3': '❤️', ':+1': '👍', '🔥': '🔥', '🎉': '🎉', '💡': '💡' };
+
+function formatMsgTime(timestamp) {
+  if (!timestamp) return 'Now';
+  if (typeof timestamp === 'string') return timestamp;
+  const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
 export default function ChatPage() {
   const ready = useRequireAuth();
@@ -39,6 +59,8 @@ export default function ChatPage() {
   const [voiceMessages, setVoiceMessages] = useState({});
   const [showImagePreview, setShowImagePreview] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
+  const [chatData, setChatData] = useState(null);
+  const [fsMessages, setFsMessages] = useState(null);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const recordingInterval = useRef(null);
@@ -48,19 +70,66 @@ export default function ChatPage() {
     if (chatId) markContactRead(chatId);
   }, [chatId, markContactRead]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [contact?.messages.length, typing]);
+  const messages = fsMessages !== null ? fsMessages : (contact?.messages || []);
 
   useEffect(() => {
-    if (!contact?.online || contact?.isGroup) return;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages.length, typing]);
+
+  useEffect(() => {
+    const c = chatData || contact;
+    if (!c?.online || c?.isGroup) return;
     if (input.length > 0) {
       setTyping(true);
       const t = setTimeout(() => setTyping(false), 2000);
       return () => clearTimeout(t);
     }
     setTyping(false);
-  }, [input, contact?.online, contact?.isGroup]);
+  }, [input, chatData, contact?.online, contact?.isGroup]);
+
+  useEffect(() => {
+    if (!chatId || !db) return;
+    let cancelled = false;
+    async function fetchChatMeta() {
+      try {
+        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        if (cancelled) return;
+        if (chatSnap.exists()) {
+          const data = chatSnap.data();
+          setChatData({
+            name: data.isGroup
+              ? data.groupName
+              : (data.participantNames && Object.values(data.participantNames).find((n) => n !== profile.name)) || 'Chat',
+            avatar: data.isGroup
+              ? null
+              : (data.participantAvatars && Object.values(data.participantAvatars).find((a) => a !== profile.avatar)) || null,
+            online: true,
+            status: 'Online',
+            isGroup: !!data.isGroup,
+            groupName: data.groupName || '',
+            participants: data.participants || [],
+            participantNames: data.participantNames || {},
+            participantAvatars: data.participantAvatars || {},
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load chat metadata:', err);
+      }
+    }
+    fetchChatMeta();
+    return () => { cancelled = true; };
+  }, [chatId, profile.name, profile.avatar]);
+
+  useEffect(() => {
+    if (!chatId || !db) return;
+    const unsub = subscribeToMessages(chatId, (msgs) => {
+      setFsMessages(msgs.map((m) => ({
+        ...m,
+        time: formatMsgTime(m.createdAt),
+      })));
+    });
+    return () => unsub();
+  }, [chatId]);
 
   const handleSend = useCallback(() => {
     const val = input.trim();
@@ -86,11 +155,14 @@ export default function ChatPage() {
 
   const handleDelete = useCallback(() => {
     if (ctxMenu) {
-      deleteMessage(chatId, ctxMenu.index);
+      const msg = messages[ctxMenu.index];
+      if (msg?.id && chatId && db) {
+        deleteFS(chatId, msg.id).catch(() => {});
+      }
       vibrate('light');
     }
     setCtxMenu(null);
-  }, [ctxMenu, chatId, deleteMessage, vibrate]);
+  }, [ctxMenu, chatId, messages, vibrate]);
 
   const handleReaction = useCallback((msgIndex, emoji) => {
     vibrate('light');
@@ -115,11 +187,15 @@ export default function ChatPage() {
     setIsRecording(false);
     clearInterval(recordingInterval.current);
     if (recordingTime > 0) {
-      sendMessage(chatId, `🎤 Voice message (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')})`);
+      const voiceText = `🎤 Voice message (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')})`;
+      sendMessage(chatId, voiceText);
+      if (chatId && db) {
+        sendFS(chatId, { text: voiceText, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
+      }
       notification('success');
     }
     setRecordingTime(0);
-  }, [recordingTime, chatId, sendMessage, notification, vibrate]);
+  }, [recordingTime, chatId, sendMessage, notification, vibrate, profile]);
 
   const cancelRecording = useCallback(() => {
     vibrate('light');
@@ -144,9 +220,12 @@ export default function ChatPage() {
   const sendImage = useCallback(() => {
     if (!showImagePreview) return;
     sendMessage(chatId, '📷 Image');
+    if (chatId && db) {
+      sendFS(chatId, { text: '📷 Image', senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
+    }
     setShowImagePreview(null);
     notification('success');
-  }, [showImagePreview, chatId, sendMessage, notification]);
+  }, [showImagePreview, chatId, sendMessage, notification, profile]);
 
   const insertEmoji = useCallback((emoji) => {
     setInput((prev) => prev + emoji);
@@ -162,11 +241,11 @@ export default function ChatPage() {
   }, []);
 
   function openContactProfile() {
-    if (contact?.isGroup) {
+    const c = chatData || contact;
+    if (c?.isGroup) {
       showToast('Group info coming soon');
       return;
     }
-    // Navigate to profile using the chatId (which is the user ID)
     router.push(`/profile/${chatId}`);
   }
 
@@ -178,7 +257,14 @@ export default function ChatPage() {
   }
 
   if (!ready) return <AuthSkeleton />;
-  if (!contact) {
+
+  const displayContact = contact || (chatData ? {
+    ...chatData,
+    messages: messages,
+    lastActive: 'Now',
+  } : null);
+
+  if (!displayContact) {
     return (
       <div className="app-shell flex min-h-0 flex-1 flex-col">
         <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
@@ -196,15 +282,15 @@ export default function ChatPage() {
 
   const groupedMessages = [];
   let lastDate = '';
-  contact.messages.forEach((m, i) => {
-    const dateLabel = m.time.includes('Yesterday') ? 'Yesterday' :
-                      m.time.includes('Mon') ? 'Monday' :
-                      m.time.includes('Tue') ? 'Tuesday' :
-                      m.time.includes('Wed') ? 'Wednesday' :
-                      m.time.includes('Thu') ? 'Thursday' :
-                      m.time.includes('Fri') ? 'Friday' :
-                      m.time.includes('Sat') ? 'Saturday' :
-                      m.time.includes('Sun') ? 'Sunday' : 'Today';
+  messages.forEach((m, i) => {
+    const dateLabel = m.time?.includes('Yesterday') ? 'Yesterday' :
+                      m.time?.includes('Mon') ? 'Monday' :
+                      m.time?.includes('Tue') ? 'Tuesday' :
+                      m.time?.includes('Wed') ? 'Wednesday' :
+                      m.time?.includes('Thu') ? 'Thursday' :
+                      m.time?.includes('Fri') ? 'Friday' :
+                      m.time?.includes('Sat') ? 'Saturday' :
+                      m.time?.includes('Sun') ? 'Sunday' : 'Today';
     if (dateLabel !== lastDate) {
       groupedMessages.push({ type: 'date', label: dateLabel, key: `date-${i}` });
       lastDate = dateLabel;
@@ -224,23 +310,23 @@ export default function ChatPage() {
           </svg>
         </button>
         <button onClick={openContactProfile} className="relative flex-none">
-          {contact.isGroup ? (
+          {displayContact.isGroup ? (
             <div className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-[rgba(217,172,61,0.1)] text-gold">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
             </div>
           ) : (
             <>
-              <Avatar src={contact.avatar} name={contact.name} size={40} />
-              {contact.online && (
+              <Avatar src={displayContact.avatar} name={displayContact.name} size={40} />
+              {displayContact.online && (
                 <span className="absolute bottom-0 right-0 h-[11px] w-[11px] rounded-full border-2 border-black bg-brandgreen" />
               )}
             </>
           )}
         </button>
         <button onClick={openContactProfile} className="min-w-0 flex-1 text-left">
-          <div className="truncate text-[15px] font-extrabold">{contact.name}</div>
-          <div className={`text-[11px] font-semibold ${contact.online ? 'text-brandgreen' : 'text-text3'}`}>
-            {contact.online ? 'Online now' : contact.status}
+          <div className="truncate text-[15px] font-extrabold">{displayContact.name}</div>
+          <div className={`text-[11px] font-semibold ${displayContact.online ? 'text-brandgreen' : 'text-text3'}`}>
+            {displayContact.online ? 'Online now' : displayContact.status}
           </div>
         </button>
         <div className="flex flex-none gap-1">
@@ -306,8 +392,8 @@ export default function ChatPage() {
               onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ index: item.index, x: e.clientX, y: e.clientY }); }}
               onClick={() => setShowReactionPicker(showReactionPicker === item.index ? null : item.index)}
             >
-              {!isOut && !contact.isGroup && (
-                <Avatar src={contact.avatar} name={contact.name} size={24} className="flex-none" />
+              {!isOut && !displayContact.isGroup && (
+                <Avatar src={displayContact.avatar} name={displayContact.name} size={24} className="flex-none" />
               )}
               <div className={`group relative max-w-[76%] rounded-[18px] px-3.5 py-[10px] text-[13.5px] leading-snug ${
                 isOut
@@ -346,7 +432,7 @@ export default function ChatPage() {
 
         {typing && (
           <div className="mb-2 flex items-center gap-2">
-            <Avatar src={contact.avatar} name={contact.name} size={24} className="flex-none" />
+            <Avatar src={displayContact.avatar} name={displayContact.name} size={24} className="flex-none" />
             <div className="flex items-center gap-1 rounded-2xl border border-linesoft bg-card px-4 py-2.5">
               <span className="typing-dots">
                 <span /><span /><span />
@@ -363,10 +449,10 @@ export default function ChatPage() {
             className="fixed z-50 min-w-[160px] rounded-2xl border border-linesoft bg-card p-1.5 shadow-xl"
             style={{ top: Math.min(ctxMenu.y, window.innerHeight - 180), left: Math.min(ctxMenu.x, window.innerWidth - 180) }}
           >
-            <button onClick={() => handleReply(contact.messages[ctxMenu.index])} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
+            <button onClick={() => handleReply(messages[ctxMenu.index])} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Reply size={14} className="text-gold" /> Reply
             </button>
-            <button onClick={() => handleCopy(contact.messages[ctxMenu.index].text || '')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
+            <button onClick={() => handleCopy(messages[ctxMenu.index].text || '')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Copy size={14} className="text-gold" /> Copy
             </button>
             <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-red-400 hover:bg-red-500/10">

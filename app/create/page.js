@@ -2,10 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lightbulb, TrendingUp, Users, ImageIcon, X, Save, Clock } from 'lucide-react';
+import { Lightbulb, TrendingUp, Users, ImageIcon, X, Save, Clock, Loader2 } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { uploadImage } from '@/lib/firestore';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
@@ -29,7 +30,9 @@ export default function CreatePage() {
 
   const [text, setText] = useState('');
   const [tag, setTag] = useState('idea');
-  const [imageUrl, setImageUrl] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -39,7 +42,7 @@ export default function CreatePage() {
       if (draft) {
         setText(draft.text || '');
         setTag(draft.tag || 'idea');
-        setImageUrl(draft.imageUrl || null);
+        setImagePreview(draft.imagePreview || null);
         localStorage.removeItem('editing_draft');
       }
     } catch {}
@@ -58,14 +61,21 @@ export default function CreatePage() {
       showToast('Image must be under 5MB');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (ev) => setImageUrl(ev.target.result);
-    reader.readAsDataURL(file);
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
     e.target.value = '';
   }
 
-  function handlePublish() {
-    if (!text.trim() && !imageUrl) {
+  function handleRemoveImage() {
+    if (imagePreview && imagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreview);
+    }
+    setSelectedImage(null);
+    setImagePreview(null);
+  }
+
+  async function handlePublish() {
+    if (!text.trim() && !selectedImage && !imagePreview) {
       showToast('Write something or add an image before posting');
       return;
     }
@@ -73,14 +83,33 @@ export default function CreatePage() {
       showToast(`Post must be under ${MAX_TEXT} characters`);
       return;
     }
-    publishPost({ text: text.trim(), tagType: tag, imageUrl });
-    notification('success');
-    showToast('Post published!');
-    router.push('/home');
+    setIsPublishing(true);
+    try {
+      let finalImageUrl = imagePreview;
+      if (selectedImage) {
+        const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const result = await uploadImage(selectedImage, `posts/${postId}/${selectedImage.name}`);
+        if (result.success) {
+          finalImageUrl = result.data;
+        } else {
+          showToast('Failed to upload image: ' + result.error);
+          setIsPublishing(false);
+          return;
+        }
+      }
+      publishPost({ text: text.trim(), tagType: tag, imageUrl: finalImageUrl });
+      notification('success');
+      showToast('Post published!');
+      router.push('/home');
+    } catch (err) {
+      showToast('Failed to publish: ' + err.message);
+    } finally {
+      setIsPublishing(false);
+    }
   }
 
   function handleSaveDraft() {
-    if (!text.trim() && !imageUrl) {
+    if (!text.trim() && !imagePreview) {
       showToast('Nothing to save');
       return;
     }
@@ -90,7 +119,7 @@ export default function CreatePage() {
       id: `draft_${Date.now()}`,
       text: text.trim(),
       tag,
-      imageUrl,
+      imagePreview,
       savedAt: Date.now(),
     });
     localStorage.setItem('post_drafts', JSON.stringify(drafts));
@@ -115,9 +144,10 @@ export default function CreatePage() {
           </button>
           <button
             onClick={handlePublish}
-            className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300]"
+            disabled={isPublishing}
+            className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
           >
-            Post
+            {isPublishing ? <Loader2 size={14} className="animate-spin" /> : 'Post'}
           </button>
         </div>
       </div>
@@ -138,14 +168,14 @@ export default function CreatePage() {
             placeholder="Share an idea, an update, or what you're looking for..."
             aria-label="Write your post"
             autoFocus
-            className={`min-h-[130px] w-full rounded-2xl border border-linesoft bg-card p-3.5 text-[14.5px] leading-relaxed text-white placeholder:text-text3 focus:border-gold focus:outline-none ${imageUrl ? 'pb-2' : ''}`}
+            className={`min-h-[130px] w-full rounded-2xl border border-linesoft bg-card p-3.5 text-[14.5px] leading-relaxed text-white placeholder:text-text3 focus:border-gold focus:outline-none ${imagePreview ? 'pb-2' : ''}`}
           />
-          {imageUrl && (
+          {imagePreview && (
             <div className="pointer-events-none absolute inset-x-3.5 bottom-3.5">
               <div className="pointer-events-auto relative inline-block overflow-hidden rounded-xl border border-linesoft">
-                <img src={imageUrl} alt="Preview" className="max-h-40 rounded-xl object-cover" />
+                <img src={imagePreview} alt="Preview" className="max-h-40 rounded-xl object-cover" />
                 <button
-                  onClick={() => setImageUrl(null)}
+                  onClick={handleRemoveImage}
                   className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/80"
                 >
                   <X size={14} />
@@ -183,7 +213,7 @@ export default function CreatePage() {
           })}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className={`flex items-center gap-1.5 rounded-full border border-linesoft px-3 py-1.5 text-[11.5px] font-bold transition-opacity ${imageUrl ? 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)] opacity-100' : 'text-text2 opacity-40'}`}
+            className={`flex items-center gap-1.5 rounded-full border border-linesoft px-3 py-1.5 text-[11.5px] font-bold transition-opacity ${imagePreview ? 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)] opacity-100' : 'text-text2 opacity-40'}`}
           >
             <ImageIcon size={13} />
             Image

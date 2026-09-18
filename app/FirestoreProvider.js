@@ -167,6 +167,15 @@ export default function FirestoreProvider({ children }) {
     });
     unsubs.push(unsubBookmarks);
 
+    // ── Blocked users: this user's blocked list ────────────────────────
+    const blockedQ = query(collection(db, 'users', userId, 'blocked'));
+    const unsubBlocked = onSnapshot(blockedQ, (snap) => {
+      const blocked = {};
+      snap.docs.forEach((d) => { blocked[d.id] = true; });
+      set({ blockedUsers: blocked });
+    });
+    unsubs.push(unsubBlocked);
+
     unsubRef.current = unsubs;
     return () => {
       unsubs.forEach((u) => {

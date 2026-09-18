@@ -3,14 +3,17 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   ArrowRight, Braces, Flame, Medal, Trophy, Zap, Clock, CheckCircle, Lock, Star,
-  Target, Award, ChevronRight, Play, RotateCcw, Sparkles,
+  Target, Award, ChevronRight, Play, RotateCcw, Sparkles, Plus, X,
 } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import {
+  collection, getDocs, query, orderBy, limit,
+  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
+} from 'firebase/firestore';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -19,6 +22,8 @@ const CATEGORIES = [
   { id: 'code', label: 'Code' },
   { id: 'strategy', label: 'Strategy' },
 ];
+
+const CREATE_CATEGORIES = ['quick', 'creative', 'code', 'strategy'];
 
 function formatTime(sec) {
   if (sec < 0) sec = 0;
@@ -58,6 +63,7 @@ function ConfettiOverlay() {
 
 export default function ChallengesContent() {
   const showToast = useStore((s) => s.showToast);
+  const profile = useStore((s) => s.profile);
   const challengeProgress = useStore((s) => s.challengeProgress);
   const storeStartChallenge = useStore((s) => s.startChallenge);
   const storeCompleteChallenge = useStore((s) => s.completeChallenge);
@@ -72,6 +78,10 @@ export default function ChallengesContent() {
   const [detailId, setDetailId] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newChallenge, setNewChallenge] = useState({ name: '', description: '', timeLimit: '10', points: '100', category: 'quick' });
+  const [formErrors, setFormErrors] = useState({});
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -156,6 +166,146 @@ export default function ChallengesContent() {
     return challenges.filter((c) => c.category === activeCategory);
   }, [challenges, activeCategory]);
 
+  async function handleJoinChallenge(challenge) {
+    if (!profile?.id) { showToast('Please sign in to join challenges'); return; }
+    vibrate('medium');
+    const participants = challenge.participants || [];
+    const isJoined = participants.includes(profile.id);
+    try {
+      const challengeRef = doc(db, 'challenges', challenge.id);
+      await updateDoc(challengeRef, {
+        participants: isJoined ? arrayRemove(profile.id) : arrayUnion(profile.id),
+      });
+      setChallenges((prev) => prev.map((c) => {
+        if (c.id !== challenge.id) return c;
+        const updated = isJoined
+          ? (c.participants || []).filter((id) => id !== profile.id)
+          : [...(c.participants || []), profile.id];
+        return { ...c, participants: updated };
+      }));
+      if (isJoined) { showToast(`Left ${challenge.name}`); }
+      else { notification('success'); showToast(`Joined ${challenge.name}!`); }
+    } catch (err) {
+      console.error('Join challenge failed:', err);
+      showToast('Failed to join challenge.');
+    }
+  }
+
+  function validateForm() {
+    const errors = {};
+    if (!newChallenge.name.trim()) errors.name = 'Challenge name is required';
+    if (!newChallenge.description.trim()) errors.description = 'Description is required';
+    setFormErrors(errors);
+    return Object.keys(errors.length === 0 ? errors : {}) === 0;
+  }
+
+  async function handleCreateChallenge() {
+    if (!newChallenge.name.trim() || !newChallenge.description.trim()) {
+      setFormErrors({
+        name: !newChallenge.name.trim() ? 'Challenge name is required' : '',
+        description: !newChallenge.description.trim() ? 'Description is required' : '',
+      });
+      if (!newChallenge.name.trim() || !newChallenge.description.trim()) {
+        vibrate('heavy'); notification('error'); showToast('Please fill in all fields'); return;
+      }
+    }
+    if (!profile?.id) { showToast('Please sign in to create challenges'); return; }
+    setCreating(true);
+    try {
+      const timeLimitSec = parseInt(newChallenge.timeLimit, 10) * 60;
+      const points = parseInt(newChallenge.points, 10) || 100;
+      const docRef = await addDoc(collection(db, 'challenges'), {
+        name: newChallenge.name.trim(),
+        description: newChallenge.description.trim(),
+        category: newChallenge.category,
+        timeLimit: `${newChallenge.timeLimit} min`,
+        timeLimitSec: isNaN(timeLimitSec) ? 600 : timeLimitSec,
+        points,
+        creatorKey: profile.id,
+        creatorName: profile.name,
+        participants: [profile.id],
+        createdAt: serverTimestamp(),
+      });
+      const created = {
+        id: docRef.id,
+        name: newChallenge.name.trim(),
+        description: newChallenge.description.trim(),
+        category: newChallenge.category,
+        timeLimit: `${newChallenge.timeLimit} min`,
+        timeLimitSec: isNaN(timeLimitSec) ? 600 : timeLimitSec,
+        points,
+        creatorKey: profile.id,
+        creatorName: profile.name,
+        participants: [profile.id],
+      };
+      vibrate('heavy'); notification('success');
+      setChallenges((prev) => [created, ...prev]);
+      setNewChallenge({ name: '', description: '', timeLimit: '10', points: '100', category: 'quick' });
+      setFormErrors({}); setShowCreateForm(false);
+      showToast(`"${created.name}" challenge created!`);
+    } catch (err) {
+      console.error('Failed to create challenge:', err);
+      vibrate('heavy'); notification('error');
+      showToast('Failed to create challenge.');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (showCreateForm) {
+    return (
+      <MainScreenShell>
+        <SubpageHeader title="Create Challenge" onBack={() => { setShowCreateForm(false); setNewChallenge({ name: '', description: '', timeLimit: '10', points: '100', category: 'quick' }); setFormErrors({}); }} />
+        <div className="no-scrollbar px-[18px] pb-6">
+          <div className="gold-card mt-3 overflow-hidden p-5">
+            <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[rgba(217,172,61,.12)] opacity-30" />
+            <div className="relative">
+              <Plus className="text-gold" size={22} />
+              <div className="mt-2 text-[20px] font-black">Create a challenge.</div>
+              <div className="mt-1 text-[10.5px] text-text2">Push the community to build, ship, and grow.</div>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold text-text2">Challenge Name</label>
+              <input value={newChallenge.name} onChange={(e) => setNewChallenge((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Build a landing page in 10 min" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.name ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.name && <p className="mt-1 text-[10px] text-red-400">{formErrors.name}</p>}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold text-text2">Description</label>
+              <textarea value={newChallenge.description} onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))} placeholder="What should participants build or do?" rows={3} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.description && <p className="mt-1 text-[10px] text-red-400">{formErrors.description}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-bold text-text2">Time Limit (min)</label>
+                <input type="number" min="1" value={newChallenge.timeLimit} onChange={(e) => setNewChallenge((p) => ({ ...p, timeLimit: e.target.value }))} className="w-full rounded-xl border border-linesoft bg-card px-4 py-3 text-[12.5px] outline-none focus:border-gold" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[11px] font-bold text-text2">Points</label>
+                <input type="number" min="10" value={newChallenge.points} onChange={(e) => setNewChallenge((p) => ({ ...p, points: e.target.value }))} className="w-full rounded-xl border border-linesoft bg-card px-4 py-3 text-[12.5px] outline-none focus:border-gold" />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold text-text2">Category</label>
+              <div className="flex flex-wrap gap-2">
+                {CREATE_CATEGORIES.map((cat) => (
+                  <button key={cat} onClick={() => setNewChallenge((p) => ({ ...p, category: cat }))} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold capitalize transition-colors ${newChallenge.category === cat ? 'border-transparent bg-gold-grad text-[#171100]' : 'border-linesoft text-text2'}`}>{cat}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2.5 pt-2">
+              <button onClick={() => { setShowCreateForm(false); setNewChallenge({ name: '', description: '', timeLimit: '10', points: '100', category: 'quick' }); setFormErrors({}); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
+              <button onClick={handleCreateChallenge} disabled={creating} className="flex-1 rounded-xl bg-gold-grad py-3 text-[12px] font-black text-[#171100] disabled:opacity-50">
+                {creating ? 'Creating...' : 'Create Challenge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </MainScreenShell>
+    );
+  }
+
   return (
     <MainScreenShell>
       <SubpageHeader title="Challenges" />
@@ -169,8 +319,11 @@ export default function ChallengesContent() {
             <div className="gold-card mt-3 p-5 text-center">
               <div className="text-4xl mb-3">🏆</div>
               <div className="text-[18px] font-black">No active challenges yet.</div>
-              <div className="mt-2 text-[11px] text-text2">Check back soon — new challenges are added regularly!</div>
+              <div className="mt-2 text-[11px] text-text2">Create one to get the community building!</div>
             </div>
+            <button onClick={() => { vibrate('light'); setShowCreateForm(true); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gold-grad py-3 text-[11px] font-black text-[#171100]">
+              <Plus size={15} /> Create Challenge
+            </button>
             <div className="mt-5 grid grid-cols-4 gap-2">
               <Stat n="0" l="Points" icon={Medal} />
               <Stat n="-" l="Rank" icon={Trophy} />
@@ -224,6 +377,10 @@ export default function ChallengesContent() {
               </div>
             )}
 
+            <button onClick={() => { vibrate('light'); setShowCreateForm(true); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gold/40 bg-gold/[0.06] py-3 text-[12px] font-bold text-gold transition-colors hover:bg-gold/10">
+              <Plus size={16} /> Create Challenge
+            </button>
+
             <div className="mt-5 flex items-center justify-between">
               <div><h2 className="text-[15px] font-extrabold">Today&apos;s challenges</h2><p className="text-[10px] text-text3">Earn points, badges and proof of work.</p></div>
               <Trophy size={18} className="text-gold" />
@@ -239,25 +396,38 @@ export default function ChallengesContent() {
               {filteredChallenges.map((c) => {
                 const st = getChallengeStatus(c.id);
                 const isActive = activeId === c.id && st === 'in-progress';
+                const participants = c.participants || [];
+                const isJoined = participants.includes(profile?.id);
                 return (
-                  <button key={c.id} onClick={() => { if (st === 'idle') setDetailId(c.id); else if (st === 'in-progress') setActiveId(c.id); }} className="glass-card flex w-full items-center gap-3 p-4 text-left">
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${st === 'completed' ? 'border-green-500/40 bg-green-500/10 text-green-400' : st === 'in-progress' ? 'border-gold/40 bg-gold/10 text-gold' : 'border-line text-gold'}`}>
-                      {st === 'completed' ? <CheckCircle size={18} /> : <Zap size={18} />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[12.5px] font-extrabold">{c.name}</div>
-                        {st === 'in-progress' && <div className="flex items-center gap-1.5"><Clock size={10} className="text-gold" /><span className="text-[10px] text-gold">{formatTime(timer)}</span></div>}
+                  <div key={c.id} className="glass-card p-4">
+                    <div className="flex items-start gap-3">
+                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${st === 'completed' ? 'border-green-500/40 bg-green-500/10 text-green-400' : st === 'in-progress' ? 'border-gold/40 bg-gold/10 text-gold' : 'border-line text-gold'}`}>
+                        {st === 'completed' ? <CheckCircle size={18} /> : <Zap size={18} />}
                       </div>
-                      <div className="mt-0.5 text-[10.5px] text-text2">{c.description}</div>
-                      <div className="mt-1 text-[9.5px] text-text3">{c.timeLimit || '10 min'} · +{c.points || 100} pts</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="text-[12.5px] font-extrabold">{c.name}</div>
+                          {st === 'in-progress' && <div className="flex items-center gap-1.5"><Clock size={10} className="text-gold" /><span className="text-[10px] text-gold">{formatTime(timer)}</span></div>}
+                        </div>
+                        <div className="mt-0.5 text-[10.5px] text-text2">{c.description}</div>
+                        <div className="mt-1 text-[9.5px] text-text3">{c.timeLimit || '10 min'} · +{c.points || 100} pts · {participants.length} joined</div>
+                      </div>
                     </div>
-                    <div className="shrink-0">
-                      {st === 'idle' && <ChevronRight size={15} className="text-text3" />}
-                      {st === 'in-progress' && <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[9px] font-bold text-gold">Active</span>}
-                      {st === 'completed' && <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[9px] font-bold text-green-400">Done ✓</span>}
+                    <div className="mt-3 flex gap-2">
+                      {st === 'completed' ? (
+                        <span className="flex-1 rounded-xl bg-green-500/15 py-2.5 text-center text-[10.5px] font-bold text-green-400">Completed ✓</span>
+                      ) : st === 'in-progress' ? (
+                        <button onClick={() => { vibrate(); setActiveId(c.id); }} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-gold py-2.5 text-[10.5px] font-bold text-[#171100]"><Play size={12} /> Continue</button>
+                      ) : (
+                        <>
+                          <button onClick={() => { vibrate(); startChallenge(c.id); }} className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]">Start</button>
+                          <button onClick={() => handleJoinChallenge(c)} className={`rounded-xl border px-3 py-2.5 text-[10.5px] font-bold transition-all ${isJoined ? 'border-brandgreen/40 bg-brandgreen/10 text-brandgreen' : 'border-linesoft text-gold-hi hover:bg-gold/10'}`}>
+                            {isJoined ? 'Joined ✓' : 'Join'}
+                          </button>
+                        </>
+                      )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
               {filteredChallenges.length === 0 && (

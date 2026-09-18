@@ -2,9 +2,12 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Play, RotateCcw, Timer, Zap } from 'lucide-react';
+import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Play, RotateCcw, Timer, Zap, Loader2 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { uploadImage } from '@/lib/firestore';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import Avatar from '@/components/Avatar';
 
 const EFFECTS = [
@@ -32,6 +35,7 @@ export default function CreateReelPage() {
 
   const [step, setStep] = useState('capture');
   const [videoPreview, setVideoPreview] = useState(null);
+  const [selectedVideoFile, setSelectedVideoFile] = useState(null);
   const [selectedEffect, setSelectedEffect] = useState(0);
   const [selectedSound, setSelectedSound] = useState(0);
   const [caption, setCaption] = useState('');
@@ -71,22 +75,55 @@ export default function CreateReelPage() {
       showToast('Only videos allowed');
       return;
     }
+    setSelectedVideoFile(file);
     const url = URL.createObjectURL(file);
     setVideoPreview(url);
     setStep('edit');
     e.target.value = '';
   }, [showToast]);
 
-  const handlePublish = useCallback(() => {
+  const handlePublish = useCallback(async () => {
+    if (!profile?.id) {
+      showToast('You must be logged in to post a reel');
+      return;
+    }
     vibrate('medium');
     setIsUploading(true);
-    setTimeout(() => {
+    try {
+      let reelUrl = null;
+      if (selectedVideoFile) {
+        const result = await uploadImage(selectedVideoFile, `reels/${profile.id}/${Date.now()}`);
+        if (!result.success) {
+          showToast('Failed to upload video: ' + result.error);
+          setIsUploading(false);
+          return;
+        }
+        reelUrl = result.data;
+      }
+
+      await addDoc(collection(db, 'reels'), {
+        authorKey: profile.id,
+        authorName: profile.name,
+        authorAvatar: profile.avatar,
+        videoUrl: reelUrl,
+        text: caption.trim(),
+        effect: EFFECTS[selectedEffect].name,
+        sound: SOUNDS[selectedSound].name,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        createdAt: serverTimestamp(),
+      });
+
       notification('success');
       showToast('Reel published!');
-      setIsUploading(false);
       router.push('/reels');
-    }, 2000);
-  }, [vibrate, notification, showToast, router]);
+    } catch (err) {
+      showToast('Failed to publish reel: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [profile, selectedVideoFile, caption, selectedEffect, selectedSound, vibrate, notification, showToast, router]);
 
   const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
@@ -99,9 +136,9 @@ export default function CreateReelPage() {
         </button>
         <span className="text-[15px] font-bold text-white">{step === 'capture' ? 'New Reel' : 'Edit Reel'}</span>
         {step === 'edit' && (
-          <button onClick={handlePublish} disabled={isUploading} className="flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-[12px] font-bold text-[#1a1300]" aria-label="Publish reel">
-            {isUploading ? <Sparkles size={14} className="animate-spin" /> : <Send size={14} />}
-            Post
+          <button onClick={handlePublish} disabled={isUploading} className="flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-[12px] font-bold text-[#1a1300] disabled:opacity-50" aria-label="Publish reel">
+            {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {isUploading ? 'Posting...' : 'Post'}
           </button>
         )}
         {step === 'capture' && <div className="w-9" />}
