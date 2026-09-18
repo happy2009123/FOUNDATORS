@@ -31,7 +31,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://i.pravatar.cc https://*.googleapis.com https://*.firebaseio.com https://firebasestorage.googleapis.com",
               "font-src 'self'",
-              "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.appspot.com https://firebasestorage.googleapis.com http://localhost:*",
+              "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.appspot.com https://firebasestorage.googleapis.com https://fcm.googleapis.com wss://*.firebaseio.com http://localhost:*",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
