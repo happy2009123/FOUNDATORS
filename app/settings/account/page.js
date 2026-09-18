@@ -7,6 +7,9 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
+import { db, auth } from '@/lib/firebase';
+import { doc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { deleteUser } from 'firebase/auth';
 
 export default function AccountSettingsPage() {
   const ready = useRequireAuth();
@@ -14,28 +17,60 @@ export default function AccountSettingsPage() {
   const { vibrate, notification } = useHaptics();
   const showToast = useStore((s) => s.showToast);
   const logout = useStore((s) => s.logout);
+  const profile = useStore((s) => s.profile);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [show2FA, setShow2FA] = useState(false);
   const [twoFACode, setTwoFACode] = useState('');
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   if (!ready) return <AuthSkeleton />;
 
-  const handleExportData = () => {
+  const handleExportData = async () => {
     vibrate('light');
-    const data = {
-      exportDate: new Date().toISOString(),
-      platform: 'Foundators',
-      note: 'This is your data export. In production, this would include all your posts, messages, and activity.',
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `foundators-data-export-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Data exported successfully');
+    if (!profile?.id) return showToast('Not logged in');
+
+    try {
+      const userData = { profile };
+
+      // Fetch posts
+      const postsSnap = await getDocs(query(collection(db, 'posts'), where('authorKey', '==', profile.id)));
+      userData.posts = postsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Fetch followers
+      const followersSnap = await getDocs(collection(db, 'users', profile.id, 'followers'));
+      userData.followers = followersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Fetch following
+      const followingSnap = await getDocs(collection(db, 'users', profile.id, 'following'));
+      userData.following = followingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Fetch bookmarks
+      const bookmarksSnap = await getDocs(collection(db, 'users', profile.id, 'bookmarks'));
+      userData.bookmarks = bookmarksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Fetch notifications
+      const notifsSnap = await getDocs(collection(db, 'users', profile.id, 'notifications'));
+      userData.notifications = notifsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      const exportPayload = {
+        exportDate: new Date().toISOString(),
+        platform: 'Foundators',
+        data: userData,
+      };
+
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `foundators-data-export-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Data exported successfully');
+    } catch (err) {
+      console.error('Export error:', err);
+      showToast('Failed to export data');
+    }
   };
 
   const handleEnable2FA = () => {
@@ -48,14 +83,43 @@ export default function AccountSettingsPage() {
     }
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
+    if (!profile?.id) return;
     vibrate('medium');
-    setShowDeleteConfirm(false);
-    showToast('Account scheduled for deletion');
-    setTimeout(() => {
+    setDeleting(true);
+
+    try {
+      // Delete user's subcollections
+      const subcollections = ['notifications', 'followers', 'following', 'blocked', 'bookmarks', 'settings'];
+      for (const sub of subcollections) {
+        try {
+          const snap = await getDocs(collection(db, 'users', profile.id, sub));
+          for (const d of snap.docs) {
+            await deleteDoc(doc(db, 'users', profile.id, sub, d.id));
+          }
+        } catch (err) {
+          console.warn(`Failed to delete subcollection ${sub}:`, err);
+        }
+      }
+
+      // Delete user doc
+      await deleteDoc(doc(db, 'users', profile.id));
+
+      // Delete Firebase Auth account
+      if (auth?.currentUser) {
+        await deleteUser(auth.currentUser);
+      }
+
+      setShowDeleteConfirm(false);
+      showToast('Account deleted');
       logout();
       router.push('/login');
-    }, 2000);
+    } catch (err) {
+      console.error('Delete account error:', err);
+      showToast('Failed to delete account. Try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -68,7 +132,6 @@ export default function AccountSettingsPage() {
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Security */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Security</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -97,7 +160,6 @@ export default function AccountSettingsPage() {
           </div>
         </section>
 
-        {/* Data */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Your Data</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -111,7 +173,6 @@ export default function AccountSettingsPage() {
           </div>
         </section>
 
-        {/* Danger zone */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-red mb-3">Danger Zone</h2>
           <div className="rounded-2xl border border-red/20 bg-red/5 divide-y divide-red/10">
@@ -129,7 +190,6 @@ export default function AccountSettingsPage() {
         </section>
       </div>
 
-      {/* 2FA Setup Modal */}
       {show2FA && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShow2FA(false)}>
           <div className="w-full max-w-[320px] rounded-3xl bg-card p-6" onClick={(e) => e.stopPropagation()}>
@@ -158,7 +218,6 @@ export default function AccountSettingsPage() {
         </div>
       )}
 
-      {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShowDeleteConfirm(false)}>
           <div className="w-full max-w-[300px] rounded-3xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
@@ -171,8 +230,12 @@ export default function AccountSettingsPage() {
               <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 rounded-full border border-linesoft py-3 text-[12px] font-bold text-text2">
                 Cancel
               </button>
-              <button onClick={handleDeleteAccount} className="flex-1 rounded-full bg-red py-3 text-[12px] font-bold text-white">
-                Delete
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                className="flex-1 rounded-full bg-red py-3 text-[12px] font-bold text-white disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

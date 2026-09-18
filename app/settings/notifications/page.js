@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Bell, Shield, Eye, Lock, Trash2, Download, ChevronRight, LogOut, UserX, Globe } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function NotificationSettingsPage() {
   const ready = useRequireAuth();
@@ -15,6 +17,7 @@ export default function NotificationSettingsPage() {
   const showToast = useStore((s) => s.showToast);
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
+  const profile = useStore((s) => s.profile);
 
   const [prefs, setPrefs] = useState({
     likes: true,
@@ -31,6 +34,24 @@ export default function NotificationSettingsPage() {
     quietHoursStart: '22:00',
     quietHoursEnd: '08:00',
   });
+
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const loadPrefs = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', profile.id, 'settings', 'notifications'));
+        if (snap.exists()) {
+          const data = snap.data();
+          setPrefs((prev) => ({ ...prev, ...data }));
+        }
+      } catch (err) {
+        console.error('Failed to load notification settings:', err);
+      }
+    };
+    loadPrefs();
+  }, [profile?.id]);
 
   const toggle = (key) => {
     vibrate('light');
@@ -50,6 +71,24 @@ export default function NotificationSettingsPage() {
     </button>
   );
 
+  const handleSave = async () => {
+    if (!profile?.id) return;
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'users', profile.id, 'settings', 'notifications'), {
+        ...prefs,
+        updatedAt: serverTimestamp(),
+      });
+      updateSettings({ notifications: prefs });
+      showToast('Settings saved');
+    } catch (err) {
+      console.error('Failed to save notification settings:', err);
+      showToast('Failed to save. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="app-shell overflow-y-auto">
       <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-linesoft bg-ink/80 px-4 py-3 backdrop-blur-md">
@@ -60,7 +99,6 @@ export default function NotificationSettingsPage() {
       </div>
 
       <div className="p-4 space-y-6">
-        {/* In-app notifications */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">In-App Notifications</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -87,7 +125,6 @@ export default function NotificationSettingsPage() {
           </div>
         </section>
 
-        {/* Quiet hours */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Quiet Hours</h2>
           <div className="rounded-2xl border border-linesoft bg-card p-4">
@@ -124,10 +161,11 @@ export default function NotificationSettingsPage() {
         </section>
 
         <button
-          onClick={() => { showToast('Settings saved'); }}
-          className="w-full rounded-2xl bg-gold py-3.5 text-[13px] font-bold text-[#1a1300]"
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full rounded-2xl bg-gold py-3.5 text-[13px] font-bold text-[#1a1300] disabled:opacity-50"
         >
-          Save Preferences
+          {saving ? 'Saving...' : 'Save Preferences'}
         </button>
       </div>
     </div>

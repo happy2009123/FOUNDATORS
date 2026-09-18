@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Shield, Eye, Lock, Globe, MessageCircle } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function PrivacySettingsPage() {
   const ready = useRequireAuth();
@@ -14,6 +16,8 @@ export default function PrivacySettingsPage() {
   const { vibrate } = useHaptics();
   const showToast = useStore((s) => s.showToast);
   const settings = useStore((s) => s.settings);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const profile = useStore((s) => s.profile);
 
   const [prefs, setPrefs] = useState({
     privateProfile: false,
@@ -27,6 +31,24 @@ export default function PrivacySettingsPage() {
     activityStatus: true,
     searchEngineIndexing: true,
   });
+
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const loadPrefs = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', profile.id, 'settings', 'privacy'));
+        if (snap.exists()) {
+          const data = snap.data();
+          setPrefs((prev) => ({ ...prev, ...data }));
+        }
+      } catch (err) {
+        console.error('Failed to load privacy settings:', err);
+      }
+    };
+    loadPrefs();
+  }, [profile?.id]);
 
   const toggle = (key) => {
     vibrate('light');
@@ -62,6 +84,24 @@ export default function PrivacySettingsPage() {
     </div>
   );
 
+  const handleSave = async () => {
+    if (!profile?.id) return;
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'users', profile.id, 'settings', 'privacy'), {
+        ...prefs,
+        updatedAt: serverTimestamp(),
+      });
+      updateSettings({ privacy: prefs });
+      showToast('Privacy settings saved!');
+    } catch (err) {
+      console.error('Failed to save privacy settings:', err);
+      showToast('Failed to save. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="app-shell overflow-y-auto">
       <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-linesoft bg-ink/80 px-4 py-3 backdrop-blur-md">
@@ -72,7 +112,6 @@ export default function PrivacySettingsPage() {
       </div>
 
       <div className="p-4 space-y-6">
-        {/* Account privacy */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Account Privacy</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -97,7 +136,6 @@ export default function PrivacySettingsPage() {
           </div>
         </section>
 
-        {/* Visibility */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Visibility</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -130,7 +168,6 @@ export default function PrivacySettingsPage() {
           </div>
         </section>
 
-        {/* Interactions */}
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Interactions</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
@@ -170,10 +207,11 @@ export default function PrivacySettingsPage() {
         </section>
 
         <button
-          onClick={() => showToast('Privacy settings saved')}
-          className="w-full rounded-2xl bg-gold py-3.5 text-[13px] font-bold text-[#1a1300]"
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full rounded-2xl bg-gold py-3.5 text-[13px] font-bold text-[#1a1300] disabled:opacity-50"
         >
-          Save Settings
+          {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
     </div>
