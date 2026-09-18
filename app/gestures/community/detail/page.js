@@ -164,7 +164,7 @@ function TemplateDetailInner() {
   const premiumTemplates = useStore((s) => s.premiumTemplates);
   const templatePrice = useStore((s) => s.templatePrice);
 
-  const userKey = useStore((s) => s.profile?.key || 'kabir');
+  const userKey = useStore((s) => s.profile?.id);
 
   const template = useMemo(
     () => communityTemplates.find((t) => t.id === templateId) || null,
@@ -226,7 +226,7 @@ function TemplateDetailInner() {
 
   const handleAddComment = () => {
     if (!commentText.trim() || !template) return;
-    addTemplateComment(template.id, { authorKey: profile?.key || 'kabir', text: commentText.trim() });
+    addTemplateComment(template.id, { authorKey: profile?.id, text: commentText.trim() });
     setCommentText('');
     vibrate('light');
   };

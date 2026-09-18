@@ -130,12 +130,13 @@ service cloud.firestore {
       // ----------------------------------------------------------
       match /following/{followingId} {
         allow read: if isOwner(userId);
-        // The user can only add themselves as following someone else
-        allow create: if isOwner(userId) && uid() == followingId
+        // The user can follow any other user (followingId = who they follow)
+        allow create: if isOwner(userId)
+          && followingId != userId
           && request.resource.data.keys().hasAll(['followedAt'])
           && isValidTimestamp(request.resource.data.followedAt);
         // The user can only remove their own following record
-        allow delete: if isOwner(userId) && uid() == followingId;
+        allow delete: if isOwner(userId);
         // No updates allowed on following records
         allow update: if false;
       }

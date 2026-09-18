@@ -39,7 +39,7 @@ export default function CommunityTemplatesPage() {
 
   const communityTemplates = useStore((s) => s.communityTemplates);
   const starTemplate = useStore((s) => s.starTemplate);
-  const userKey = useStore((s) => s.profile?.key || 'kabir');
+  const userKey = useStore((s) => s.profile?.id);
   const featuredTemplates = useStore((s) => s.featuredTemplates);
   const { vibrate } = useHaptics();
 

@@ -9,7 +9,7 @@ function scorePost(post, profile, followedUsers) {
   let score = 0;
   const isFollowing = followedUsers[post.user];
   if (isFollowing) score += 50;
-  if (post.user === 'kabir') score += 100;
+  if (post.user === profile?.id) score += 100;
   if (post.content) {
     const interests = profile?.interests || [];
     const text = post.content.toLowerCase();
@@ -38,7 +38,7 @@ export default function FeedAlgorithm() {
     const allPosts = [...INITIAL_POSTS];
     if (feedType === 'following') {
       return allPosts.filter(
-        (p) => followedUsers[p.user] || p.user === 'kabir'
+        (p) => followedUsers[p.user] || p.user === profile?.id
       );
     }
     return allPosts.sort((a, b) => {

@@ -31,7 +31,7 @@ function ProfileContent() {
   const [editing, setEditing] = useState(false);
   const [bioDraft, setBioDraft] = useState(profile.bio);
 
-  const ownPosts = useMemo(() => posts.filter((p) => p.authorKey === 'kabir'), [posts]);
+  const ownPosts = useMemo(() => posts.filter((p) => p.authorKey === profile?.id), [posts]);
   const filteredOwn = useMemo(() => {
     if (tab === 'posts' || tab === 'saved') return ownPosts;
     return ownPosts.filter((p) => p.tagType === tab);

@@ -97,7 +97,7 @@ export default function PostCommentsPage() {
 
   function CommentItem({ comment, isReply = false }) {
     const commenter = comment.who === 'me'
-      ? { name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13', key: 'kabir' }
+      ? { name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13', key: useStore.getState().profile?.id }
       : getPerson(comment.who);
     const replies = getReplies(comment.id);
     const isEditing = editingId === comment.id;

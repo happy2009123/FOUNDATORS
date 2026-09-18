@@ -47,7 +47,7 @@ export default function StoriesBar() {
             <span className="text-[10px] text-text3">Your story</span>
           </button>
 
-          {STORIES.filter((s) => s.key !== 'kabir').map((story) => (
+          {STORIES.filter((s) => s.key !== profile?.id).map((story) => (
             <button
               key={story.key}
               onClick={() => story.hasStory && setViewingStory(story.key)}

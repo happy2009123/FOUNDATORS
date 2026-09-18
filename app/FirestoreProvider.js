@@ -5,11 +5,14 @@ import { useStore } from '@/lib/store';
 import { isFirebaseConfigured, auth, db } from '@/lib/firebase';
 import {
   collection,
+  doc,
   query,
   orderBy,
   limit,
   onSnapshot,
   where,
+  setDoc,
+  serverTimestamp,
 } from 'firebase/firestore';
 
 export default function FirestoreProvider({ children }) {
@@ -25,8 +28,43 @@ export default function FirestoreProvider({ children }) {
 
     const unsubs = [];
 
-    // ── Posts: ONLY from users this person follows ──────────────────────
-    // For new users with no follows, feed is empty (Instagram-like)
+    // ── Own profile: create if not exists, subscribe to updates ────────
+    const ownProfileRef = doc(db, 'users', userId);
+    const unsubProfile = onSnapshot(ownProfileRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        set((s) => ({
+          profile: {
+            ...s.profile,
+            name: data.name || s.profile.name,
+            handle: data.handle || s.profile.handle,
+            bio: data.bio || '',
+            avatar: data.avatar || s.profile.avatar,
+            role: data.role || '',
+            location: data.location || '',
+            followers: data.followers || 0,
+            following: data.following || 0,
+          },
+        }));
+      }
+    });
+    unsubs.push(unsubProfile);
+
+    // Ensure user doc exists in Firestore
+    setDoc(ownProfileRef, {
+      name: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+      handle: '@' + (auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'user').toLowerCase().replace(/\s+/g, ''),
+      email: auth.currentUser?.email || '',
+      avatar: auth.currentUser?.photoURL || `https://i.pravatar.cc/160?u=${userId}`,
+      bio: '',
+      role: '',
+      location: '',
+      followers: 0,
+      following: 0,
+      createdAt: serverTimestamp(),
+    }, { merge: true }).catch(() => {});
+
+    // ── Posts: ONLY from users this person follows + own posts ─────────
     const followsQ = query(collection(db, 'users', userId, 'following'));
     const unsubFollows = onSnapshot(followsQ, (followSnap) => {
       const followedIds = followSnap.docs.map((d) => d.id);
@@ -37,25 +75,47 @@ export default function FirestoreProvider({ children }) {
         try { oldPostUnsub(); } catch (e) {}
       }
 
-      if (followedIds.length === 0) {
+      // Always include own posts + followed users' posts
+      const allAuthorIds = [userId, ...followedIds];
+
+      if (allAuthorIds.length === 0) {
         set({ posts: [] });
         return;
       }
 
-      // Listen to posts from followed users (max 10 at a time for Firestore `in` query)
-      const batch = followedIds.slice(0, 10);
-      const postsQ = query(
-        collection(db, 'posts'),
-        where('authorKey', 'in', batch),
-        orderBy('createdAt', 'desc'),
-        limit(50)
-      );
-      const unsubPosts = onSnapshot(postsQ, (snap) => {
-        const firestorePosts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        set({ posts: firestorePosts });
+      // Firestore `in` query max 10 items — batch if needed
+      const batches = [];
+      for (let i = 0; i < allAuthorIds.length; i += 10) {
+        batches.push(allAuthorIds.slice(i, i + 10));
+      }
+
+      const allPosts = [];
+      let loadedBatches = 0;
+
+      batches.forEach((batch) => {
+        const postsQ = query(
+          collection(db, 'posts'),
+          where('authorKey', 'in', batch),
+          orderBy('createdAt', 'desc'),
+          limit(50)
+        );
+        const unsubPosts = onSnapshot(postsQ, (snap) => {
+          const batchPosts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          // Merge: remove old posts from this batch, add new ones
+          const otherBatchesPosts = allPosts.filter((p) => !batch.some((b) => b === p.authorKey));
+          allPosts.length = 0;
+          allPosts.push(...otherBatchesPosts, ...batchPosts);
+          allPosts.sort((a, b) => {
+            const aTime = a.createdAt?.toDate?.() || 0;
+            const bTime = b.createdAt?.toDate?.() || 0;
+            return bTime - aTime;
+          });
+          set({ posts: allPosts.slice(0, 100) });
+        });
+        unsubs.push(unsubPosts);
       });
-      unsubRef.current._posts = unsubPosts;
-      unsubs.push(unsubPosts);
+
+      unsubRef.current._posts = { unsubscribe: () => unsubs.forEach((u) => { try { u(); } catch (e) {} }) };
     });
     unsubs.push(unsubFollows);
 
@@ -97,6 +157,15 @@ export default function FirestoreProvider({ children }) {
       set({ contacts });
     });
     unsubs.push(unsubChats);
+
+    // ── Bookmarks: ONLY this user's ────────────────────────────────────
+    const bookmarksQ = query(collection(db, 'users', userId, 'bookmarks'));
+    const unsubBookmarks = onSnapshot(bookmarksQ, (snap) => {
+      const bookmarked = {};
+      snap.docs.forEach((d) => { bookmarked[d.id] = true; });
+      set({ bookmarkedPosts: bookmarked });
+    });
+    unsubs.push(unsubBookmarks);
 
     unsubRef.current = unsubs;
     return () => {

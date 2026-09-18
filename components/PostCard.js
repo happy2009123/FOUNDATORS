@@ -49,7 +49,8 @@ export default memo(function PostCard({ post }) {
   const [editText, setEditText] = useState(post.text);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [likeAnimation, setLikeAnimation] = useState(false);
-  const isOwnPost = post.authorKey === 'kabir';
+  const profile = useStore((s) => s.profile);
+  const isOwnPost = post.authorKey === profile?.id;
 
   const tagInfo = TAG_META[post.tagType];
   const TagIcon = tagInfo?.icon;
@@ -65,7 +66,7 @@ export default memo(function PostCard({ post }) {
   }, [liked, toggleLike, post.id, vibrate, notification]);
 
   function goToAuthor() {
-    if (post.authorKey === 'kabir') {
+    if (post.authorKey === profile?.id) {
       router.push('/profile');
     } else {
       router.push(`/profile/${post.authorKey}`);

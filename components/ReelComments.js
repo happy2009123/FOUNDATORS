@@ -33,7 +33,7 @@ export default function ReelComments({ reelId, onClose }) {
     vibrate('light');
     const newComment = {
       id: `c${Date.now()}`,
-      user: 'kabir',
+      user: profile?.id,
       text: text.trim(),
       time: 'now',
       likes: 0,

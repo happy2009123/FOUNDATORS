@@ -7,7 +7,6 @@ export const metadata = {
 
 export function generateStaticParams() {
   const userKeys = Object.keys(USERS);
-  if (!userKeys.includes('kabir')) userKeys.push('kabir');
   return userKeys.map((userId) => ({ userId }));
 }
 
