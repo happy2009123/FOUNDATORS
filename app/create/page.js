@@ -18,7 +18,7 @@ const TAGS = [
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 5 * 1024 * 1024;
-const MAX_TEXT = 2000;
+const MAX_TEXT = 280;
 
 export default function CreatePage() {
   const ready = useRequireAuth();
@@ -74,6 +74,31 @@ export default function CreatePage() {
     setImagePreview(null);
   }
 
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        let { width, height } = img;
+        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+          const ratio = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height);
+          width *= ratio;
+          height *= ratio;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+        }, 'image/jpeg', 0.8);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   async function handlePublish() {
     if (!text.trim() && !selectedImage && !imagePreview) {
       showToast('Write something or add an image before posting');
@@ -88,7 +113,8 @@ export default function CreatePage() {
       let finalImageUrl = imagePreview;
       if (selectedImage) {
         const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const result = await uploadImage(selectedImage, `posts/${postId}/${selectedImage.name}`);
+        const compressed = await compressImage(selectedImage);
+        const result = await uploadImage(compressed, `posts/${postId}/${compressed.name}`);
         if (result.success) {
           finalImageUrl = result.data;
         } else {
@@ -144,7 +170,7 @@ export default function CreatePage() {
           </button>
           <button
             onClick={handlePublish}
-            disabled={isPublishing}
+            disabled={isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage)}
             className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
           >
             {isPublishing ? <Loader2 size={14} className="animate-spin" /> : 'Post'}
@@ -183,6 +209,12 @@ export default function CreatePage() {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="flex justify-between items-center mt-2">
+          <span className={`text-[11px] ${text.length > MAX_TEXT ? 'text-red-500' : 'text-text3'}`}>
+            {text.length}/{MAX_TEXT}
+          </span>
         </div>
 
         <input

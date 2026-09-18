@@ -26,6 +26,7 @@ import VerifiedBadge from './VerifiedBadge';
 import Avatar from './Avatar';
 import RichText from './RichText';
 import { db } from '@/lib/firebase';
+import { deletePost as firestoreDeletePost, updatePost as firestoreUpdatePost } from '@/lib/firestore';
 import { doc, getDoc } from 'firebase/firestore';
 
 const TAG_META = {
@@ -52,11 +53,14 @@ export default memo(function PostCard({ post }) {
   const toggleLike = useStore((s) => s.toggleLike);
   const toggleBookmark = useStore((s) => s.toggleBookmark);
   const showToast = useStore((s) => s.showToast);
-  const deletePost = useStore((s) => s.deletePost);
   const { vibrate, notification } = useHaptics();
   const [showMenu, setShowMenu] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.text);
+
+  useEffect(() => {
+    setEditText(post.text);
+  }, [post.text]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [likeAnimation, setLikeAnimation] = useState(false);
   const profile = useStore((s) => s.profile);
@@ -93,14 +97,25 @@ export default memo(function PostCard({ post }) {
   }
 
   function handleSaveEdit() {
+    if (!editText.trim() || editText === post.text) {
+      setIsEditing(false);
+      return;
+    }
     vibrate('light');
-    showToast('Post updated!');
+    firestoreUpdatePost(post.id, { text: editText.trim() }).catch(() => {});
+    useStore.setState((s) => ({
+      posts: s.posts.map((p) => p.id === post.id ? { ...p, text: editText.trim() } : p),
+    }));
     setIsEditing(false);
+    showToast('Post updated');
   }
 
   function handleDelete() {
     vibrate('medium');
-    if (deletePost) deletePost(post.id);
+    firestoreDeletePost(post.id).catch(() => {});
+    useStore.setState((s) => ({
+      posts: s.posts.filter((p) => p.id !== post.id),
+    }));
     setShowDeleteConfirm(false);
     showToast('Post deleted');
   }

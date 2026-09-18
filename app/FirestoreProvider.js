@@ -13,6 +13,7 @@ import {
   where,
   setDoc,
   serverTimestamp,
+  getDocs,
 } from 'firebase/firestore';
 
 export default function FirestoreProvider({ children }) {
@@ -110,7 +111,9 @@ export default function FirestoreProvider({ children }) {
             const bTime = b.createdAt?.toDate?.() || 0;
             return bTime - aTime;
           });
-          set({ posts: allPosts.slice(0, 100) });
+          const blocked = useStore.getState().blockedUsers || {};
+          const filtered = allPosts.filter((p) => !blocked[p.authorKey]);
+          set({ posts: filtered.slice(0, 100) });
         });
         unsubs.push(unsubPosts);
       });

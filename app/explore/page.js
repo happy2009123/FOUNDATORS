@@ -8,6 +8,7 @@ import TopBar from '@/components/TopBar';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { useStore } from '@/lib/store';
+import { auth } from '@/lib/firebase';
 import Avatar from '@/components/Avatar';
 
 const TRENDING_TAGS = [
@@ -45,10 +46,16 @@ export default function ExplorePage() {
     let cancelled = false;
     async function fetchUsers() {
       try {
+        const userId = auth?.currentUser?.uid;
         const snap = await getDocs(collection(db, 'users'));
+        let blockedIds = new Set();
+        if (userId) {
+          const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
+          blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
+        }
         if (!cancelled) {
           const map = {};
-          snap.docs.forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+          snap.docs.filter((d) => !blockedIds.has(d.id)).forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
           setUsers(map);
         }
       } catch {

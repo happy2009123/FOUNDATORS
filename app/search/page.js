@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Search, X, Clock, TrendingUp, Hash, Users, Filter, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query as firestoreQuery } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
+import { auth } from '@/lib/firebase';
 
 const TRENDING = [
   { type: 'tag', text: '#AI', posts: 1240 },
@@ -32,9 +33,15 @@ export default function SearchPage() {
     let cancelled = false;
     async function fetchUsers() {
       try {
+        const userId = auth?.currentUser?.uid;
         const snap = await getDocs(collection(db, 'users'));
+        let blockedIds = new Set();
+        if (userId) {
+          const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
+          blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
+        }
         if (!cancelled) {
-          setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setUsers(snap.docs.filter((d) => !blockedIds.has(d.id)).map((d) => ({ id: d.id, ...d.data() })));
         }
       } catch {
         // silently fail

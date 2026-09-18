@@ -87,8 +87,8 @@ export default function MessagesPage() {
       if (tab === 'archived') return false;
       if (!query) return true;
       const q = query.toLowerCase();
-      const lastMsg = c.messages[c.messages.length - 1];
-      return c.name.toLowerCase().includes(q) || (lastMsg?.text || '').toLowerCase().includes(q);
+      return c.name?.toLowerCase().includes(q) ||
+        c.messages?.some(m => m.text?.toLowerCase().includes(q));
     });
   }, [mergedContacts, query, tab, unreadByContact]);
 

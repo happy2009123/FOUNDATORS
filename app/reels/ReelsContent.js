@@ -24,21 +24,6 @@ import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
-const FALLBACK_REELS = [
-  {
-    id: 'r1',
-    authorKey: 'sophia',
-    type: 'tip',
-    text: '3 things every founder should know before raising funding:',
-    details: '1. Know your metrics\n2. Build relationships before you need money\n3. Have a clear use of funds',
-    likes: 2341,
-    comments: 89,
-    shares: 156,
-    audio: 'Original Audio',
-    gradient: 'from-purple-900 to-blue-900',
-  },
-];
-
 async function fetchUser(key) {
   try {
     const snap = await getDoc(doc(db, 'users', key));
@@ -100,12 +85,12 @@ export default function ReelsContent() {
             gradient: 'from-purple-900 to-blue-900',
           };
         });
-        setReels(fetched.length > 0 ? fetched : FALLBACK_REELS);
+        setReels(fetched);
         setLoading(false);
       },
       (err) => {
         console.warn('Reels listener error:', err);
-        setReels(FALLBACK_REELS);
+        setReels([]);
         setLoading(false);
       }
     );
@@ -263,6 +248,15 @@ export default function ReelsContent() {
         </button>
 
         {/* Reel Content */}
+        {reels.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center py-20 text-center absolute inset-0 z-10">
+            <p className="text-[14px] font-bold text-text2">No reels yet</p>
+            <p className="text-[12px] text-text3 mt-1">Be the first to create one!</p>
+            <button onClick={() => router.push('/reels/create')} className="mt-4 rounded-full bg-gold-grad px-5 py-2.5 text-[12px] font-bold text-[#1a1300]">
+              Create Reel
+            </button>
+          </div>
+        )}
         {reels.map((reel, index) => {
           const reelUser = reelUsers[reel.authorKey];
           const isLiked = !!likedReels[reel.id];

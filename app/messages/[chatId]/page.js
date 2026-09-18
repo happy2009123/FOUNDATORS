@@ -6,7 +6,7 @@ import { Phone, Video, Plus, Smile, Send, FileText, Download, Check, CheckCheck,
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
 import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
@@ -77,15 +77,37 @@ export default function ChatPage() {
   }, [messages.length, typing]);
 
   useEffect(() => {
-    const c = chatData || contact;
-    if (!c?.online || c?.isGroup) return;
-    if (input.length > 0) {
-      setTyping(true);
-      const t = setTimeout(() => setTyping(false), 2000);
-      return () => clearTimeout(t);
-    }
-    setTyping(false);
-  }, [input, chatData, contact?.online, contact?.isGroup]);
+    if (!chatId || !profile?.id) return;
+    const markRead = async () => {
+      try {
+        const unreadQ = query(
+          collection(db, 'chats', chatId, 'messages'),
+          where('senderKey', '!=', profile.id),
+          where('read', '==', false)
+        );
+        const snap = await getDocs(unreadQ);
+        snap.docs.forEach(async (d) => {
+          await updateDoc(doc(db, 'chats', chatId, 'messages', d.id), { read: true });
+        });
+      } catch (err) {
+        console.warn('Failed to mark messages read:', err);
+      }
+    };
+    markRead();
+  }, [chatId, profile?.id]);
+
+  useEffect(() => {
+    if (!chatId || !db) return;
+    const unsub = onSnapshot(doc(db, 'chats', chatId), (snap) => {
+      const data = snap.data();
+      const typingData = data?.typing || {};
+      const otherTyping = Object.entries(typingData).find(
+        ([uid, ts]) => uid !== profile?.id && Date.now() - ts < 3000
+      );
+      setTyping(!!otherTyping);
+    });
+    return () => unsub();
+  }, [chatId, profile?.id]);
 
   useEffect(() => {
     if (!chatId || !db) return;
@@ -140,6 +162,13 @@ export default function ChatPage() {
     setReplyTo(null);
     setShowEmoji(false);
   }, [input, chatId, sendMessage, notification]);
+
+  const handleInputChange = useCallback((e) => {
+    setInput(e.target.value);
+    if (chatId && profile?.id) {
+      updateDoc(doc(db, 'chats', chatId), { [`typing.${profile.id}`]: Date.now() }).catch(() => {});
+    }
+  }, [chatId, profile?.id]);
 
   const handleCopy = useCallback((text) => {
     navigator.clipboard?.writeText(text);
@@ -403,7 +432,11 @@ export default function ChatPage() {
                 {m.text}
                 <div className={`mt-0.5 flex items-center justify-end gap-1 ${isOut ? 'opacity-60' : ''}`}>
                   <span className={`text-[9.5px] ${isOut ? 'text-[#1a1300]' : 'text-text3'}`}>{m.time}</span>
-                  {isOut && <CheckCheck size={13} className="text-[#1a1300]" />}
+                  {isOut && (
+                    <span className="text-[10px] text-[#1a1300]">
+                      {m.read ? '✓✓' : '✓'}
+                    </span>
+                  )}
                 </div>
                 {messageReactions[item.index] && (
                   <div className={`absolute -bottom-2 ${isOut ? 'left-2' : 'right-2'} flex h-5 items-center justify-center rounded-full bg-card border border-linesoft px-1.5 text-[11px]`}>
@@ -531,7 +564,7 @@ export default function ChatPage() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             aria-label="Type a message"

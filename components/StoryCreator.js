@@ -61,6 +61,31 @@ export default function StoryCreator() {
     e.target.value = '';
   }, [showToast]);
 
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        let { width, height } = img;
+        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+          const ratio = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height);
+          width *= ratio;
+          height *= ratio;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+        }, 'image/jpeg', 0.8);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleShare = useCallback(async () => {
     if (!profile?.id) {
       showToast('You must be logged in to post a story');
@@ -72,7 +97,8 @@ export default function StoryCreator() {
       let imageUrl = null;
 
       if (mode === 'photo' && selectedFile) {
-        const result = await uploadImage(selectedFile, `stories/${profile.id}/${Date.now()}`);
+        const compressed = await compressImage(selectedFile);
+        const result = await uploadImage(compressed, `stories/${profile.id}/${compressed.name}`);
         if (!result.success) {
           showToast('Failed to upload image: ' + result.error);
           setIsUploading(false);

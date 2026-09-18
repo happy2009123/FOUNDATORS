@@ -45,6 +45,8 @@ export default function PostCommentsPage() {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  const MAX_COMMENT_CHARS = 500;
+
   const post = posts.find((p) => p.id === postId);
   const [author, setAuthor] = useState(null);
 
@@ -249,10 +251,15 @@ export default function PostCommentsPage() {
       )}
 
       <div className="safe-bottom flex flex-none items-center gap-2.5 border-t border-linesoft px-3.5 py-2.5">
-        <div className="flex flex-1 items-center gap-2 rounded-full border border-linesoft bg-card px-3.5 py-2.5">
+        <div className="flex flex-1 flex-col gap-1 rounded-2xl border border-linesoft bg-card px-3.5 py-2.5">
           <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={replyTo ? `Replying...` : 'Add a comment...'} aria-label="Add a comment" className="flex-1 bg-transparent text-[13.5px] text-white placeholder:text-text3 focus:outline-none" />
+          <div className="flex justify-end">
+            <span className={`text-[10px] ${input.length > MAX_COMMENT_CHARS ? 'text-red-500' : 'text-text3'}`}>
+              {input.length}/{MAX_COMMENT_CHARS}
+            </span>
+          </div>
         </div>
-        <button onClick={handleSend} disabled={!input.trim()} className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-gold-grad text-[#1a1300] disabled:opacity-40" aria-label="Send"><Send size={17} /></button>
+        <button onClick={handleSend} disabled={!input.trim() || input.length > MAX_COMMENT_CHARS} className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-gold-grad text-[#1a1300] disabled:opacity-40" aria-label="Send"><Send size={17} /></button>
       </div>
 
       {/* Delete confirm */}

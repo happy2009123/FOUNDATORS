@@ -6,15 +6,7 @@ import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
-
-const MOCK_COMMENTS = [
-  { id: 'c1', user: 'arjun', text: 'This is fire 🔥', time: '2h', likes: 12, replies: [] },
-  { id: 'c2', user: 'meera', text: 'Great insight!', time: '1h', likes: 5, replies: [
-    { id: 'c2r1', user: 'rohan', text: 'Totally agree', time: '45m', likes: 2 },
-  ]},
-  { id: 'c3', user: 'daniel', text: 'Bookmarked this', time: '30m', likes: 3, replies: [] },
-];
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, increment, arrayUnion, arrayRemove, doc, getDoc } from 'firebase/firestore';
 
 async function fetchUser(key) {
   try {
@@ -27,56 +19,50 @@ async function fetchUser(key) {
 
 export default function ReelComments({ reelId, onClose }) {
   const { vibrate } = useHaptics();
-  const [comments, setComments] = useState(MOCK_COMMENTS);
+  const [comments, setComments] = useState([]);
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
-  const [likedComments, setLikedComments] = useState({});
   const profile = useStore((s) => s.profile);
   const inputRef = useRef(null);
   const [users, setUsers] = useState({});
 
   useEffect(() => {
-    const keys = [...new Set([...comments.map((c) => c.user), ...comments.flatMap((c) => c.replies?.map((r) => r.user) || [])])];
-    keys.forEach((key) => {
-      if (key && !users[key]) {
-        fetchUser(key).then((u) => { if (u) setUsers((prev) => ({ ...prev, [key]: u })); });
-      }
+    if (!reelId) return;
+    const q = query(collection(db, 'reels', reelId, 'comments'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-  }, [comments]);
+    return () => unsub();
+  }, [reelId]);
 
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
   }, [replyTo]);
 
-  const send = () => {
-    if (!text.trim()) return;
+  const send = async () => {
+    if (!text.trim() || !profile) return;
     vibrate('light');
-    const newComment = {
-      id: `c${Date.now()}`,
-      user: profile?.id,
+    await addDoc(collection(db, 'reels', reelId, 'comments'), {
       text: text.trim(),
-      time: 'now',
+      authorKey: profile.id,
+      authorName: profile.name,
+      authorAvatar: profile.avatar,
+      createdAt: serverTimestamp(),
       likes: 0,
-      replies: [],
-    };
-    if (replyTo) {
-      setComments((prev) =>
-        prev.map((c) =>
-          c.id === replyTo
-            ? { ...c, replies: [...c.replies, { ...newComment, replies: undefined }] }
-            : c
-        )
-      );
-    } else {
-      setComments((prev) => [newComment, ...prev]);
-    }
+      likedBy: [],
+    });
     setText('');
     setReplyTo(null);
   };
 
-  const toggleLike = (commentId) => {
+  const toggleLikeComment = async (commentId, alreadyLiked) => {
     vibrate('light');
-    setLikedComments((prev) => ({ ...prev, [commentId]: !prev[commentId] }));
+    const ref = doc(db, 'reels', reelId, 'comments', commentId);
+    if (alreadyLiked) {
+      await updateDoc(ref, { likes: increment(-1), likedBy: arrayRemove(profile.id) });
+    } else {
+      await updateDoc(ref, { likes: increment(1), likedBy: arrayUnion(profile.id) });
+    }
   };
 
   const REACTIONS = ['❤️', '🔥', '👏', '😂', '😮', '😢'];
@@ -108,25 +94,25 @@ export default function ReelComments({ reelId, onClose }) {
       {/* Comments list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {comments.map((comment) => {
-          const commentUser = users[comment.user];
+          const commentUser = users[comment.authorKey];
           return (
             <div key={comment.id} className="space-y-3">
               <div className="flex gap-3">
-                <Avatar src={commentUser?.avatar} name={commentUser?.name} size={32} />
+                <Avatar src={commentUser?.avatar || comment.authorAvatar} name={commentUser?.name || comment.authorName} size={32} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-bold">{commentUser?.name || 'You'}</span>
+                    <span className="text-[12px] font-bold">{commentUser?.name || comment.authorName || 'You'}</span>
                     <span className="text-[10px] text-text3">{comment.time}</span>
                   </div>
                   <p className="text-[13px] text-text mt-0.5">{comment.text}</p>
                   <div className="flex items-center gap-3 mt-1.5">
                     <button
-                      onClick={() => toggleLike(comment.id)}
+                      onClick={() => toggleLikeComment(comment.id, comment.likedBy?.includes(profile?.id))}
                       className="flex items-center gap-1 text-[11px] text-text3"
                       aria-label="Like comment"
                     >
-                      <Heart size={12} className={likedComments[comment.id] ? 'fill-gold text-gold' : ''} />
-                      <span>{comment.likes + (likedComments[comment.id] ? 1 : 0)}</span>
+                      <Heart size={12} className={comment.likedBy?.includes(profile?.id) ? 'fill-gold text-gold' : ''} />
+                      <span>{comment.likes}</span>
                     </button>
                     <button
                       onClick={() => { setReplyTo(comment.id); setText(`@${commentUser?.name} `); }}
@@ -146,24 +132,24 @@ export default function ReelComments({ reelId, onClose }) {
               {comment.replies?.length > 0 && (
                 <div className="ml-10 space-y-3 border-l-2 border-linesoft pl-3">
                   {comment.replies.map((reply) => {
-                    const replyUser = users[reply.user];
+                    const replyUser = users[reply.authorKey];
                     return (
                       <div key={reply.id} className="flex gap-2.5">
                         <Avatar src={replyUser?.avatar} name={replyUser?.name} size={24} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold">{replyUser?.name || 'You'}</span>
+                            <span className="text-[11px] font-bold">{replyUser?.name || reply.authorName || 'You'}</span>
                             <span className="text-[10px] text-text3">{reply.time}</span>
                           </div>
                           <p className="text-[12px] text-text mt-0.5">{reply.text}</p>
                           <div className="flex items-center gap-3 mt-1">
                             <button
-                              onClick={() => toggleLike(reply.id)}
+                              onClick={() => toggleLikeComment(reply.id, reply.likedBy?.includes(profile?.id))}
                               className="flex items-center gap-1 text-[10px] text-text3"
                               aria-label="Like reply"
                             >
-                              <Heart size={10} className={likedComments[reply.id] ? 'fill-gold text-gold' : ''} />
-                              <span>{reply.likes + (likedComments[reply.id] ? 1 : 0)}</span>
+                              <Heart size={10} className={reply.likedBy?.includes(profile?.id) ? 'fill-gold text-gold' : ''} />
+                              <span>{reply.likes}</span>
                             </button>
                             <button
                               onClick={() => { setReplyTo(comment.id); setText(`@${replyUser?.name} `); }}
