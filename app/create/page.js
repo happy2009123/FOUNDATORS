@@ -6,7 +6,9 @@ import { Lightbulb, TrendingUp, Users, ImageIcon, X, Save, Clock, Loader2 } from
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { uploadImage } from '@/lib/firestore';
+import { useDrafts } from '@/lib/useDrafts';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
@@ -27,6 +29,11 @@ export default function CreatePage() {
   const publishPost = useStore((s) => s.publishPost);
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
+  const { isEmailVerified } = useFirebaseAuth();
+  const [emailVerified, setEmailVerified] = useState(true);
+  const { saveDraft, drafts, deleteDraft } = useDrafts();
+
+  useEffect(() => { isEmailVerified().then(setEmailVerified); }, [isEmailVerified]);
 
   const [text, setText] = useState('');
   const [tag, setTag] = useState('idea');
@@ -34,6 +41,8 @@ export default function CreatePage() {
   const [imagePreview, setImagePreview] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
+  const [showDrafts, setShowDrafts] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -47,6 +56,15 @@ export default function CreatePage() {
       }
     } catch {}
   }, []);
+
+  useEffect(() => {
+    if (!text.trim() && !imagePreview) return;
+    const timer = setTimeout(() => {
+      saveDraft({ text, imageUrl: imagePreview });
+      setLastSaved(new Date().toLocaleTimeString());
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [text, imagePreview, saveDraft]);
 
   if (!ready) return <AuthSkeleton />;
 
@@ -140,16 +158,16 @@ export default function CreatePage() {
       return;
     }
     vibrate('light');
-    const drafts = JSON.parse(localStorage.getItem('post_drafts') || '[]');
-    drafts.push({
-      id: `draft_${Date.now()}`,
-      text: text.trim(),
-      tag,
-      imagePreview,
-      savedAt: Date.now(),
-    });
-    localStorage.setItem('post_drafts', JSON.stringify(drafts));
+    saveDraft({ text: text.trim(), imageUrl: imagePreview });
+    setLastSaved(new Date().toLocaleTimeString());
     showToast('Draft saved!');
+  }
+
+  function handleLoadDraft(draft) {
+    setText(draft.text || '');
+    setImagePreview(draft.imageUrl || null);
+    setShowDrafts(false);
+    showToast('Draft loaded');
   }
 
   return (
@@ -160,17 +178,35 @@ export default function CreatePage() {
         </button>
         <h2 className="text-[17px] font-extrabold">New Post</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSaveDraft}
-            className="flex items-center gap-1.5 rounded-full border border-linesoft px-3 py-2 text-[11px] font-bold text-text2"
-            aria-label="Save as draft"
-          >
-            <Save size={13} />
-            Draft
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowDrafts(!showDrafts)}
+              className="flex items-center gap-1.5 rounded-full border border-linesoft px-3 py-2 text-[11px] font-bold text-text2"
+              aria-label="Save as draft"
+            >
+              <Save size={13} />
+              Draft
+              {drafts.length > 0 && (
+                <span className="ml-0.5 rounded-full bg-gold/20 px-1.5 py-0.5 text-[9px] text-gold">{drafts.length}</span>
+              )}
+            </button>
+            {showDrafts && drafts.length > 0 && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-linesoft bg-card p-2 shadow-lg">
+                <div className="mb-2 px-2 text-[11px] font-bold uppercase text-text3">Saved Drafts</div>
+                {drafts.map(d => (
+                  <div key={d.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-white/5">
+                    <button onClick={() => handleLoadDraft(d)} className="flex-1 text-left text-[12px] text-text2 truncate">
+                      {d.text || 'Image draft'}
+                    </button>
+                    <button onClick={() => deleteDraft(d.id)} className="ml-2 text-[10px] text-red-400 hover:text-red-300">Del</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             onClick={handlePublish}
-            disabled={isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage)}
+            disabled={!emailVerified || isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage)}
             className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
           >
             {isPublishing ? <Loader2 size={14} className="animate-spin" /> : 'Post'}
@@ -215,6 +251,11 @@ export default function CreatePage() {
           <span className={`text-[11px] ${text.length > MAX_TEXT ? 'text-red-500' : 'text-text3'}`}>
             {text.length}/{MAX_TEXT}
           </span>
+          {lastSaved && (
+            <span className="flex items-center gap-1 text-[10px] text-text3">
+              <Clock size={10} /> Auto-saved at {lastSaved}
+            </span>
+          )}
         </div>
 
         <input
@@ -225,7 +266,8 @@ export default function CreatePage() {
           onChange={handleImageSelect}
         />
 
-        <div className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-text2">Tag your post</div>
+          {!emailVerified && <p className="text-[11px] text-gold mt-1">Verify your email to post</p>}
+          <div className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-text2">Tag your post</div>
         <div className="flex flex-wrap gap-2.5">
           {TAGS.map((t) => {
             const Icon = t.icon;

@@ -1,19 +1,29 @@
 {
-  "name": "Foundators — Ideas. Connect. Build. Impact.",
+  "name": "Foundators — The Social Network for Founders",
   "short_name": "Foundators",
-  "description": "A social network for founders and entrepreneurs.",
-  "start_url": "/home",
-  "display": "standalone",
-  "background_color": "#020202",
-  "theme_color": "#020202",
-  "orientation": "portrait",
+  "description": "Connect with founders, builders, and creators. Share ideas, find co-founders, and build the future.",
+  "start_url": "/",
   "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#d9ac3d",
   "id": "/",
   "categories": ["social", "business", "productivity"],
   "icons": [
-    { "src": "/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
-  ]
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
 }

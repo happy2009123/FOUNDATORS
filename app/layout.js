@@ -18,9 +18,35 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: 'Foundators — Ideas. Connect. Build. Impact.',
-  description: 'A social network for founders and entrepreneurs. Find co-founders, programmers, mentors, and funding opportunities.',
+  title: {
+    default: 'Foundators — Social Network for Founders',
+    template: '%s | Foundators',
+  },
+  description: 'Connect with founders, builders, and creators. Share ideas, find co-founders, and build the future.',
+  keywords: ['founders', 'startup', 'builder', 'co-founder', 'entrepreneur', 'network'],
+  authors: [{ name: 'Foundators' }],
+  creator: 'Foundators',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://foundators.app',
+    siteName: 'Foundators',
+    title: 'Foundators — Social Network for Founders',
+    description: 'Connect with founders, builders, and creators.',
+    images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Foundators — Social Network for Founders',
+    description: 'Connect with founders, builders, and creators.',
+    images: ['/og-image.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
   manifest: '/manifest.json',
+  themeColor: '#d9ac3d',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -29,17 +55,6 @@ export const metadata = {
   icons: {
     icon: '/icon-32x32.png',
     apple: '/icon-192x192.png',
-  },
-  openGraph: {
-    title: 'Foundators — Ideas. Connect. Build. Impact.',
-    description: 'A social network for founders and entrepreneurs.',
-    type: 'website',
-    siteName: 'Foundators',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Foundators — Ideas. Connect. Build. Impact.',
-    description: 'A social network for founders and entrepreneurs.',
   },
 };
 

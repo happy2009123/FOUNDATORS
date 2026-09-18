@@ -16,6 +16,8 @@ import PushRegistrar from '@/components/PushRegistrar';
 import CookieBanner from '@/components/CookieBanner';
 import SkipToContent from '@/components/SkipToContent';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
+import EmailVerificationBanner from '@/components/EmailVerificationBanner';
+import PWAInstallPrompt from '@/components/PWAInstallPrompt';
 
 export default function Providers({ children }) {
   useHydration();
@@ -70,6 +72,7 @@ export default function Providers({ children }) {
     <ErrorBoundary>
       <FirestoreProvider>
         <SkipToContent />
+        <EmailVerificationBanner />
         <KeyboardShortcuts />
         <OfflineBanner />
         <PushRegistrar />
@@ -78,6 +81,7 @@ export default function Providers({ children }) {
         <Drawer />
         <Toast />
         <CookieBanner />
+        <PWAInstallPrompt />
       </FirestoreProvider>
     </ErrorBoundary>
   );

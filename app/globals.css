@@ -274,25 +274,31 @@ body {
 @keyframes slideGold{0%,100%{transform:translateX(-3px);opacity:.65}50%{transform:translateX(3px);opacity:1}}
 .animate-slide-gold{animation:slideGold 2.2s ease-in-out infinite}
 
-/* ─── Page transition wrapper ─── */
-@keyframes pageSlideIn {
+/* Page transitions */
+.page-enter {
+  animation: pageEnter 0.3s ease-out;
+}
+
+@keyframes pageEnter {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.page-enter {
-  animation: pageSlideIn 0.35s ease-out both;
-}
 
-/* ─── Stagger children animation ─── */
+/* Staggered children animation */
 .stagger-children > * {
-  animation: fadeUpIn 0.4s ease-out both;
+  animation: staggerIn 0.3s ease-out both;
 }
-.stagger-children > *:nth-child(1) { animation-delay: 0.02s; }
-.stagger-children > *:nth-child(2) { animation-delay: 0.04s; }
-.stagger-children > *:nth-child(3) { animation-delay: 0.06s; }
-.stagger-children > *:nth-child(4) { animation-delay: 0.08s; }
-.stagger-children > *:nth-child(5) { animation-delay: 0.1s; }
-.stagger-children > *:nth-child(6) { animation-delay: 0.12s; }
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* ─── Reduced motion ─── */
 @media (prefers-reduced-motion: reduce) {
