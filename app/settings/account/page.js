@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Shield, Download, Trash2, Key, AlertTriangle, Check, Lock, Smartphone } from 'lucide-react';
+import { ArrowLeft, Shield, Download, Trash2, Key, AlertTriangle, Check, Lock, Smartphone, Copy } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -132,6 +132,33 @@ export default function AccountSettingsPage() {
       </div>
 
       <div className="p-4 space-y-4">
+        <section>
+          <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Your ID</h2>
+          <div className="rounded-2xl border border-linesoft bg-card p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="text-[13px] font-bold">Foundators ID</div>
+              <span className="rounded-full bg-gold/10 px-2 py-0.5 text-[10px] font-bold text-gold">Share this with friends</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 rounded-xl bg-white/[0.03] border border-linesoft px-3 py-2.5 font-mono text-[14px] font-bold text-gold tracking-wider">
+                {profile?.id || 'Loading...'}
+              </div>
+              <button
+                onClick={() => {
+                  vibrate('light');
+                  navigator.clipboard.writeText(profile?.id || '');
+                  showToast('ID copied to clipboard');
+                }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gold/10 text-gold"
+                aria-label="Copy ID"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-text3">Share this ID so others can find and message you on Foundators.</p>
+          </div>
+        </section>
+
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Security</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
