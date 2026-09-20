@@ -1,15 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  images: {
-    unoptimized: true,
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'i.pravatar.cc',
-      },
-    ],
-  },
   trailingSlash: true,
   allowedDevOrigins: ['http://192.168.29.137:3000', 'http://localhost:3000'],
   async headers() {
