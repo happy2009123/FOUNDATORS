@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "npx serve out -l 3000",
     "lint": "next lint",
     "generate-icons": "node scripts/generate-icons.js",
     "build:android": "next build && npx cap sync android",
