@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -27,9 +27,9 @@
     "firebase": "^12.18.0",
     "isomorphic-dompurify": "^4.1.0",
     "lucide-react": "^0.400.0",
-    "next": "15.5.7",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "16.3.5",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
