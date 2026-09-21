@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Share2, UserPlus, Check, Flag, Ban, MoreHorizontal, Shield } from 'lucide-react';
+import { Share2, UserPlus, Check, Flag, Ban, MoreHorizontal, Shield, Copy } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import VerifiedBadge from '@/components/VerifiedBadge';
 import BuilderScoreCard from '@/components/BuilderScoreCard';
@@ -156,6 +156,28 @@ export default function UserProfilePage() {
             <Stat n={user.posts || '0'} l="Posts" />
             <Stat n={user.followers || '0'} l="Followers" border />
             <Stat n={user.following || '0'} l="Following" border />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[12px] font-bold text-text2">Unique ID</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(user.id).then(() => {
+                    showToast('UID copied');
+                  });
+                }}
+                className="flex items-center gap-1.5 rounded-full bg-gold/10 px-3 py-1.5 text-[11px] font-bold text-gold hover:bg-gold/20"
+              >
+                <Copy size={12} />
+                Copy
+              </button>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl bg-white/[0.03] border border-linesoft px-3 py-2.5">
+              <span className="flex-1 truncate font-mono text-[13px] font-bold text-gold tracking-wider">
+                {user.id}
+              </span>
+            </div>
           </div>
 
           {user.builderScore && <BuilderScoreCard builderScore={user.builderScore} />}

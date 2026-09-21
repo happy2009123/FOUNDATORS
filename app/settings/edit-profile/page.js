@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Plus, Save, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Save, Camera, X, Plus, Loader2, Check, Copy } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { auth, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { updateUserProfile } from '@/lib/firestore';
-import SubpageHeader from '@/components/SubpageHeader';
-import ProfilePhotoEditor from '@/components/ProfilePhotoEditor';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
@@ -22,6 +22,8 @@ export default function EditProfilePage() {
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
 
+  const uid = auth?.currentUser?.uid || profile?.id;
+
   const [name, setName] = useState(profile.name || '');
   const [handle, setHandle] = useState(profile.handle || '');
   const [bio, setBio] = useState(profile.bio || '');
@@ -30,8 +32,45 @@ export default function EditProfilePage() {
   const [skills, setSkills] = useState([...(profile.skills || [])]);
   const [skillInput, setSkillInput] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar || '');
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef(null);
 
   if (!ready) return <AuthSkeleton />;
+
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select an image file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image must be under 5MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setAvatarPreview(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function uploadDp(file) {
+    if (!storage || !uid) return null;
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileRef = ref(storage, `profile-photos/${uid}.${ext}`);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      return url;
+    } catch (err) {
+      console.error('Upload failed:', err);
+      return null;
+    }
+  }
 
   function addSkill() {
     const val = skillInput.trim();
@@ -59,111 +98,120 @@ export default function EditProfilePage() {
       showToast('Name cannot be empty');
       return;
     }
-    const data = {
-      name: name.trim(),
-      handle: handle.trim(),
-      bio: bio.trim(),
-      role: role.trim(),
-      location: location.trim(),
-      skills,
-      avatar: avatarUrl.trim(),
-    };
-    updateProfile(data);
-    await updateUserProfile(profile.id, {
-      name: data.name,
-      bio: data.bio,
-      role: data.role,
-      location: data.location,
-      avatar: data.avatar,
-    });
-    notification('success');
-    showToast('Profile updated');
-    router.back();
+    if (!uid) {
+      showToast('Not authenticated');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let finalAvatarUrl = avatarUrl;
+
+      if (avatarPreview) {
+        setUploading(true);
+        const response = await fetch(avatarPreview);
+        const blob = await response.blob();
+        const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+        const uploadedUrl = await uploadDp(file);
+        setUploading(false);
+
+        if (uploadedUrl) {
+          finalAvatarUrl = uploadedUrl;
+        } else {
+          showToast('Photo upload failed - saving other changes');
+        }
+      }
+
+      const data = {
+        name: name.trim(),
+        handle: handle.trim(),
+        bio: bio.trim(),
+        role: role.trim(),
+        location: location.trim(),
+        skills,
+        avatar: finalAvatarUrl,
+      };
+
+      await updateUserProfile(uid, data);
+      updateProfile(data);
+
+      notification('success');
+      showToast('Profile updated successfully');
+      router.back();
+    } catch (err) {
+      console.error('Save failed:', err);
+      showToast('Failed to save profile. Try again.');
+    } finally {
+      setSaving(false);
+      setUploading(false);
+    }
   }
 
   return (
     <div className="app-shell flex min-h-0 flex-1 flex-col">
-      <SubpageHeader
-        title="Edit Profile"
-        right={
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1.5 rounded-full bg-gold-grad px-4 py-1.5 text-xs font-extrabold text-[#1a1300]"
-          >
-            <Save size={14} />
-            Save
-          </button>
-        }
-      />
+      <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-linesoft bg-ink/80 px-4 py-3 backdrop-blur-md">
+        <button onClick={() => router.back()} className="h-8 w-8 flex items-center justify-center" aria-label="Go back">
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="flex-1 text-[16px] font-bold">Edit Profile</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || uploading}
+          className="flex items-center gap-1.5 rounded-full bg-gold-grad px-4 py-1.5 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
+        >
+          {saving || uploading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {uploading ? 'Uploading...' : saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
 
-      <div className="no-scrollbar flex-1 overflow-y-auto px-[18px] py-4">
-        {/* Photo & Cover Section */}
-        <ProfilePhotoEditor />
-
-        {/* Avatar Section */}
-        <SectionLabel>Avatar</SectionLabel>
-        <div className="gold-card mb-5 rounded-2xl border border-linesoft bg-card p-4">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
+        <div className="rounded-2xl border border-linesoft bg-card p-4">
+          <h3 className="mb-3 text-[13px] font-bold">Profile Photo</h3>
           <div className="flex items-center gap-4">
-            <Avatar src={avatarUrl || profile.avatar} name={name || profile.name} size={72} />
-            <div className="flex-1 min-w-0">
-              <label className="mb-2 flex items-center gap-2 text-xs font-bold text-text2">
-                <ImageIcon size={13} className="text-gold" />
-                Image URL
-              </label>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://example.com/avatar.jpg"
-                className="w-full rounded-xl border border-linesoft bg-[rgba(255,255,255,0.04)] px-3 py-2 text-sm text-white placeholder:text-text3 focus:border-gold focus:outline-none"
+            <div className="relative">
+              <Avatar
+                src={avatarPreview || avatarUrl || profile.avatar}
+                name={name || profile.name}
+                size={76}
               />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-gold text-[#1a1300]"
+                aria-label="Change photo"
+              >
+                <Camera size={14} />
+              </button>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] text-text2">Tap the camera icon to upload a new photo</p>
+              {avatarPreview && (
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => setAvatarPreview(null)}
+                    className="flex items-center gap-1 rounded-full border border-linesoft px-3 py-1.5 text-[11px] font-bold text-text2"
+                  >
+                    <X size={12} /> Remove
+                  </button>
+                </div>
+              )}
             </div>
           </div>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
         </div>
 
-        {/* Fields Section */}
-        <SectionLabel>Details</SectionLabel>
-        <div className="mb-5 rounded-2xl border border-linesoft bg-card p-4 space-y-4">
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4 space-y-4">
           <FieldRow label="Name">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your full name"
-              className="field-input"
-            />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" className="field-input" />
           </FieldRow>
-
           <FieldRow label="Handle">
-            <input
-              type="text"
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="@yourhandle"
-              className="field-input"
-            />
+            <input type="text" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@yourhandle" className="field-input" />
           </FieldRow>
-
           <FieldRow label="Role">
-            <input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="Founder · Building X"
-              className="field-input"
-            />
+            <input type="text" value={role} onChange={(e) => setRole(e.target.value)} placeholder="Founder" className="field-input" />
           </FieldRow>
-
           <FieldRow label="Location">
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="City, Country"
-              className="field-input"
-            />
+            <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" className="field-input" />
           </FieldRow>
-
           <FieldRow label="Bio">
             <div className="relative">
               <textarea
@@ -171,80 +219,65 @@ export default function EditProfilePage() {
                 onChange={(e) => setBio(e.target.value.slice(0, BIO_MAX))}
                 placeholder="Tell people about yourself..."
                 rows={3}
-                className="field-input !min-h-[80px] resize-none pr-14"
+                className="field-input resize-none pr-14"
+                style={{ minHeight: '80px' }}
               />
-              <span
-                className={`absolute bottom-2.5 right-3 text-[11px] font-bold tabular-nums ${
-                  bio.length >= BIO_MAX ? 'text-brandred' : 'text-text3'
-                }`}
-              >
+              <span className={`absolute bottom-2.5 right-3 text-[11px] font-bold tabular-nums ${bio.length >= BIO_MAX ? 'text-red' : 'text-text3'}`}>
                 {bio.length}/{BIO_MAX}
               </span>
             </div>
           </FieldRow>
         </div>
 
-        {/* Skills Section */}
-        <SectionLabel>Skills</SectionLabel>
-        <div className="gold-card mb-8 rounded-2xl border border-linesoft bg-card p-4">
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <h3 className="mb-3 text-[13px] font-bold">Skills</h3>
           <div className="mb-3 flex flex-wrap gap-2">
-            {skills.length === 0 && (
-              <span className="text-[12px] text-text3">No skills added yet</span>
-            )}
+            {skills.length === 0 && <span className="text-[12px] text-text3">No skills added yet</span>}
             {skills.map((skill) => (
-              <span
-                key={skill}
-                className="flex items-center gap-1.5 rounded-full border border-[rgba(217,172,61,0.3)] bg-[rgba(217,172,61,0.1)] px-3 py-1 text-xs font-bold text-gold-hi"
-              >
+              <span key={skill} className="flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-bold text-gold-hi">
                 {skill}
-                <button
-                  onClick={() => removeSkill(skill)}
-                  className="ml-0.5 rounded-full p-0.5 text-gold/60 transition-colors hover:text-white"
-                  aria-label={`Remove ${skill}`}
-                >
+                <button onClick={() => removeSkill(skill)} className="ml-0.5 rounded-full p-0.5 text-gold/60 hover:text-white" aria-label={`Remove ${skill}`}>
                   <X size={12} />
                 </button>
               </span>
             ))}
           </div>
-
           <div className="flex gap-2">
             <input
               type="text"
               value={skillInput}
               onChange={(e) => setSkillInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addSkill();
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSkill(); } }}
               placeholder="Add a skill..."
               className="field-input flex-1"
             />
-            <button
-              onClick={addSkill}
-              className="flex flex-none items-center justify-center rounded-xl border border-gold/30 bg-[rgba(217,172,61,0.12)] px-3 text-gold transition-colors hover:bg-[rgba(217,172,61,0.22)]"
-              aria-label="Add skill"
-            >
+            <button onClick={addSkill} className="flex flex-none items-center justify-center rounded-xl border border-gold/30 bg-gold/10 px-3 text-gold hover:bg-gold/20" aria-label="Add skill">
               <Plus size={18} />
             </button>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3 pb-8">
-          <button
-            onClick={() => router.back()}
-            className="flex-1 rounded-xl border border-linesoft bg-[rgba(255,255,255,0.04)] py-3 text-sm font-extrabold text-text2 transition-colors hover:bg-[rgba(255,255,255,0.08)]"
-          >
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <span className="text-[12px] font-bold text-text2">Firebase UID</span>
+          <div className="mt-2 flex items-center gap-2 rounded-xl bg-white/5 border border-linesoft px-3 py-2.5">
+            <span className="flex-1 truncate font-mono text-[13px] font-bold text-gold tracking-wider">{uid || 'N/A'}</span>
+            <button onClick={() => { navigator.clipboard?.writeText(uid || '').then(() => showToast('UID copied')); }} className="text-gold" aria-label="Copy UID">
+              <Copy size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-3 pb-8">
+          <button onClick={() => router.back()} className="flex-1 rounded-xl border border-linesoft bg-white/5 py-3 text-sm font-extrabold text-text2 hover:bg-white/10">
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 rounded-xl bg-gold-grad py-3 text-sm font-extrabold text-[#1a1300] transition-opacity hover:opacity-90"
+            disabled={saving || uploading}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gold-grad py-3 text-sm font-extrabold text-[#1a1300] hover:opacity-90 disabled:opacity-50"
           >
-            Save Changes
+            {saving || uploading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            {uploading ? 'Uploading...' : saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -253,29 +286,21 @@ export default function EditProfilePage() {
         .field-input {
           width: 100%;
           border-radius: 0.75rem;
-          border: 1px solid var(--border-linesoft, rgba(255, 255, 255, 0.08));
+          border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(255, 255, 255, 0.04);
-          padding: 0.5rem 0.75rem;
+          padding: 0.625rem 0.75rem;
           font-size: 0.875rem;
           color: #fff;
           outline: none;
           transition: border-color 0.2s;
         }
         .field-input::placeholder {
-          color: var(--text-text3, rgba(255, 255, 255, 0.3));
+          color: rgba(255, 255, 255, 0.3);
         }
         .field-input:focus {
-          border-color: var(--gold, #d9ac3d);
+          border-color: #d9ac3d;
         }
       `}</style>
-    </div>
-  );
-}
-
-function SectionLabel({ children }) {
-  return (
-    <div className="mb-2 text-xs font-extrabold uppercase tracking-wide text-text3">
-      {children}
     </div>
   );
 }
