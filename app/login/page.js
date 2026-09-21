@@ -34,8 +34,7 @@ export default function LoginPage() {
     try {
       await signInWithEmail(email, password);
       notification('success');
-      const onboarded = localStorage.getItem('onboarding_complete');
-      router.push(onboarded ? '/home' : '/onboarding');
+      router.push('/home');
     } catch (err) {
       const msg = err.message?.includes('not found') ? 'No account found with this email' :
                   err.message?.includes('password') ? 'Incorrect password' :
@@ -52,8 +51,7 @@ export default function LoginPage() {
     try {
       await signInWithGoogle();
       notification('success');
-      const onboarded = localStorage.getItem('onboarding_complete');
-      router.push(onboarded ? '/home' : '/onboarding');
+      router.push('/home');
     } catch (err) {
       if (err.code !== 'auth/popup-closed-by-user') {
         showToast('Google sign-in failed');
@@ -146,15 +144,10 @@ export default function LoginPage() {
           onClick={async () => {
             setLoading(true);
             try {
-              const stored = JSON.parse(localStorage.getItem('foundators-users') || '[]');
-              if (!stored.find((u) => u.email === 'demo@foundators.app')) {
-                stored.push({ email: 'demo@foundators.app', password: 'demo123', name: 'Demo User', createdAt: Date.now() });
-                localStorage.setItem('foundators-users', JSON.stringify(stored));
-              }
               await signInWithEmail('demo@foundators.app', 'demo123');
               notification('success');
               showToast('Welcome to Foundators!');
-              router.push('/onboarding');
+              router.push('/home');
             } catch (err) {
               showToast('Demo login failed');
             } finally {

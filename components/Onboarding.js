@@ -7,8 +7,8 @@ import Logo from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
-import { db } from '@/lib/firebase';
-import { doc, getDocs, collection } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { doc, getDocs, collection, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const STEPS = ['welcome', 'role', 'interests', 'follow', 'done'];
 
@@ -73,11 +73,23 @@ export default function Onboarding() {
     if (step > 0) setStep((s) => s - 1);
   }, [step, vibrate]);
 
-  const finish = useCallback(() => {
+  const finish = useCallback(async () => {
     vibrate('medium');
     if (name.trim()) updateProfile({ name: name.trim() });
     if (role) updateProfile({ role: ROLES.find((r) => r.key === role)?.label || role });
     if (selectedInterests.length) updateProfile({ interests: selectedInterests });
+
+    if (auth?.currentUser) {
+      const uid = auth.currentUser.uid;
+      await setDoc(doc(db, 'users', uid), {
+        name: name.trim() || undefined,
+        role: ROLES.find((r) => r.key === role)?.label || role || undefined,
+        interests: selectedInterests.length ? selectedInterests : undefined,
+        profileCompleted: true,
+        updatedAt: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    }
+
     localStorage.setItem('onboarding_complete', 'true');
     router.push('/home');
   }, [name, role, selectedInterests, updateProfile, router, vibrate]);

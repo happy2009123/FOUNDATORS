@@ -44,7 +44,7 @@ export default function SignupPage() {
       await signUpWithEmail(email, password, name.trim());
       notification('success');
       showToast(`Welcome to Foundators, ${name.trim().split(' ')[0]}!`);
-      router.push('/onboarding');
+      router.push('/home');
     } catch (err) {
       const msg = err.message?.includes('already') ? 'An account with this email already exists' :
                   err.message?.includes('invalid') ? 'Invalid email address' :
@@ -62,7 +62,7 @@ export default function SignupPage() {
       await signInWithGoogle();
       notification('success');
       showToast('Welcome to Foundators!');
-      router.push('/onboarding');
+      router.push('/home');
     } catch (err) {
       if (err.code !== 'auth/popup-closed-by-user') {
         showToast('Google sign-up failed');

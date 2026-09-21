@@ -11,8 +11,6 @@ import {
   limit,
   onSnapshot,
   where,
-  setDoc,
-  serverTimestamp,
   getDocs,
 } from 'firebase/firestore';
 
@@ -29,7 +27,7 @@ export default function FirestoreProvider({ children }) {
 
     const unsubs = [];
 
-    // ── Own profile: create if not exists, subscribe to updates ────────
+    // ── Own profile: subscribe to updates ────────
     const ownProfileRef = doc(db, 'users', userId);
     const unsubProfile = onSnapshot(ownProfileRef, (snap) => {
       if (snap.exists()) {
@@ -50,20 +48,6 @@ export default function FirestoreProvider({ children }) {
       }
     });
     unsubs.push(unsubProfile);
-
-    // Ensure user doc exists in Firestore
-    setDoc(ownProfileRef, {
-      name: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
-      handle: '@' + (auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'user').toLowerCase().replace(/\s+/g, ''),
-      email: auth.currentUser?.email || '',
-      avatar: auth.currentUser?.photoURL || `https://i.pravatar.cc/160?u=${userId}`,
-      bio: '',
-      role: '',
-      location: '',
-      followers: 0,
-      following: 0,
-      createdAt: serverTimestamp(),
-    }, { merge: true }).catch(() => {});
 
     // ── Posts: ONLY from users this person follows + own posts ─────────
     const followsQ = query(collection(db, 'users', userId, 'following'));

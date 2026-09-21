@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { useHydration } from '@/lib/useHydration';
 import { useStore } from '@/lib/store';
 import { useSecurityAudit } from '@/lib/useSecurityAudit';
 import { initErrorTracking } from '@/lib/errorTracking';
-import { syncProfileToFirestore } from '@/lib/useFirestore';
+import { useAuthInit } from '@/lib/useAuthInit';
 import FirestoreProvider from './FirestoreProvider';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DesktopShell from '@/components/DesktopShell';
@@ -21,15 +22,26 @@ import PWAInstallPrompt from '@/components/PWAInstallPrompt';
 
 export default function Providers({ children }) {
   useHydration();
+  useAuthInit();
   useSecurityAudit();
+  const router = useRouter();
+  const pathname = usePathname();
   const theme = useStore((s) => s.theme);
   const isLoggedIn = useStore((s) => s.isLoggedIn);
-  const sessionExpiry = useStore((s) => s.sessionExpiry);
-  const logout = useStore((s) => s.logout);
+  const authReady = useStore((s) => s.authReady);
+  const profileCompleted = useStore((s) => s.profileCompleted);
 
   useEffect(() => {
     initErrorTracking();
   }, []);
+
+  useEffect(() => {
+    if (!authReady || !isLoggedIn) return;
+    const skip = ['/login', '/signup', '/onboarding', '/forgot-password'].some(p => pathname.startsWith(p));
+    if (!skip && !profileCompleted) {
+      router.replace('/onboarding');
+    }
+  }, [authReady, isLoggedIn, profileCompleted, pathname, router]);
 
   useEffect(() => {
     if (theme !== 'system') return;
@@ -52,21 +64,6 @@ export default function Providers({ children }) {
     root.classList.add(`theme-${theme}`);
     root.setAttribute('data-theme', theme);
   }, [theme]);
-
-  useEffect(() => {
-    if (!isLoggedIn || !sessionExpiry) return;
-    const remaining = sessionExpiry - Date.now();
-    if (remaining <= 0) { logout(); return; }
-    const timer = setTimeout(() => logout(), remaining);
-    return () => clearTimeout(timer);
-  }, [isLoggedIn, sessionExpiry, logout]);
-
-  const profile = useStore((s) => s.profile);
-  useEffect(() => {
-    if (isLoggedIn && profile?.id) {
-      syncProfileToFirestore(profile).catch(() => {});
-    }
-  }, [isLoggedIn, profile?.name, profile?.handle, profile?.bio, profile?.avatar]);
 
   return (
     <ErrorBoundary>
