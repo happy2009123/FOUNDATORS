@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, createChat } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
@@ -108,6 +108,40 @@ export default function ChatPage() {
     });
     return () => unsub();
   }, [chatId, profile?.id]);
+
+  useEffect(() => {
+    if (!chatId || !db || !profile?.id) return;
+    let cancelled = false;
+    async function resolveChat() {
+      try {
+        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        if (cancelled) return;
+        if (!chatSnap.exists() && chatId !== profile.id) {
+          const otherUserSnap = await getDoc(doc(db, 'users', chatId));
+          if (otherUserSnap.exists()) {
+            const other = otherUserSnap.data();
+            const result = await createChat({
+              participants: [profile.id, chatId],
+              participantNames: { [profile.id]: profile.name, [chatId]: other.name || 'User' },
+              participantAvatars: { [profile.id]: profile.avatar || '', [chatId]: other.avatar || '' },
+              isGroup: false,
+              lastMessage: '',
+              lastMessageAt: new Date(),
+              createdAt: new Date(),
+            });
+            if (cancelled) return;
+            if (result.success) {
+              router.replace(`/messages/${result.data}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to resolve chat:', err);
+      }
+    }
+    resolveChat();
+    return () => { cancelled = true; };
+  }, [chatId, profile?.id, profile?.name, profile?.avatar, router]);
 
   useEffect(() => {
     if (!chatId || !db) return;
