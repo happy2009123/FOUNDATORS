@@ -238,9 +238,13 @@ service cloud.firestore {
     // ============================================================
     match /chats/{chatId} {
 
-      // READ: Only participants can read chat metadata
+      // READ: Participants can read chat metadata. Also allow
+      // reading a chat that DOES NOT EXIST yet, so the client can
+      // detect "no conversation yet" and auto-create one, instead
+      // of getting a false "permission denied".
       allow read: if isSignedIn()
-        && uid() in resource.data.participants;
+        && (!exists(/databases/$(database)/documents/chats/$(chatId))
+            || uid() in resource.data.participants);
 
       // CREATE: Any authenticated user can create a chat, but they
       // must be listed in the participants array
@@ -266,9 +270,12 @@ service cloud.firestore {
       // ----------------------------------------------------------
       match /messages/{messageId} {
 
-        // READ: Only chat participants can read messages
+        // READ: Chat participants can read messages. Also allow
+        // reading when the parent chat does NOT exist yet, so the
+        // client gets an empty list instead of a false denial.
         allow read: if isSignedIn()
-          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+          && (!exists(/databases/$(database)/documents/chats/$(chatId))
+              || uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
 
         // CREATE: Only participants can send messages; senderKey
         // must match the authenticated user

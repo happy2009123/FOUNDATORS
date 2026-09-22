@@ -22,7 +22,6 @@ export default function StoriesBar() {
       collection(db, 'stories'),
       where('expiresAt', '>', now),
       orderBy('expiresAt', 'asc'),
-      orderBy('createdAt', 'desc'),
       limit(20)
     );
     setLoading(true);

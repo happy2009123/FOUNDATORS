@@ -61,7 +61,7 @@ function ProfileContent() {
     if (!uid) return;
     const unsubs = [];
 
-    const postsQ = query(collection(db, 'posts'), where('authorKey', '==', uid), orderBy('createdAt', 'desc'));
+    const postsQ = query(collection(db, 'posts'), where('authorKey', '==', uid));
     unsubs.push(onSnapshot(postsQ, (snap) => {
       if (!snap.empty) setPostCount(snap.size);
     }));

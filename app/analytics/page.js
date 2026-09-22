@@ -8,7 +8,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -49,7 +49,6 @@ export default function AnalyticsPage() {
         const eventsQ = query(
           collection(db, 'analytics'),
           where('authorKey', '==', profile.id),
-          orderBy('createdAt', 'desc'),
           limit(100)
         );
         const eventsSnap = await getDocs(eventsQ);
