@@ -258,7 +258,9 @@ service cloud.firestore {
         && isNonEmptyArray(request.resource.data.participants)
         && request.resource.data.lastMessage is string
         && isValidTimestamp(request.resource.data.lastMessageAt)
-        && isValidTimestamp(request.resource.data.createdAt);
+        && isValidTimestamp(request.resource.data.createdAt)
+        && request.resource.data.participantNames is map
+        && request.resource.data.participantAvatars is map;
 
       // UPDATE: Only participants can update (e.g., lastMessage)
       allow update: if isSignedIn()
@@ -298,11 +300,10 @@ service cloud.firestore {
           && request.resource.data.senderAvatar is string
           && isValidTimestamp(request.resource.data.createdAt);
 
-        // UPDATE: Only the message sender can update their own message
-        // Typically used for editing or marking as read
+        // UPDATE: Any participant can update (e.g., marking as read),
+        // but senderKey cannot be changed
         allow update: if isSignedIn()
           && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          && resource.data.senderKey == uid()
           && request.resource.data.senderKey == resource.data.senderKey;
 
         // DELETE: Only the message sender can delete their own message
