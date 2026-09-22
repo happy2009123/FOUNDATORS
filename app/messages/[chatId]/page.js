@@ -156,12 +156,14 @@ export default function ChatPage() {
   const handleSend = useCallback(() => {
     const val = input.trim();
     if (!val) return;
-    sendMessage(chatId, val);
+    if (chatId && profile?.id) {
+      sendFS(chatId, { text: val, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
+    }
     notification('success');
     setInput('');
     setReplyTo(null);
     setShowEmoji(false);
-  }, [input, chatId, sendMessage, notification]);
+  }, [input, chatId, sendFS, notification, profile]);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);

@@ -267,13 +267,22 @@ export default function MessagesPage() {
                 )}
                 {allUsers.map((u) => (
                   <button
-                    key={u.key}
-                    onClick={() => {
+                    key={u.id}
+                    onClick={async () => {
                       vibrate('light');
-                      ensureContactForUser(u.key, u);
                       setShowUserSearch(false);
                       setUserSearch('');
-                      router.push(`/messages/${u.key}`);
+                      ensureContactForUser(u.id, u);
+                      const result = await createChat({
+                        participants: [profile.id, u.id],
+                        participantNames: { [profile.id]: profile.name, [u.id]: u.name },
+                        participantAvatars: { [profile.id]: profile.avatar, [u.id]: u.avatar },
+                        isGroup: false,
+                        lastMessage: '',
+                        lastMessageAt: new Date(),
+                        createdAt: new Date(),
+                      });
+                      router.push(`/messages/${result.success ? result.data : u.id}`);
                     }}
                     className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-white/[0.04]"
                   >
