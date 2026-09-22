@@ -156,14 +156,24 @@ export default function ChatPage() {
   const handleSend = useCallback(() => {
     const val = input.trim();
     if (!val) return;
-    if (chatId && profile?.id) {
-      sendFS(chatId, { text: val, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
-    }
-    notification('success');
     setInput('');
     setReplyTo(null);
     setShowEmoji(false);
-  }, [input, chatId, sendFS, notification, profile]);
+    if (chatId && profile?.id) {
+      sendFS(chatId, { text: val, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar })
+        .then((r) => {
+          if (!r.success) {
+            console.error('Send failed:', r.error);
+            showToast(`Message not sent: ${r.error}`);
+          }
+        })
+        .catch((err) => {
+          console.error('Send error:', err);
+          showToast('Message not sent — check Firestore rules');
+        });
+    }
+    notification('success');
+  }, [input, chatId, sendFS, notification, profile, showToast]);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
