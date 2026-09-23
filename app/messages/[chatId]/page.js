@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, conversationIdFor } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, conversationIdFor, findExistingConversation } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
@@ -88,12 +88,19 @@ export default function ChatPage() {
         if (cancelled) return;
         if (userSnap.exists()) {
           const other = userSnap.data();
-          const convId = conversationIdFor(profile.id, chatId);
+          // Reuse an existing conversation (legacy random-ID or deterministic)
+          // so we NEVER generate a second chat for the same pair.
+          const existing = await findExistingConversation(profile.id, chatId);
+          if (cancelled) return;
+          const convId = existing
+            ? existing.id
+            : conversationIdFor(profile.id, chatId);
           setDirections({
             type: 'dm',
             convId,
             otherUid: chatId,
             other,
+            existingChatId: existing ? existing.id : null,
           });
           return;
         }

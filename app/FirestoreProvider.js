@@ -119,29 +119,35 @@ export default function FirestoreProvider({ children }) {
     unsubs.push(unsubNotifs);
 
     // ── Chats: ONLY chats this user is in ──────────────────────────────
+    // NOTE: no orderBy here — `array-contains` + `orderBy` on a different
+    // field would require a composite index. Client sorts chat lists.
     const chatsQ = query(
       collection(db, 'chats'),
-      where('participants', 'array-contains', userId),
-      orderBy('lastMessageAt', 'desc')
+      where('participants', 'array-contains', userId)
     );
     const unsubChats = onSnapshot(chatsQ, (snap) => {
       const firestoreChats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const contacts = {};
+      const chatContacts = {};
       firestoreChats.forEach((chat) => {
         const otherId = chat.participants?.find((p) => p !== userId);
         if (otherId) {
-          contacts[otherId] = {
+          chatContacts[otherId] = {
             name: chat.participantNames?.[otherId] || 'User',
             avatar: chat.participantAvatars?.[otherId] || `https://i.pravatar.cc/160?u=${otherId}`,
             online: false,
             status: '',
             lastActive: '',
             messages: [],
-            firestoreChatId: chat.id,
+            chatId: chat.id,
           };
         }
       });
-      set({ contacts });
+      set((s) => ({
+        contacts: {
+          ...s.contacts,
+          ...chatContacts,
+        },
+      }));
     });
     unsubs.push(unsubChats);
 
