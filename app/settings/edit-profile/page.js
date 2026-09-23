@@ -6,8 +6,8 @@ import { ArrowLeft, Save, Camera, X, Plus, Loader2, Check, Copy, Globe } from 'l
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { auth, storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth } from '@/lib/firebase';
+import { uploadToCloudinary } from '@/lib/cloudinary';
 import { updateUserProfile } from '@/lib/firestore';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -86,13 +86,9 @@ export default function EditProfilePage() {
   }
 
   async function uploadDp(file) {
-    if (!storage || !uid) return null;
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileRef = ref(storage, `profile-photos/${uid}-${Date.now()}.${ext}`);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
-      return url;
+      const publicId = `${uid}-${Date.now()}`;
+      return await uploadToCloudinary(file, 'image', 'profile-photos', publicId);
     } catch (err) {
       console.error('Upload failed:', err);
       return null;
