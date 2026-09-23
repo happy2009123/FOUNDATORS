@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { subscribeToChats } from '@/lib/firestore';
+import { subscribeToChats, deleteChat as deleteChatFS } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -169,6 +169,26 @@ export default function MessagesPage() {
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
     showToast(pinned.includes(key) ? 'Unpinned conversation' : 'Pinned to top');
+  }
+
+  function deleteConversation(key, c) {
+    vibrate('light');
+    const id = c.chatId || key;
+    if (!window.confirm('Delete this conversation for everyone? This cannot be undone.')) {
+      setSwipedKey(null);
+      return;
+    }
+    deleteChatFS(id)
+      .then((r) => {
+        if (r.success) {
+          showToast('Conversation deleted');
+        } else {
+          console.error('Delete chat failed:', r.error);
+          showToast(`Delete failed: ${r.error}`);
+        }
+      })
+      .catch(() => showToast('Could not delete conversation'));
+    setSwipedKey(null);
   }
 
   function handleSwipe(key) {
@@ -378,6 +398,7 @@ export default function MessagesPage() {
                   typingText={getTypingText(key)}
                   onSwipe={handleSwipe}
                   onTogglePin={togglePin}
+                  onDeleteChat={() => deleteConversation(key, c)}
                   onOpen={() => {
                     vibrate('light');
                     router.push(`/messages/${c.chatId || key}`);
@@ -404,6 +425,7 @@ export default function MessagesPage() {
               typingText={getTypingText(key)}
               onSwipe={handleSwipe}
               onTogglePin={togglePin}
+              onDeleteChat={() => deleteConversation(key, c)}
               onOpen={() => {
                 vibrate('light');
                 router.push(`/messages/${c.chatId || key}`);
@@ -438,7 +460,7 @@ export default function MessagesPage() {
   );
 }
 
-function ConversationRow({ contactKey, c, unread, isPinned, isSwiped, typingText, onSwipe, onTogglePin, onOpen }) {
+function ConversationRow({ contactKey, c, unread, isPinned, isSwiped, typingText, onSwipe, onTogglePin, onDeleteChat, onOpen }) {
   const lastMsg = c.messages[c.messages.length - 1];
   return (
     <div className="relative mb-1.5 overflow-hidden rounded-2xl">
@@ -457,7 +479,7 @@ function ConversationRow({ contactKey, c, unread, isPinned, isSwiped, typingText
         <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-text2">
           <Archive size={14} />
         </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/20 text-red-400">
+        <button onClick={onDeleteChat} className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/20 text-red-400">
           <Trash2 size={14} />
         </button>
       </div>

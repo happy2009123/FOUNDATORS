@@ -283,14 +283,27 @@ service cloud.firestore {
           && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
           && request.resource.data.senderKey == uid();
 
-        // UPDATE: Any participant can update (e.g., marking as read)
+        // UPDATE: Participants can update (e.g., marking as read). Only the
+        // message sender can edit the text.
         allow update: if isSignedIn()
-          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-
-        // DELETE: Only the message sender can delete their own message
-        allow delete: if isSignedIn()
           && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          && resource.data.senderKey == uid();
+          && (
+            // marking as read only touches 'read'
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+            ||
+            // sender editing text/edited flags
+            (resource.data.senderKey == uid()
+              && request.resource.data.text is string
+              && request.resource.data.text.size() > 0
+              && request.resource.data.senderKey == resource.data.senderKey
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited']))
+          );
+
+        // DELETE: The message sender can delete their own message. Chat
+        // participants can also delete messages as part of deleting the
+        // whole chat (e.g. "clear chat").
+        allow delete: if isSignedIn()
+          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
     }
 

@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Download, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Download, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, conversationIdFor, findExistingConversation } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
@@ -59,10 +59,15 @@ export default function ChatPage() {
   const [directions, setDirections] = useState(null);
   const [chatData, setChatData] = useState(null);
   const [fsMessages, setFsMessages] = useState(null);
+  const [editingMsg, setEditingMsg] = useState(null); // { index, id, text }
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [forwardModal, setForwardModal] = useState(null); // { index, text } | null
+  const [forwardChats, setForwardChats] = useState([]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const recordingInterval = useRef(null);
   const fileInputRef = useRef(null);
+  const forwardUnsubRef = useRef(null);
 
   useEffect(() => {
     if (chatId) markContactRead(chatId);
@@ -238,9 +243,41 @@ export default function ChatPage() {
     return () => unsub();
   }, [convId]);
 
+  useEffect(() => {
+    return () => {
+      if (forwardUnsubRef.current) {
+        forwardUnsubRef.current();
+        forwardUnsubRef.current = null;
+      }
+    };
+  }, []);
+
   const handleSend = useCallback(() => {
     const val = input.trim();
     if (!val) return;
+    if (editingMsg?.id && editingMsg?.index != null) {
+      // Edit existing message instead of sending a new one.
+      const newText = val;
+      setEditingMsg(null);
+      setInput('');
+      setReplyTo(null);
+      setShowEmoji(false);
+      if (convId && db) {
+        editFS(convId, editingMsg.id, newText)
+          .then((r) => {
+            if (!r.success) {
+              console.error('Edit failed:', r.error);
+              showToast(`Edit failed: ${r.error}`);
+            }
+          })
+          .catch((err) => {
+            console.error('Edit error:', err);
+            showToast('Could not edit message');
+          });
+      }
+      vibrate('light');
+      return;
+    }
     setInput('');
     setReplyTo(null);
     setShowEmoji(false);
@@ -267,7 +304,7 @@ export default function ChatPage() {
         });
     }
     notification('success');
-  }, [input, sendPayload, profile, sendFS, showToast, notification]);
+  }, [input, editingMsg, sendPayload, profile, sendFS, editFS, showToast, notification, convId, db, vibrate]);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
@@ -298,6 +335,96 @@ export default function ChatPage() {
     }
     setCtxMenu(null);
   }, [ctxMenu, convId, messages, vibrate]);
+
+  const handleEdit = useCallback(() => {
+    if (ctxMenu && messages[ctxMenu.index]) {
+      const msg = messages[ctxMenu.index];
+      setEditingMsg({ index: ctxMenu.index, id: msg.id, text: msg.text || '' });
+      setInput(msg.text || '');
+      setCtxMenu(null);
+      inputRef.current?.focus();
+      vibrate('light');
+    }
+  }, [ctxMenu, messages, vibrate]);
+
+  const handleOpenForward = useCallback(() => {
+    if (ctxMenu && messages[ctxMenu.index]) {
+      const msg = messages[ctxMenu.index];
+      if (!msg.text) {
+        showToast('Only text messages can be forwarded');
+        setCtxMenu(null);
+        return;
+      }
+      setForwardModal({ index: ctxMenu.index, text: msg.text });
+      setCtxMenu(null);
+      vibrate('light');
+      if (profile?.id) {
+        if (forwardUnsubRef.current) {
+          forwardUnsubRef.current();
+          forwardUnsubRef.current = null;
+        }
+        const unsub = getChatsForUser(profile.id, (chats) => {
+          setForwardChats(chats.filter((c) => c.id !== convId));
+        });
+        forwardUnsubRef.current = unsub;
+      }
+    } else {
+      setCtxMenu(null);
+    }
+  }, [ctxMenu, messages, convId, profile?.id, showToast, vibrate]);
+
+  const handleForwardTo = useCallback((targetChat) => {
+    if (!profile?.id || !forwardModal) return;
+    const targetParts = targetChat.participants || [];
+    if (targetParts.length < 2) {
+      showToast('Cannot forward to this conversation');
+      return;
+    }
+    sendFS(targetChat.id, {
+      text: forwardModal.text,
+      senderKey: profile.id,
+      senderName: profile.name,
+      senderAvatar: profile.avatar,
+      participants: targetParts,
+      participantNames: targetChat.participantNames || {},
+      participantAvatars: targetChat.participantAvatars || {},
+    }).then((r) => {
+      if (r.success) {
+        showToast('Message forwarded');
+      } else {
+        console.error('Forward failed:', r.error);
+        showToast(`Forward failed: ${r.error}`);
+      }
+    }).catch((err) => {
+      console.error('Forward error:', err);
+      showToast('Could not forward message');
+    });
+    setForwardModal(null);
+    setForwardChats([]);
+    if (forwardUnsubRef.current) {
+      forwardUnsubRef.current();
+      forwardUnsubRef.current = null;
+    }
+    vibrate('light');
+  }, [profile, forwardModal, sendFS, showToast, vibrate]);
+
+  const handleDeleteChat = useCallback(() => {
+    setShowHeaderMenu(false);
+    if (!convId || !db) return;
+    if (window.confirm('Delete this conversation for everyone? This cannot be undone.')) {
+      deleteChatFS(convId).then((r) => {
+        if (r.success) {
+          showToast('Conversation deleted');
+          router.push('/messages');
+        } else {
+          console.error('Delete chat failed:', r.error);
+          showToast(`Delete failed: ${r.error}`);
+        }
+      }).catch(() => {
+        showToast('Could not delete conversation');
+      });
+    }
+  }, [convId, db, deleteChatFS, router, showToast]);
 
   const handleReaction = useCallback((msgIndex, emoji) => {
     vibrate('light');
@@ -495,6 +622,21 @@ export default function ChatPage() {
           <button onClick={() => setActiveCall('video')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Video call">
             <Video size={17} />
           </button>
+          <div className="relative">
+            <button onClick={() => setShowHeaderMenu((v) => !v)} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="More options">
+              <MoreHorizontal size={18} />
+            </button>
+            {showHeaderMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowHeaderMenu(false)} />
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] rounded-2xl border border-linesoft bg-card p-1.5 shadow-xl">
+                  <button onClick={handleDeleteChat} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-red-400 hover:bg-red-500/10">
+                    <Trash2 size={14} /> Delete chat
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -561,6 +703,7 @@ export default function ChatPage() {
               }`}>
                 {m.text}
                 <div className={`mt-0.5 flex items-center justify-end gap-1 ${isOut ? 'opacity-60' : ''}`}>
+                  {m.edited && <span className="text-[9.5px] italic">Edited</span>}
                   <span className={`text-[9.5px] ${isOut ? 'text-[#1a1300]' : 'text-text3'}`}>{m.time}</span>
                   {isOut && (
                     <span className="text-[10px] text-[#1a1300]">
@@ -618,6 +761,14 @@ export default function ChatPage() {
             <button onClick={() => handleCopy(messages[ctxMenu.index].text || '')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Copy size={14} className="text-gold" /> Copy
             </button>
+            {messages[ctxMenu.index]?.senderKey === profile?.id && (
+              <button onClick={handleEdit} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
+                <Edit3 size={14} className="text-gold" /> Edit
+              </button>
+            )}
+            <button onClick={handleOpenForward} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
+              <Forward size={14} className="text-gold" /> Forward
+            </button>
             <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-red-400 hover:bg-red-500/10">
               <Trash2 size={14} /> Delete
             </button>
@@ -634,6 +785,71 @@ export default function ChatPage() {
           <button onClick={() => setReplyTo(null)} className="flex-none text-text3">
             <X size={14} />
           </button>
+        </div>
+      )}
+
+      {editingMsg && (
+        <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
+          <Edit3 size={14} className="flex-none text-gold" />
+          <div className="min-w-0 flex-1 truncate text-[11.5px] text-text2">
+            Editing message {editingMsg.text ? `: ${editingMsg.text.slice(0, 60)}` : ''}
+          </div>
+          <button onClick={() => { setEditingMsg(null); setInput(''); }} className="flex-none text-text3">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {forwardModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:bg-black/60">
+          <div className="flex h-[65vh] w-full max-w-md flex-col rounded-t-3xl border border-linesoft bg-card p-4 sm:rounded-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Forward size={16} className="text-gold" />
+                <span className="text-[13px] font-extrabold">Forward to</span>
+              </div>
+              <button onClick={() => { setForwardModal(null); setForwardChats([]); if (forwardUnsubRef.current) { forwardUnsubRef.current(); forwardUnsubRef.current = null; } }} className="text-text3" aria-label="Close forward picker">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mb-2 rounded-xl border border-linesoft bg-white/5 px-3 py-2 text-[12px] text-text2">
+              {forwardModal.text.slice(0, 120)}
+            </div>
+            <div className="no-scrollbar flex-1 overflow-y-auto">
+              {forwardChats.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-[12px] text-text3">
+                  No other conversations yet
+                </div>
+              ) : (
+                forwardChats.map((c) => {
+                  const otherUidTarget = !c.isGroup
+                    ? (c.participants || []).find((p) => p !== profile?.id)
+                    : null;
+                  const targetName = c.isGroup
+                    ? (c.groupName || 'Group')
+                    : ((c.participantNames && otherUidTarget && c.participantNames[otherUidTarget]) || 'User');
+                  const targetAvatar = c.isGroup
+                    ? null
+                    : ((c.participantAvatars && otherUidTarget && c.participantAvatars[otherUidTarget]) || null);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => handleForwardTo(c)}
+                      className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-white/5"
+                    >
+                      <Avatar src={targetAvatar} name={targetName} size={38} className="flex-none" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-bold text-white">{targetName}</div>
+                        <div className="text-[10.5px] text-text3">
+                          {c.lastMessageAt ? formatMsgTime(c.lastMessageAt) : ''}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       )}
 
