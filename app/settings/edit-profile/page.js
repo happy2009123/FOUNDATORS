@@ -40,6 +40,25 @@ export default function EditProfilePage() {
 
   if (!ready) return <AuthSkeleton />;
 
+  function compressImage(dataUrl, maxSize = 512, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
+
   function handleFileSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -51,9 +70,16 @@ export default function EditProfilePage() {
       showToast('Image must be under 5MB');
       return;
     }
+    showToast('Compressing photo...');
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setAvatarPreview(ev.target.result);
+    reader.onload = async (ev) => {
+      try {
+        const compressed = await compressImage(ev.target.result);
+        setAvatarPreview(compressed);
+      } catch (err) {
+        console.error('Compress failed:', err);
+        setAvatarPreview(ev.target.result);
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -63,7 +89,7 @@ export default function EditProfilePage() {
     if (!storage || !uid) return null;
     try {
       const ext = file.name.split('.').pop() || 'jpg';
-      const fileRef = ref(storage, `profile-photos/${uid}.${ext}`);
+      const fileRef = ref(storage, `profile-photos/${uid}-${Date.now()}.${ext}`);
       await uploadBytes(fileRef, file);
       const url = await getDownloadURL(fileRef);
       return url;
