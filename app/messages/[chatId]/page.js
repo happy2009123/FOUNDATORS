@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, createChat } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, conversationIdFor } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
@@ -40,9 +40,6 @@ export default function ChatPage() {
   const { chatId } = useParams();
   const profile = useStore((s) => s.profile);
   const contact = useStore((s) => s.contacts[chatId]);
-  const sendMessage = useStore((s) => s.sendMessage);
-  const deleteMessage = useStore((s) => s.deleteMessage);
-  const attachFile = useStore((s) => s.attachFile);
   const markContactRead = useStore((s) => s.markContactRead);
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
@@ -59,6 +56,7 @@ export default function ChatPage() {
   const [voiceMessages, setVoiceMessages] = useState({});
   const [showImagePreview, setShowImagePreview] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
+  const [directions, setDirections] = useState(null);
   const [chatData, setChatData] = useState(null);
   const [fsMessages, setFsMessages] = useState(null);
   const scrollRef = useRef(null);
@@ -76,29 +74,107 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, typing]);
 
+  // Resolve the deterministic conversation ID for this route.
+  // The route param is either a user UID (from profile "Message" or search)
+  // or a chat doc ID (from the converstion list). We map both to the SAME
+  // canonical conversation so every open lands on one persistent chat.
   useEffect(() => {
-    if (!chatId || !profile?.id) return;
+    if (!chatId || !profile?.id || !db) return;
+    let cancelled = false;
+    async function resolveDirection() {
+      try {
+        // Case A: param is a user UID → deterministic pair ID.
+        const userSnap = await getDoc(doc(db, 'users', chatId));
+        if (cancelled) return;
+        if (userSnap.exists()) {
+          const other = userSnap.data();
+          const convId = conversationIdFor(profile.id, chatId);
+          setDirections({
+            type: 'dm',
+            convId,
+            otherUid: chatId,
+            other,
+          });
+          return;
+        }
+        // Case B: param is a chat doc ID (e.g. reopened from the list).
+        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        if (cancelled) return;
+        if (chatSnap.exists()) {
+          const data = chatSnap.data();
+          const participants = data.participants || [];
+          const otherUid = !data.isGroup
+            ? participants.find((p) => p !== profile.id)
+            : null;
+          const other = otherUid
+            ? {
+                name: (data.participantNames && data.participantNames[otherUid]) || 'User',
+                avatar: (data.participantAvatars && data.participantAvatars[otherUid]) || null,
+              }
+            : null;
+          setDirections({
+            type: data.isGroup ? 'group' : 'dm',
+            convId: chatId,
+            otherUid,
+            other,
+            participants,
+            participantNames: data.participantNames || {},
+            participantAvatars: data.participantAvatars || {},
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to resolve chat direction:', err);
+      }
+    }
+    resolveDirection();
+    return () => { cancelled = true; };
+  }, [chatId, profile?.id, db]);
+
+  const convId = directions?.convId || null;
+  const otherUid = directions?.otherUid || null;
+  const other = directions?.other || null;
+
+  const sendPayload = useCallback(() => {
+    if (!convId || !profile?.id) return null;
+    const isGroup = directions?.type === 'group';
+    const participants = isGroup
+      ? (directions?.participants || [])
+      : (otherUid ? [profile.id, otherUid] : []);
+    if (!isGroup && !otherUid) return null;
+    const names = directions?.participantNames || (otherUid && other
+      ? { [profile.id]: profile.name, [otherUid]: other.name || 'User' }
+      : {});
+    const avatars = directions?.participantAvatars || (otherUid && other
+      ? { [profile.id]: profile.avatar || '', [otherUid]: other.avatar || '' }
+      : {});
+    return { convId, participants, participantNames: names, participantAvatars: avatars };
+  }, [convId, profile, otherUid, other, directions]);
+
+  useEffect(() => {
+    if (!convId || !profile?.id) return;
     const markRead = async () => {
       try {
         const unreadQ = query(
-          collection(db, 'chats', chatId, 'messages'),
-          where('senderKey', '!=', profile.id),
+          collection(db, 'chats', convId, 'messages'),
           where('read', '==', false)
         );
         const snap = await getDocs(unreadQ);
         snap.docs.forEach(async (d) => {
-          await updateDoc(doc(db, 'chats', chatId, 'messages', d.id), { read: true });
+          const data = d.data();
+          if (data.senderKey === profile.id) return;
+          await updateDoc(doc(db, 'chats', convId, 'messages', d.id), { read: true });
         });
+        await updateDoc(doc(db, 'chats', convId), { [`unreadBy.${profile.id}`]: 0 });
       } catch (err) {
         console.warn('Failed to mark messages read:', err);
       }
     };
     markRead();
-  }, [chatId, profile?.id]);
+  }, [convId, profile?.id]);
 
   useEffect(() => {
-    if (!chatId || !db) return;
-    const unsub = onSnapshot(doc(db, 'chats', chatId), (snap) => {
+    if (!convId || !db) return;
+    const unsub = onSnapshot(doc(db, 'chats', convId), (snap) => {
       const data = snap.data();
       const typingData = data?.typing || {};
       const otherTyping = Object.entries(typingData).find(
@@ -107,63 +183,31 @@ export default function ChatPage() {
       setTyping(!!otherTyping);
     });
     return () => unsub();
-  }, [chatId, profile?.id]);
+  }, [convId, profile?.id]);
 
   useEffect(() => {
-    if (!chatId || !db || !profile?.id) return;
-    let cancelled = false;
-    async function resolveChat() {
-      try {
-        const chatSnap = await getDoc(doc(db, 'chats', chatId));
-        if (cancelled) return;
-        if (!chatSnap.exists() && chatId !== profile.id) {
-          const otherUserSnap = await getDoc(doc(db, 'users', chatId));
-          if (otherUserSnap.exists()) {
-            const other = otherUserSnap.data();
-            const result = await createChat({
-              participants: [profile.id, chatId],
-              participantNames: { [profile.id]: profile.name, [chatId]: other.name || 'User' },
-              participantAvatars: { [profile.id]: profile.avatar || '', [chatId]: other.avatar || '' },
-              isGroup: false,
-              lastMessage: '',
-              lastMessageAt: new Date(),
-              createdAt: new Date(),
-            });
-            if (cancelled) return;
-            if (result.success) {
-              router.replace(`/messages/${result.data}`);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to resolve chat:', err);
-      }
-    }
-    resolveChat();
-    return () => { cancelled = true; };
-  }, [chatId, profile?.id, profile?.name, profile?.avatar, router]);
-
-  useEffect(() => {
-    if (!chatId || !db) return;
+    if (!convId || !db) return;
     let cancelled = false;
     async function fetchChatMeta() {
       try {
-        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        const chatSnap = await getDoc(doc(db, 'chats', convId));
         if (cancelled) return;
         if (chatSnap.exists()) {
           const data = chatSnap.data();
+          const participants = data.participants || [];
+          const uidField = !data.isGroup ? participants.find((p) => p !== profile.id) : null;
           setChatData({
             name: data.isGroup
               ? data.groupName
-              : (data.participantNames && Object.values(data.participantNames).find((n) => n !== profile.name)) || 'Chat',
+              : (uidField && data.participantNames && data.participantNames[uidField]) || other?.name || 'Chat',
             avatar: data.isGroup
               ? null
-              : (data.participantAvatars && Object.values(data.participantAvatars).find((a) => a !== profile.avatar)) || null,
+              : (uidField && data.participantAvatars && data.participantAvatars[uidField]) || other?.avatar || null,
             online: true,
             status: 'Online',
             isGroup: !!data.isGroup,
             groupName: data.groupName || '',
-            participants: data.participants || [],
+            participants,
             participantNames: data.participantNames || {},
             participantAvatars: data.participantAvatars || {},
           });
@@ -174,18 +218,18 @@ export default function ChatPage() {
     }
     fetchChatMeta();
     return () => { cancelled = true; };
-  }, [chatId, profile.name, profile.avatar]);
+  }, [convId, profile?.id, profile.name, profile.avatar, other?.name, other?.avatar]);
 
   useEffect(() => {
-    if (!chatId || !db) return;
-    const unsub = subscribeToMessages(chatId, (msgs) => {
+    if (!convId || !db) return;
+    const unsub = subscribeToMessages(convId, (msgs) => {
       setFsMessages(msgs.map((m) => ({
         ...m,
         time: formatMsgTime(m.createdAt),
       })));
     });
     return () => unsub();
-  }, [chatId]);
+  }, [convId]);
 
   const handleSend = useCallback(() => {
     const val = input.trim();
@@ -193,8 +237,17 @@ export default function ChatPage() {
     setInput('');
     setReplyTo(null);
     setShowEmoji(false);
-    if (chatId && profile?.id) {
-      sendFS(chatId, { text: val, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar })
+    const p = sendPayload();
+    if (p) {
+      sendFS(p.convId, {
+        text: val,
+        senderKey: profile.id,
+        senderName: profile.name,
+        senderAvatar: profile.avatar,
+        participants: p.participants,
+        participantNames: p.participantNames,
+        participantAvatars: p.participantAvatars,
+      })
         .then((r) => {
           if (!r.success) {
             console.error('Send failed:', r.error);
@@ -207,14 +260,14 @@ export default function ChatPage() {
         });
     }
     notification('success');
-  }, [input, chatId, sendFS, notification, profile, showToast]);
+  }, [input, sendPayload, profile, sendFS, showToast, notification]);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
-    if (chatId && profile?.id) {
-      updateDoc(doc(db, 'chats', chatId), { [`typing.${profile.id}`]: Date.now() }).catch(() => {});
+    if (convId && profile?.id) {
+      updateDoc(doc(db, 'chats', convId), { [`typing.${profile.id}`]: Date.now() }).catch(() => {});
     }
-  }, [chatId, profile?.id]);
+  }, [convId, profile?.id]);
 
   const handleCopy = useCallback((text) => {
     navigator.clipboard?.writeText(text);
@@ -231,13 +284,13 @@ export default function ChatPage() {
   const handleDelete = useCallback(() => {
     if (ctxMenu) {
       const msg = messages[ctxMenu.index];
-      if (msg?.id && chatId && db) {
-        deleteFS(chatId, msg.id).catch(() => {});
+      if (msg?.id && convId && db) {
+        deleteFS(convId, msg.id).catch(() => {});
       }
       vibrate('light');
     }
     setCtxMenu(null);
-  }, [ctxMenu, chatId, messages, vibrate]);
+  }, [ctxMenu, convId, messages, vibrate]);
 
   const handleReaction = useCallback((msgIndex, emoji) => {
     vibrate('light');
@@ -263,14 +316,22 @@ export default function ChatPage() {
     clearInterval(recordingInterval.current);
     if (recordingTime > 0) {
       const voiceText = `🎤 Voice message (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')})`;
-      sendMessage(chatId, voiceText);
-      if (chatId && db) {
-        sendFS(chatId, { text: voiceText, senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
+      const p = sendPayload();
+      if (p) {
+        sendFS(p.convId, {
+          text: voiceText,
+          senderKey: profile.id,
+          senderName: profile.name,
+          senderAvatar: profile.avatar,
+          participants: p.participants,
+          participantNames: p.participantNames,
+          participantAvatars: p.participantAvatars,
+        }).catch(() => {});
       }
       notification('success');
     }
     setRecordingTime(0);
-  }, [recordingTime, chatId, sendMessage, notification, vibrate, profile]);
+  }, [recordingTime, sendPayload, profile, sendFS, notification, vibrate]);
 
   const cancelRecording = useCallback(() => {
     vibrate('light');
@@ -294,13 +355,21 @@ export default function ChatPage() {
 
   const sendImage = useCallback(() => {
     if (!showImagePreview) return;
-    sendMessage(chatId, '📷 Image');
-    if (chatId && db) {
-      sendFS(chatId, { text: '📷 Image', senderKey: profile.id, senderName: profile.name, senderAvatar: profile.avatar }).catch(() => {});
-    }
     setShowImagePreview(null);
+    const p = sendPayload();
+    if (p) {
+      sendFS(p.convId, {
+        text: '📷 Image',
+        senderKey: profile.id,
+        senderName: profile.name,
+        senderAvatar: profile.avatar,
+        participants: p.participants,
+        participantNames: p.participantNames,
+        participantAvatars: p.participantAvatars,
+      }).catch(() => {});
+    }
     notification('success');
-  }, [showImagePreview, chatId, sendMessage, notification, profile]);
+  }, [showImagePreview, sendPayload, profile, sendFS, notification]);
 
   const insertEmoji = useCallback((emoji) => {
     setInput((prev) => prev + emoji);
@@ -316,12 +385,12 @@ export default function ChatPage() {
   }, []);
 
   function openContactProfile() {
-    const c = chatData || contact;
-    if (c?.isGroup) {
+    if (chatData?.isGroup) {
       showToast('Group info coming soon');
       return;
     }
-    router.push(`/profile/${chatId}`);
+    const pid = otherUid || chatId;
+    if (pid) router.push(`/profile/${pid}`);
   }
 
   function handleKeyDown(e) {
@@ -337,7 +406,15 @@ export default function ChatPage() {
     ...chatData,
     messages: messages,
     lastActive: 'Now',
-  } : null);
+  } : (other ? {
+    name: other.name || 'Chat',
+    avatar: other.avatar || null,
+    online: true,
+    status: 'Online',
+    lastActive: 'Now',
+    isGroup: false,
+    messages: messages,
+  } : null));
 
   if (!displayContact) {
     return (
@@ -432,8 +509,8 @@ export default function ChatPage() {
           }
 
           const m = item.msg;
-          const isOut = m.who === 'out';
-          const isFile = m.who === 'file';
+          const isOut = m.who === 'out' || (!!profile?.id && m.senderKey === profile.id);
+          const isFile = m.who === 'file' || !!m.isFile;
 
           if (isFile) {
             return (
@@ -640,9 +717,9 @@ export default function ChatPage() {
         )}
       </div>
 
-      {activeCall && (
+      {activeCall && otherUid && (
         <CallScreen
-          userId={chatId}
+          userId={otherUid}
           type={activeCall}
           onClose={() => setActiveCall(null)}
         />

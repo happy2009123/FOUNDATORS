@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { subscribeToChats, createChat } from '@/lib/firestore';
+import { subscribeToChats } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -48,41 +48,55 @@ export default function MessagesPage() {
     return () => unsub();
   }, [profile?.id]);
 
-  const totalUnread = useMemo(
-    () => Object.values(unreadByContact).reduce((a, b) => a + b, 0),
-    [unreadByContact]
-  );
+  const unreadFor = (key, c) => (c && typeof c.unread === 'number' ? c.unread : unreadByContact[key] || 0);
 
   const mergedContacts = useMemo(() => {
-    const merged = { ...contacts };
+    const merged = {};
+    // Primary source of truth: Firestore conversations.
     fsChats.forEach((chat) => {
-      if (!merged[chat.id]) {
-        const otherName = chat.participantNames
-          ? Object.values(chat.participantNames).find((n) => n !== profile.name) || 'Chat'
-          : 'Chat';
-        const otherAvatar = chat.participantAvatars
-          ? Object.values(chat.participantAvatars).find((a) => a !== profile.avatar) || null
+      const convId = chat.id;
+      const myUnread = (chat.unreadBy && chat.unreadBy[profile?.id]) || 0;
+      if (!merged[convId]) {
+        const otherId = chat.isGroup ? null : (chat.participants || []).find((p) => p !== profile.id);
+        const otherName = chat.participantNames && otherId
+          ? chat.participantNames[otherId] || 'Chat'
+          : chat.isGroup ? (chat.groupName || 'Group') : 'Chat';
+        const otherAvatar = chat.participantAvatars && otherId
+          ? chat.participantAvatars[otherId] || null
           : null;
-        merged[chat.id] = {
-          name: chat.isGroup ? (chat.groupName || 'Group') : otherName,
-          avatar: chat.isGroup ? null : otherAvatar,
+        merged[convId] = {
+          name: otherName,
+          avatar: otherAvatar,
           online: true,
           status: 'Online',
           lastActive: 'Now',
           isGroup: !!chat.isGroup,
           messages: chat.lastMessage ? [{ text: chat.lastMessage, who: 'them' }] : [],
-          chatId: chat.id,
+          chatId: convId,
+          unread: myUnread,
         };
       } else {
-        merged[chat.id] = { ...merged[chat.id], chatId: chat.id };
+        merged[convId] = { ...merged[convId], chatId: convId, unread: myUnread };
       }
     });
+    // Fallback: local store contacts that aren't already shown as a Firestore chat.
+    Object.entries(contacts).forEach(([key, c]) => {
+      if (merged[key]) return;
+      const covered = fsChats.some((chat) => (chat.participants || []).includes(key));
+      if (covered) return;
+      merged[key] = { ...c, chatId: key, unread: unreadByContact[key] || 0 };
+    });
     return merged;
-  }, [contacts, fsChats, profile?.name, profile?.avatar]);
+  }, [contacts, fsChats, profile?.id, unreadByContact]);
+
+  const totalUnread = useMemo(
+    () => Object.entries(mergedContacts).reduce((a, [key, c]) => a + unreadFor(key, c), 0),
+    [mergedContacts, unreadByContact]
+  );
 
   const rows = useMemo(() => {
     return Object.entries(mergedContacts).filter(([key, c]) => {
-      if (tab === 'unread') return (unreadByContact[key] || 0) > 0;
+      if (tab === 'unread') return unreadFor(key, c) > 0;
       if (tab === 'groups') return c.isGroup;
       if (tab === 'archived') return false;
       if (!query) return true;
@@ -146,22 +160,7 @@ export default function MessagesPage() {
     }
 
     ensureContactForUser(matchedUser.id, matchedUser);
-
-    const result = await createChat({
-      participants: [profile.id, matchedUser.id],
-      participantNames: { [profile.id]: profile.name, [matchedUser.id]: matchedUser.name },
-      participantAvatars: { [profile.id]: profile.avatar, [matchedUser.id]: matchedUser.avatar },
-      isGroup: false,
-      lastMessage: '',
-      lastMessageAt: new Date(),
-      createdAt: new Date(),
-    });
-
-    if (result.success) {
-      router.push(`/messages/${result.data}`);
-    } else {
-      router.push(`/messages/${matchedUser.id}`);
-    }
+    router.push(`/messages/${matchedUser.id}`);
   }
 
   function togglePin(key) {
@@ -273,16 +272,7 @@ export default function MessagesPage() {
                       setShowUserSearch(false);
                       setUserSearch('');
                       ensureContactForUser(u.id, u);
-                      const result = await createChat({
-                        participants: [profile.id, u.id],
-                        participantNames: { [profile.id]: profile.name, [u.id]: u.name },
-                        participantAvatars: { [profile.id]: profile.avatar, [u.id]: u.avatar },
-                        isGroup: false,
-                        lastMessage: '',
-                        lastMessageAt: new Date(),
-                        createdAt: new Date(),
-                      });
-                      router.push(`/messages/${result.success ? result.data : u.id}`);
+                      router.push(`/messages/${u.id}`);
                     }}
                     className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-white/[0.04]"
                   >
@@ -339,7 +329,7 @@ export default function MessagesPage() {
             <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text3">Quick message</div>
             <div className="flex gap-3">
               {Object.entries(mergedContacts).filter(([, c]) => !c.isGroup).slice(0, 4).map(([key, c]) => {
-                const unread = unreadByContact[key] || 0;
+                const unread = unreadFor(key, c);
                 return (
                   <button
                     key={key}
@@ -382,7 +372,7 @@ export default function MessagesPage() {
                   key={key}
                   contactKey={key}
                   c={c}
-                  unread={unreadByContact[key] || 0}
+                  unread={unreadFor(key, c)}
                   isPinned={pinned.includes(key)}
                   isSwiped={swipedKey === key}
                   typingText={getTypingText(key)}
@@ -408,7 +398,7 @@ export default function MessagesPage() {
               key={key}
               contactKey={key}
               c={c}
-              unread={unreadByContact[key] || 0}
+              unread={unreadFor(key, c)}
               isPinned={pinned.includes(key)}
               isSwiped={swipedKey === key}
               typingText={getTypingText(key)}
