@@ -41,6 +41,8 @@ export default function FirestoreProvider({ children }) {
             avatar: data.avatar || s.profile.avatar,
             role: data.role || '',
             location: data.location || '',
+            website: data.website || '',
+            skills: Array.isArray(data.skills) ? data.skills : [],
             followers: data.followers || 0,
             following: data.following || 0,
           },

@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, Camera, X, Plus, Loader2, Check, Copy } from 'lucide-react';
+import { ArrowLeft, Save, Camera, X, Plus, Loader2, Check, Copy, Globe } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
@@ -29,6 +29,7 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState(profile.bio || '');
   const [role, setRole] = useState(profile.role || '');
   const [location, setLocation] = useState(profile.location || '');
+  const [website, setWebsite] = useState(profile.website || '');
   const [skills, setSkills] = useState([...(profile.skills || [])]);
   const [skillInput, setSkillInput] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar || '');
@@ -122,12 +123,19 @@ export default function EditProfilePage() {
         }
       }
 
+      const normalizedWebsite = website.trim()
+        ? /^https?:\/\//i.test(website.trim())
+          ? website.trim()
+          : `https://${website.trim()}`
+        : '';
+
       const data = {
         name: name.trim(),
         handle: handle.trim(),
         bio: bio.trim(),
         role: role.trim(),
         location: location.trim(),
+        website: normalizedWebsite,
         skills,
         avatar: finalAvatarUrl,
       };
@@ -211,6 +219,19 @@ export default function EditProfilePage() {
           </FieldRow>
           <FieldRow label="Location">
             <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" className="field-input" />
+          </FieldRow>
+          <FieldRow label="Website">
+            <div className="relative">
+              <input
+                type="text"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="e.g. yoursite.com"
+                className="field-input pl-9"
+                inputMode="url"
+              />
+              <Globe size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gold" />
+            </div>
           </FieldRow>
           <FieldRow label="Bio">
             <div className="relative">
