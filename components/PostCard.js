@@ -49,8 +49,14 @@ export default memo(function PostCard({ post }) {
   const [author, setAuthor] = useState(null);
   const liked = useStore((s) => !!s.likedPosts[post.id]);
   const bookmarked = useStore((s) => !!s.bookmarkedPosts[post.id]);
+  const livePost = useStore((s) => (s.posts.length ? s.posts.find((p) => p.id === post.id) : null));
+  const displayPost = livePost || post;
   const localCommentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
-  const commentCount = post.commentsCount || localCommentCount;
+  const commentCount = displayPost.commentsCount || localCommentCount;
+  const [localLikeCount, setLocalLikeCount] = useState(displayPost.likes);
+  useEffect(() => {
+    setLocalLikeCount(displayPost.likes);
+  }, [displayPost.likes]);
   const toggleLike = useStore((s) => s.toggleLike);
   const toggleBookmark = useStore((s) => s.toggleBookmark);
   const showToast = useStore((s) => s.showToast);
@@ -82,6 +88,7 @@ export default memo(function PostCard({ post }) {
       setLikeAnimation(true);
       setTimeout(() => setLikeAnimation(false), 600);
     }
+    setLocalLikeCount((n) => (liked ? n - 1 : n + 1));
   }, [liked, toggleLike, post.id, vibrate, notification]);
 
   function goToAuthor() {
@@ -280,7 +287,7 @@ export default memo(function PostCard({ post }) {
                 <Heart size={28} className="fill-gold text-gold animate-[scaleIn_0.3s_ease-out_forwards] opacity-0" />
               </div>
             )}
-            {post.likes}
+            {localLikeCount}
           </button>
           <button
             onClick={() => router.push(`/post/${post.id}`)}
@@ -313,7 +320,7 @@ export default memo(function PostCard({ post }) {
             className="flex h-[44px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-text2"
           >
             <Share size={19} />
-            {post.shares}
+            {displayPost.shares}
           </button>
           <span className="flex-1" />
           <button
