@@ -48,8 +48,30 @@ export default function PostCommentsPage() {
 
   const MAX_COMMENT_CHARS = 500;
 
-  const post = posts.find((p) => p.id === postId);
+  const post = posts.find((p) => p.id === postId) || directPost;
+  const [directPost, setDirectPost] = useState(null);
+  const [postLoading, setPostLoading] = useState(!post);
   const [author, setAuthor] = useState(null);
+
+  // If the post isn't in the feed store (e.g. opened from another user's profile),
+  // fetch it directly from Firestore by id.
+  useEffect(() => {
+    if (!postId) return;
+    if (!posts.find((p) => p.id === postId)) {
+      let cancelled = false;
+      getDoc(doc(db, 'posts', postId))
+        .then((snap) => {
+          if (cancelled) return;
+          setPostLoading(false);
+          if (!snap.exists()) return;
+          setDirectPost({ id: snap.id, ...snap.data() });
+        })
+        .catch(() => { if (!cancelled) setPostLoading(false); });
+      return () => { cancelled = true; };
+    } else {
+      setPostLoading(false);
+    }
+  }, [postId, posts]);
 
   useEffect(() => {
     if (post?.authorKey) fetchUser(post.authorKey).then(setAuthor);
@@ -134,6 +156,17 @@ export default function PostCommentsPage() {
   }
 
   if (!ready) return <AuthSkeleton />;
+  if (postLoading) {
+    return (
+      <div className="app-shell flex min-h-0 flex-1 flex-col">
+        <SubpageHeader title="Comments" />
+        <div className="flex-1 px-4 pt-4">
+          <div className="skeleton mb-3 h-24 w-full rounded-2xl" />
+          <div className="skeleton h-16 w-full rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
   if (!post || !author) {
     return (
       <div className="app-shell flex min-h-0 flex-1 flex-col">
