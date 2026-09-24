@@ -326,7 +326,7 @@ service cloud.firestore {
         && request.resource.data.authorKey == uid()
         && request.resource.data.createdAt != null
         && request.resource.data.expiresAt is timestamp
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && request.resource.data.keys().hasOnly([
           'authorKey', 'authorName', 'authorAvatar', 'imageUrl', 'text', 'bg',
           'font', 'fontSize', 'mode', 'createdAt', 'expiresAt',
         ]);
