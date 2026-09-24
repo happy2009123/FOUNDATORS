@@ -12,8 +12,12 @@ export async function POST(req) {
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
     if (!cloudName || !apiKey || !apiSecret) {
+      const missing = [];
+      if (!cloudName) missing.push('CLOUDINARY_CLOUD_NAME');
+      if (!apiKey) missing.push('CLOUDINARY_API_KEY');
+      if (!apiSecret) missing.push('CLOUDINARY_API_SECRET');
       return NextResponse.json(
-        { error: 'Cloudinary is not configured (missing env vars)' },
+        { error: `Cloudinary is not configured (missing: ${missing.join(', ')})` },
         { status: 500 }
       );
     }
