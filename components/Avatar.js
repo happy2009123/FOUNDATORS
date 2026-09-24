@@ -4,12 +4,7 @@ import { useState } from 'react';
 
 function getInitials(name) {
   if (!name) return '?';
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  return name.trim().charAt(0).toUpperCase() || '?';
 }
 
 const GRADIENTS = [
@@ -29,14 +24,15 @@ function hashName(name) {
 
 export default function Avatar({ src, name, size = 48, className = '' }) {
   const [error, setError] = useState(false);
-  const showFallback = error || !src;
+  const isLegacyRandom = typeof src === 'string' && src.includes('pravatar');
+  const showFallback = error || !src || isLegacyRandom;
   const gradient = GRADIENTS[hashName(name || '') % GRADIENTS.length];
 
   if (showFallback) {
     return (
       <div
         className={`flex items-center justify-center rounded-full bg-gradient-to-br ${gradient} font-display font-extrabold text-[#171100] ${className}`}
-        style={{ width: size, height: size, fontSize: size * 0.36 }}
+        style={{ width: size, height: size, fontSize: size * 0.46 }}
       >
         {getInitials(name)}
       </div>

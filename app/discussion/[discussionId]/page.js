@@ -8,6 +8,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { db } from '@/lib/firebase';
+import { initialsAvatar } from '@/lib/avatar';
 import { doc, getDoc } from 'firebase/firestore';
 
 async function fetchUser(key) {
@@ -89,7 +90,7 @@ function DiscussionComment({ comment }) {
 
   useEffect(() => {
     if (comment.who === 'me') {
-      setCommenter({ name: 'Kabir Anand', avatar: 'https://i.pravatar.cc/100?img=13' });
+      setCommenter({ name: 'Kabir Anand', avatar: initialsAvatar('Kabir Anand') });
     } else {
       fetchUser(comment.who).then(setCommenter);
     }
@@ -97,7 +98,7 @@ function DiscussionComment({ comment }) {
 
   return (
     <div className="mb-3 flex items-end gap-2">
-      <img src={commenter?.avatar} alt={`${commenter?.name}'s avatar`} className="h-[26px] w-[26px] flex-none rounded-full object-cover" />
+      <img src={commenter?.avatar || initialsAvatar(commenter?.name)} alt={`${commenter?.name}'s avatar`} className="h-[26px] w-[26px] flex-none rounded-full object-cover" />
       <div className="max-w-[80%] rounded-[18px] rounded-bl-[5px] border border-linesoft bg-card px-3.5 py-[11px] text-[13.8px] leading-snug">
         <b className="mb-0.5 block text-[11.5px] text-gold-hi">{commenter?.name}</b>
         {comment.text}

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import { isFirebaseConfigured, auth, db } from '@/lib/firebase';
+import { initialsAvatar } from '@/lib/avatar';
 import {
   collection,
   doc,
@@ -148,7 +149,7 @@ export default function FirestoreProvider({ children }) {
         if (otherId) {
           chatContacts[otherId] = {
             name: chat.participantNames?.[otherId] || 'User',
-            avatar: chat.participantAvatars?.[otherId] || `https://i.pravatar.cc/160?u=${otherId}`,
+            avatar: chat.participantAvatars?.[otherId] || initialsAvatar(chat.participantNames?.[otherId] || 'User'),
             online: false,
             status: '',
             lastActive: '',

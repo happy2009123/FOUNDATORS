@@ -6,6 +6,7 @@ import { UserPlus, Check } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import VerifiedBadge from './VerifiedBadge';
+import { initialsAvatar } from '@/lib/avatar';
 
 export default memo(function PersonCard({ user, variant = 'card' }) {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default memo(function PersonCard({ user, variant = 'card' }) {
     return (
       <div className="mb-3 flex items-center gap-3.5 rounded-2xl border border-linesoft bg-card p-3.5">
           <img
-            src={user.avatar}
+            src={user.avatar || initialsAvatar(user.name)}
             alt={`${user.name}'s avatar`}
             onClick={goToProfile}
             className="h-[52px] w-[52px] flex-none cursor-pointer rounded-full object-cover"
@@ -63,7 +64,7 @@ export default memo(function PersonCard({ user, variant = 'card' }) {
   return (
     <div className="w-[150px] flex-none rounded-2xl border border-linesoft bg-card px-3.5 py-4 text-center">
       <img
-        src={user.avatar}
+        src={user.avatar || initialsAvatar(user.name)}
         alt={`${user.name}'s avatar`}
         onClick={goToProfile}
         className="mx-auto mb-2.5 h-[60px] w-[60px] cursor-pointer rounded-full object-cover"

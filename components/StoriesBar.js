@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import StoryViewer from './StoryViewer';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { initialsAvatar } from '@/lib/avatar';
 
 export default function StoriesBar() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function StoriesBar() {
     return {
       authorKey,
       authorName: first?.authorName || 'User',
-      authorAvatar: first?.authorAvatar || 'https://i.pravatar.cc/160',
+      authorAvatar: first?.authorAvatar || initialsAvatar(first?.authorName || 'User'),
       stories: authorStories.sort((a, b) => (a.createdAt?._seconds || 0) - (b.createdAt?._seconds || 0)),
     };
   });
@@ -72,7 +73,7 @@ export default function StoriesBar() {
             <div className="relative">
               <div className="h-[62px] w-[62px] rounded-full border-2 border-dashed border-text3 p-[2px]">
                 <img
-                  src={profile?.avatar || 'https://i.pravatar.cc/160?img=1'}
+                  src={profile?.avatar || initialsAvatar(profile?.name || 'You')}
                   alt="Your story"
                   className="h-full w-full rounded-full object-cover"
                 />
@@ -104,7 +105,7 @@ export default function StoriesBar() {
               >
                 <div className="h-[62px] w-[62px] rounded-full border-2 border-gold p-[2px]">
                   <img
-                    src={author.authorAvatar || 'https://i.pravatar.cc/160'}
+                    src={author.authorAvatar || initialsAvatar(author.authorName)}
                     alt={author.authorName}
                     className="h-full w-full rounded-full object-cover"
                   />

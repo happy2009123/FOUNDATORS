@@ -22,6 +22,7 @@ import MainScreenShell from '@/components/MainScreenShell';
 import ReelComments from '@/components/ReelComments';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
+import { initialsAvatar } from '@/lib/avatar';
 import { doc, getDoc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 async function fetchUser(key) {
@@ -290,7 +291,7 @@ export default function ReelsContent() {
                 {/* Top User Info */}
                 <div className="flex items-center gap-3 px-4 pt-14">
                   <img
-                    src={reelUser?.avatar}
+                    src={reelUser?.avatar || initialsAvatar(reelUser?.name)}
                     alt={reelUser?.name}
                     className="h-10 w-10 rounded-full border-2 border-white object-cover"
                   />
@@ -440,7 +441,7 @@ export default function ReelsContent() {
                   <div className="mt-1">
                     <div className="relative">
                       <img
-                        src={reelUser?.avatar}
+                        src={reelUser?.avatar || initialsAvatar(reelUser?.name)}
                         alt={reelUser?.name}
                         className="h-10 w-10 rounded-full border-2 border-white object-cover"
                       />

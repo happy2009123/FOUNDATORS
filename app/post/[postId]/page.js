@@ -12,6 +12,7 @@ import Avatar from '@/components/Avatar';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { subscribeToComments } from '@/lib/firestore';
+import { initialsAvatar } from '@/lib/avatar';
 
 async function fetchUser(key) {
   try {
@@ -185,7 +186,7 @@ export default function PostCommentsPage() {
     useEffect(() => {
       if (comment.who === 'me') {
         const p = useStore.getState().profile;
-        setCommenter({ name: p?.name || 'You', avatar: p?.avatar || 'https://i.pravatar.cc/100?img=1', key: p?.id });
+        setCommenter({ name: p?.name || 'You', avatar: p?.avatar || initialsAvatar(p?.name || 'You'), key: p?.id });
       } else {
         fetchUser(comment.who).then(setCommenter);
       }

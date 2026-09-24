@@ -6,6 +6,7 @@ import { Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff, MoreHorizontal 
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
+import { initialsAvatar } from '@/lib/avatar';
 
 export default function CallScreen({ userId, type, onClose }) {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function CallScreen({ userId, type, onClose }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRinging, setIsRinging] = useState(true);
 
-  const user = { name: 'Arjun Verma', avatar: 'https://i.pravatar.cc/160?img=12' };
+  const user = { name: 'Arjun Verma', avatar: initialsAvatar('Arjun Verma') };
 
   useEffect(() => {
     if (isRinging) {

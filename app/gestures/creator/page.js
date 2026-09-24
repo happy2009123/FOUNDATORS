@@ -10,6 +10,7 @@ import { useStore } from '@/lib/store';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
+import { initialsAvatar } from '@/lib/avatar';
 import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
@@ -110,7 +111,7 @@ function CreatorProfileInner() {
             <div className="flex items-start gap-4">
               <div className="h-[80px] w-[80px] flex-none overflow-hidden rounded-full border-2 border-[#D9AC3D]">
                 <img
-                  src={person.avatar}
+                  src={person.avatar || initialsAvatar(person.name)}
                   alt={person.name}
                   className="h-full w-full object-cover"
                 />

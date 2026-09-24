@@ -19,6 +19,7 @@ import { useHaptics } from '@/lib/useHaptics';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { sanitize } from '@/lib/security';
 import { db } from '@/lib/firebase';
+import { initialsAvatar } from '@/lib/avatar';
 import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
@@ -309,7 +310,7 @@ function TemplateDetailInner() {
               {author && (
                 <div className="mt-2 flex items-center gap-2">
                   <img
-                    src={author.avatar}
+                    src={author.avatar || initialsAvatar(author.name)}
                     alt={author.name}
                     className="h-5 w-5 rounded-full"
                   />
@@ -571,7 +572,7 @@ function TemplateDetailInner() {
                   <div key={comment.id} className="glass-card p-3">
                     <div className="flex items-center gap-2">
                       <img
-                        src={commenter?.avatar || 'https://i.pravatar.cc/160?img=1'}
+                        src={commenter?.avatar || initialsAvatar(commenter?.name || 'User')}
                         alt={commenter?.name || 'User'}
                         className="h-6 w-6 rounded-full"
                       />
