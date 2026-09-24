@@ -24,9 +24,12 @@ export default function HomePage(){
  const handleRefresh=useCallback(()=>new Promise(r=>setTimeout(r,1200)),[]);
  const [matches, setMatches] = useState([]);
  const [userProjects, setUserProjects] = useState([]);
+ const lastFetchedProfile = useRef(null);
 
  useEffect(() => {
    if (!profile?.id) return;
+   if (lastFetchedProfile.current === profile.id) return;
+   lastFetchedProfile.current = profile.id;
    let cancelled = false;
 
    const fetchMatches = async () => {

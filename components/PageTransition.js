@@ -1,21 +1,25 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function PageTransition({ children }) {
   const pathname = usePathname();
-  const [animKey, setAnimKey] = useState(0);
+  const prevPath = useRef(pathname);
+  const [isEntering, setIsEntering] = useState(false);
 
   useEffect(() => {
-    setAnimKey((k) => k + 1);
+    if (prevPath.current === pathname) return;
+    prevPath.current = pathname;
+    setIsEntering(true);
+    const t = setTimeout(() => setIsEntering(false), 250);
+    return () => clearTimeout(t);
   }, [pathname]);
 
   return (
     <div
-      key={animKey}
       className="flex min-h-0 flex-1 flex-col"
-      style={{ animation: 'pageSlideIn 0.25s ease-out both' }}
+      style={{ animation: isEntering ? 'pageSlideIn 0.25s ease-out both' : 'none' }}
     >
       {children}
     </div>

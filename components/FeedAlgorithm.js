@@ -29,27 +29,36 @@ function scorePost(post, profile, followedUsers) {
 
 const PAGE_SIZE = 20;
 
+// Module-level cache so navigating away and back to /home doesn't re-query
+// Firestore from scratch. Cleared only on hard refresh.
+let cachedInitial = null;
+
 export default function FeedAlgorithm() {
   const [feedType, setFeedType] = useState('foryou');
   const profile = useStore((s) => s.profile);
   const followedUsers = useStore((s) => s.followedUsers);
   const posts = useStore((s) => s.posts);
 
-  const [firestorePosts, setFirestorePosts] = useState([]);
-  const [lastDoc, setLastDoc] = useState(null);
+  const [firestorePosts, setFirestorePosts] = useState(() => cachedInitial?.posts || []);
+  const [lastDoc, setLastDoc] = useState(() => cachedInitial?.lastDoc || null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [hasMore, setHasMore] = useState(() => cachedInitial ? cachedInitial.hasMore : true);
+  const [initialLoaded, setInitialLoaded] = useState(() => !!cachedInitial);
 
   const loadInitial = useCallback(async () => {
-    if (!db) return;
+    if (!db || cachedInitial) return;
     try {
       const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
       const snap = await getDocs(q);
       const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      cachedInitial = {
+        posts: fetched,
+        lastDoc: snap.docs[snap.docs.length - 1] || null,
+        hasMore: snap.docs.length === PAGE_SIZE,
+      };
       setFirestorePosts(fetched);
-      setLastDoc(snap.docs[snap.docs.length - 1] || null);
-      setHasMore(snap.docs.length === PAGE_SIZE);
+      setLastDoc(cachedInitial.lastDoc);
+      setHasMore(cachedInitial.hasMore);
       setInitialLoaded(true);
     } catch {
       setInitialLoaded(true);
@@ -64,6 +73,7 @@ export default function FeedAlgorithm() {
       const snap = await getDocs(q);
       const newPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setFirestorePosts(prev => [...prev, ...newPosts]);
+      if (cachedInitial) cachedInitial.posts = [...cachedInitial.posts, ...newPosts];
       setLastDoc(snap.docs[snap.docs.length - 1] || null);
       setHasMore(newPosts.length === PAGE_SIZE);
     } catch {}
