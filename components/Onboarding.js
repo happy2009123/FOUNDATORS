@@ -81,13 +81,16 @@ export default function Onboarding() {
 
     if (auth?.currentUser) {
       const uid = auth.currentUser.uid;
-      await setDoc(doc(db, 'users', uid), {
-        name: name.trim() || undefined,
-        role: ROLES.find((r) => r.key === role)?.label || role || undefined,
-        interests: selectedInterests.length ? selectedInterests : undefined,
+      const merged = {
         profileCompleted: true,
         updatedAt: serverTimestamp(),
-      }, { merge: true }).catch(() => {});
+      };
+      const trimmedName = name.trim();
+      if (trimmedName) merged.name = trimmedName;
+      const roleLabel = ROLES.find((r) => r.key === role)?.label || role;
+      if (roleLabel) merged.role = roleLabel;
+      if (selectedInterests.length) merged.interests = selectedInterests;
+      await setDoc(doc(db, 'users', uid), merged, { merge: true }).catch(() => {});
     }
 
     localStorage.setItem('onboarding_complete', 'true');
