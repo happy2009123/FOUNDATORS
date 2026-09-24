@@ -49,7 +49,8 @@ export default memo(function PostCard({ post }) {
   const [author, setAuthor] = useState(null);
   const liked = useStore((s) => !!s.likedPosts[post.id]);
   const bookmarked = useStore((s) => !!s.bookmarkedPosts[post.id]);
-  const commentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
+  const localCommentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
+  const commentCount = post.commentsCount || localCommentCount;
   const toggleLike = useStore((s) => s.toggleLike);
   const toggleBookmark = useStore((s) => s.toggleBookmark);
   const showToast = useStore((s) => s.showToast);

@@ -177,8 +177,13 @@ service cloud.firestore {
         && request.resource.data.bookmarkedBy is list
         && isValidTimestamp(request.resource.data.createdAt);
 
-      // UPDATE: Only the author can update their own post
-      // Allows toggling likes, bookmarks, editing text, etc.
+      // UPDATE: Two allowed paths —
+      //  1. Anyone (signed in) can toggle likes/bookmarks on a post
+      //  2. Only the author can edit post content
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'likedBy', 'bookmarkedBy', 'likes'
+           ]);
       allow update: if isSignedIn()
         && resource.data.authorKey == uid()
         && request.resource.data.authorKey == resource.data.authorKey;
@@ -216,8 +221,12 @@ service cloud.firestore {
           && isValidTimestamp(request.resource.data.createdAt)
           && request.resource.data.edited is bool;
 
-        // UPDATE: Only the comment author can edit their comment
-        // Only allows editing the text and setting the edited flag
+        // UPDATE: Anyone can toggle a comment like; only the comment
+        // author can edit the comment text
+        allow update: if isSignedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'likedBy', 'likes'
+             ]);
         allow update: if isSignedIn()
           && resource.data.authorKey == uid()
           && request.resource.data.authorKey == resource.data.authorKey;
@@ -314,10 +323,26 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.resource.data.authorKey == uid();
+        && request.resource.data.authorKey == uid()
+        && request.resource.data.createdAt != null
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'authorKey', 'authorName', 'authorAvatar', 'imageUrl', 'text', 'bg',
+          'font', 'fontSize', 'mode', 'createdAt', 'expiresAt',
+        ]);
       allow delete: if isSignedIn()
         && resource.data.authorKey == uid();
       allow update: if false;
+
+      // Story views: anyone signed in can add their own view, only once
+      match /views/{viewerUid} {
+        allow read: if isSignedIn()
+          && (uid() == resource.data.viewerUid
+            || uid() == get(/databases/$(database)/documents/stories/$(storyId)).data.authorKey);
+        allow create, update: if isSignedIn()
+          && request.resource.data.viewerUid == uid();
+        allow delete: if false;
+      }
     }
 
     // ============================================================

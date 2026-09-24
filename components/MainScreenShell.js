@@ -1,7 +1,6 @@
 'use client';
 
 import { useRequireAuth } from '@/lib/useRequireAuth';
-import BottomNav from '@/components/BottomNav';
 import PageTransition from '@/components/PageTransition';
 
 export default function MainScreenShell({ children }) {
@@ -9,7 +8,7 @@ export default function MainScreenShell({ children }) {
 
   return (
     <div className="app-shell flex min-h-0 flex-1 flex-col">
-      <div className="no-scrollbar flex-1 overflow-y-auto pb-[60px] lg:pb-0">
+      <div className="no-scrollbar flex-1 overflow-y-auto">
         {ready ? (
           <PageTransition>{children}</PageTransition>
         ) : (
@@ -20,9 +19,6 @@ export default function MainScreenShell({ children }) {
             <div className="skeleton mb-3 h-16 w-full rounded-2xl" />
           </div>
         )}
-      </div>
-      <div className="lg:hidden">
-        <BottomNav />
       </div>
     </div>
   );

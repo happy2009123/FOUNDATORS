@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bookmark } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -8,16 +8,30 @@ import SubpageHeader from '@/components/SubpageHeader';
 import PostCard from '@/components/PostCard';
 import EmptyState from '@/components/EmptyState';
 import { useStore } from '@/lib/store';
+import { db } from '@/lib/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 export default function BookmarksPage() {
   const router = useRouter();
-  const posts = useStore((s) => s.posts);
-  const bookmarkedPosts = useStore((s) => s.bookmarkedPosts);
+  const profile = useStore((s) => s.profile);
+  const [bookmarkedDocs, setBookmarkedDocs] = useState([]);
 
-  const saved = useMemo(
-    () => posts.filter((p) => bookmarkedPosts[p.id]),
-    [posts, bookmarkedPosts]
-  );
+  useEffect(() => {
+    if (!profile?.id) return;
+    const q = query(
+      collection(db, 'posts'),
+      where('bookmarkedBy', 'array-contains', profile.id),
+      orderBy('createdAt', 'desc'),
+      limit(100)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setBookmarkedDocs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [profile?.id]);
+
+  // Live content: prefer the fresh docs to reflect real-time like/comment counts
+  const saved = bookmarkedDocs;
 
   return (
     <MainScreenShell>

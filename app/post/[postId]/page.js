@@ -11,6 +11,7 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import Avatar from '@/components/Avatar';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { subscribeToComments } from '@/lib/firestore';
 
 async function fetchUser(key) {
   try {
@@ -57,6 +58,40 @@ export default function PostCommentsPage() {
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [postId]);
 
   useEffect(() => { if (sortBy) sortComments(postId, sortBy); }, [sortBy, postId, comments.length]);
+
+  // Load comments from Firebase (real-time)
+  useEffect(() => {
+    if (!postId) return;
+    const unsub = subscribeToComments(postId, (firestoreComments) => {
+      const me = useStore.getState().profile?.id;
+      const fmt = (c) => {
+        const secs = c.createdAt?._seconds;
+        if (!secs) return 'now';
+        const diff = Math.floor(Date.now() / 1000) - secs;
+        if (diff < 60) return `${diff}s`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+        return `${Math.floor(diff / 86400)}d`;
+      };
+      useStore.setState((s) => ({
+        commentsByPost: {
+          ...s.commentsByPost,
+          [postId]: firestoreComments.map((c) => ({
+            id: c.id,
+            who: c.authorKey,
+            text: c.text,
+            replyTo: c.replyTo || null,
+            time: fmt(c),
+            likes: c.likes || 0,
+            likedByMe: Array.isArray(c.likedBy) ? c.likedBy.includes(me) : false,
+            authorName: c.authorName,
+            authorAvatar: c.authorAvatar,
+          })),
+        },
+      }));
+    });
+    return () => unsub();
+  }, [postId]);
 
   const handleReply = useCallback((comment) => {
     vibrate('light');
@@ -125,7 +160,7 @@ export default function PostCommentsPage() {
 
     const replies = getReplies(comment.id);
     const isEditing = editingId === comment.id;
-    const isOwn = comment.who === 'me';
+    const isOwn = comment.who === 'me' || comment.who === useStore.getState().profile?.id;
 
     return (
       <div className={`${isReply ? 'ml-8 border-l-2 border-linesoft pl-3' : ''}`}>

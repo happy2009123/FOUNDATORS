@@ -47,7 +47,16 @@ export default function StoriesBar() {
     return acc;
   }, {});
 
-  const storyAuthors = Object.keys(groupedStories);
+  const storyAuthors = Object.keys(groupedStories).map((authorKey) => {
+    const authorStories = groupedStories[authorKey];
+    const first = authorStories[0];
+    return {
+      authorKey,
+      authorName: first?.authorName || 'User',
+      authorAvatar: first?.authorAvatar || 'https://i.pravatar.cc/160',
+      stories: authorStories.sort((a, b) => (a.createdAt?._seconds || 0) - (b.createdAt?._seconds || 0)),
+    };
+  });
 
   const hasStories = storyAuthors.length > 0;
 
@@ -85,23 +94,22 @@ export default function StoriesBar() {
             </div>
           )}
 
-          {storyAuthors.map((authorKey) => {
-            const authorStories = groupedStories[authorKey];
-            const latestStory = authorStories[0];
+          {storyAuthors.map((author) => {
+            const latestStory = author.stories[author.stories.length - 1] || author.stories[0];
             return (
               <button
-                key={authorKey}
-                onClick={() => setViewingStory(latestStory)}
+                key={author.authorKey}
+                onClick={() => setViewingStory(author.authorKey)}
                 className="flex flex-none flex-col items-center gap-1"
               >
                 <div className="h-[62px] w-[62px] rounded-full border-2 border-gold p-[2px]">
                   <img
-                    src={latestStory.authorAvatar || 'https://i.pravatar.cc/160'}
-                    alt={latestStory.authorName}
+                    src={author.authorAvatar || 'https://i.pravatar.cc/160'}
+                    alt={author.authorName}
                     className="h-full w-full rounded-full object-cover"
                   />
                 </div>
-                <span className="text-[10px] text-text3">{latestStory.authorName?.split(' ')[0]}</span>
+                <span className="text-[10px] text-text3">{author.authorName?.split(' ')[0]}</span>
               </button>
             );
           })}
@@ -109,7 +117,7 @@ export default function StoriesBar() {
       </div>
 
       {viewingStory && (
-        <StoryViewer initialUser={viewingStory} onClose={() => setViewingStory(null)} />
+        <StoryViewer authors={storyAuthors} initialAuthorKey={viewingStory} onClose={() => setViewingStory(null)} />
       )}
     </>
   );

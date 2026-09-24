@@ -18,7 +18,11 @@ export default function BottomNav() {
   const { vibrate } = useHaptics();
 
   return (
-    <nav className="safe-bottom flex flex-none items-end justify-between border-t border-linesoft bg-black/95 backdrop-blur-md px-[22px] pb-1.5 pt-2" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 6px)' }}>
+    <nav
+      aria-label="Main navigation"
+      className="safe-bottom fixed bottom-0 left-0 right-0 z-[70] flex flex-none items-end justify-between border-t border-linesoft bg-black/95 backdrop-blur-md px-[22px] pb-1.5 pt-2 lg:hidden"
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 6px)' }}
+    >
       {TABS.map((tab) => {
         if (tab.href === '__create__') {
           return (

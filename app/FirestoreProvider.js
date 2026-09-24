@@ -56,6 +56,11 @@ export default function FirestoreProvider({ children }) {
     const unsubFollows = onSnapshot(followsQ, (followSnap) => {
       const followedIds = followSnap.docs.map((d) => d.id);
 
+      // Hydrate the followedUsers map so follow buttons reflect real state
+      const followedMap = {};
+      followSnap.docs.forEach((d) => { followedMap[d.id] = true; });
+      set({ followedUsers: followedMap });
+
       // Clean up old post listener
       const oldPostUnsub = unsubRef.current._posts;
       if (oldPostUnsub) {
@@ -100,6 +105,14 @@ export default function FirestoreProvider({ children }) {
           const blocked = useStore.getState().blockedUsers || {};
           const filtered = allPosts.filter((p) => !blocked[p.authorKey]);
           set({ posts: filtered.slice(0, 100) });
+          // Hydrate liked state from post docs (likedBy UID arrays), merging to
+          // preserve local toggles for posts that are not in this feed batch
+          const likedMap = {};
+          filtered.forEach((p) => {
+            if (Array.isArray(p.likedBy)) likedMap[p.id] = p.likedBy.includes(userId);
+            else likedMap[p.id] = false;
+          });
+          set((s) => ({ likedPosts: { ...s.likedPosts, ...likedMap } }));
         });
         unsubs.push(unsubPosts);
       });
@@ -153,9 +166,13 @@ export default function FirestoreProvider({ children }) {
     });
     unsubs.push(unsubChats);
 
-    // ── Bookmarks: ONLY this user's ────────────────────────────────────
-    const bookmarksQ = query(collection(db, 'users', userId, 'bookmarks'));
-    const unsubBookmarks = onSnapshot(bookmarksQ, (snap) => {
+    // ── Bookmarks: hydrated from post docs (bookmarkedBy ~= same as likes write path) ──
+    const bookmarkPostsQ = query(
+      collection(db, 'posts'),
+      where('bookmarkedBy', 'array-contains', userId),
+      limit(100)
+    );
+    const unsubBookmarks = onSnapshot(bookmarkPostsQ, (snap) => {
       const bookmarked = {};
       snap.docs.forEach((d) => { bookmarked[d.id] = true; });
       set({ bookmarkedPosts: bookmarked });

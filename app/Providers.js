@@ -10,6 +10,7 @@ import { useAuthInit } from '@/lib/useAuthInit';
 import FirestoreProvider from './FirestoreProvider';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DesktopShell from '@/components/DesktopShell';
+import MobileBottomNav from '@/components/MobileBottomNav';
 import Toast from '@/components/Toast';
 import Drawer from '@/components/Drawer';
 import OfflineBanner from '@/components/OfflineBanner';
@@ -73,6 +74,7 @@ export default function Providers({ children }) {
         <OfflineBanner />
         <PushRegistrar />
         <DesktopShell />
+        <MobileBottomNav />
         <div id="main-content">{children}</div>
         <Drawer />
         <Toast />

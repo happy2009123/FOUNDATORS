@@ -79,6 +79,13 @@ body {
   flex-direction: column;
   padding-top: env(safe-area-inset-top, 0px);
 }
+/* Reserve space for the fixed mobile bottom navigation so content is never hidden behind it.
+   Navigation is fixed to the viewport bottom; only the scrollable page content needs padding. */
+@media (max-width: 1023px) {
+  .app-shell > .no-scrollbar {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  }
+}
 @media (min-width: 521px) and (max-width: 1023px) {
   .app-shell { max-width: 100%; }
 }
