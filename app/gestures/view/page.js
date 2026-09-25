@@ -61,7 +61,7 @@ function GestureViewPage() {
 
   if (!gesture || !template) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#0a0a0a] px-6 text-center">
+      <div className="stage-frame flex min-h-[100dvh] flex-col items-center justify-center bg-[#0a0a0a] px-6 text-center">
         <div className="text-5xl">🔍</div>
         <div className="mt-4 text-[16px] font-extrabold">Gesture not found</div>
         <div className="mt-1 text-[12px] text-text2">This gesture may have been deleted or the link is invalid.</div>
@@ -76,7 +76,7 @@ function GestureViewPage() {
   const totalReactions = Object.values(gesture.reactions || {}).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="flex min-h-[100dvh] flex-col" style={{ background: theme.bg }}>
+    <div className="stage-frame flex min-h-[100dvh] flex-col" style={{ background: theme.bg }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3">
         <button onClick={() => router.back()} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white">

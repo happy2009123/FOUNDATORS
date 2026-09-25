@@ -97,13 +97,17 @@ body {
 }
 
 /* ─── Desktop (1024+): true app layout.
-   Feed column is centered between the fixed sidebar (240px) and the optional
-   right rail (320px, shown only at xl+). On lg-only screens (no right rail) the
-   feed centers in the space right of the sidebar. Auth/login screens center normally. ─── */
+   The center column is fluid, not a fixed 680px phone frame: it fills the space
+   between the fixed sidebar (240px) and the right rail (320px, xl+), minus a
+   48px gutter, and caps at 760px (lg) / 900px (xl) so lines stay readable.
+   That keeps the gutters constant (~24px per side) on normal laptops instead of
+   leaving large dead margins on big monitors. Auth screens center normally. ─── */
 @media (min-width: 1024px) and (max-width: 1279px) {
   .app-shell {
-    max-width: 720px;
-    margin: 60px auto 0 calc(240px + max(0px, (100% - 240px - 720px) / 2));
+    --col: min(100% - 240px - 48px, 760px);
+    width: var(--col);
+    max-width: none;
+    margin: 60px 0 0 calc(240px + (100% - 240px - var(--col)) / 2);
     box-shadow: none;
     border-left: 1px solid var(--linesoft);
     border-right: 1px solid var(--linesoft);
@@ -111,8 +115,10 @@ body {
 }
 @media (min-width: 1280px) {
   .app-shell {
-    max-width: 680px;
-    margin: 60px auto 0 calc(240px + (100% - 240px - 320px - 680px) / 2);
+    --col: min(100% - 240px - 320px - 48px, 900px);
+    width: var(--col);
+    max-width: none;
+    margin: 60px 0 0 calc(240px + (100% - 240px - 320px - var(--col)) / 2);
     box-shadow: none;
     border-left: 1px solid var(--linesoft);
     border-right: 1px solid var(--linesoft);
@@ -159,6 +165,41 @@ body {
 
 .safe-top { padding-top: env(safe-area-inset-top, 0px); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Immersive full-screen routes (reels, stories/create, gestures/view, onboarding).
+   These render edge-to-edge instead of using .app-shell, so on desktop they get
+   a frame: the stage sits right of the 240px sidebar and below the 60px header.
+   The right rail is not rendered on these routes (see DesktopShell), so the
+   stage spans the full remaining width. Unlayered on purpose so it overrides
+   Tailwind's h-dvh / w-full utilities. Height minus the header avoids
+   overflowing the viewport. */
+.stage-frame {
+  width: 100%;
+}
+@media (min-width: 1024px) {
+  .stage-frame {
+    width: calc(100% - 240px);
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
+    margin-left: 240px;
+    margin-top: 60px;
+  }
+}
+
+/* Same idea, but for full-screen content that is already inside .app-shell
+   (e.g. reels, which wraps its stage in MainScreenShell). The shell already
+   carries the 60px top offset on desktop, so the stage only needs its height
+   reduced - adding the horizontal offset again would double-count the sidebar. */
+.fill-stage {
+  height: 100vh;
+  height: 100dvh;
+}
+@media (min-width: 1024px) {
+  .fill-stage {
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
+  }
+}
 
 /* Clearance for the fixed mobile bottom navigation (72px) plus the safe area.
    Needed by bottom-anchored bars that are not a direct .no-scrollbar child of

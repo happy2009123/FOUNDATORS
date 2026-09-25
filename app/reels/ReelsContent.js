@@ -221,7 +221,7 @@ export default function ReelsContent() {
     <MainScreenShell>
       <div
         ref={containerRef}
-        className="relative h-dvh w-full overflow-hidden bg-ink"
+        className="fill-stage relative w-full overflow-hidden bg-ink"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onWheel={handleWheel}

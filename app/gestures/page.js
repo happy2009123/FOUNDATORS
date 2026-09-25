@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 
 const GesturesContent = dynamic(() => import('./GesturesContent'), {
   loading: () => (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-ink px-[18px] pb-6">
+    <div className="stage-frame flex min-h-dvh flex-col items-center justify-center bg-ink px-[18px] pb-6">
       <div className="gold-card mt-3 w-full p-5">
         <div className="h-3 w-20 animate-pulse rounded bg-surface" />
         <div className="mt-2 h-6 w-48 animate-pulse rounded-xl bg-surface" />
