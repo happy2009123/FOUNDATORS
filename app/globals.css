@@ -160,6 +160,19 @@ body {
 .safe-top { padding-top: env(safe-area-inset-top, 0px); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
+/* Clearance for the fixed mobile bottom navigation (72px) plus the safe area.
+   Needed by bottom-anchored bars that are not a direct .no-scrollbar child of
+   .app-shell (e.g. the chat composer), so the global rule cannot reach them.
+   Reset on desktop, where the bottom nav is hidden. */
+.pb-nav-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+}
+@media (min-width: 1024px) {
+  .pb-nav-safe {
+    padding-bottom: 0.625rem;
+  }
+}
+
 /* ─── Spring-like Transitions ───
    These approximate a spring curve using CSS linear().
    Feels physical and bouncy vs flat ease-in-out. */

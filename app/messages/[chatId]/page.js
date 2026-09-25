@@ -896,7 +896,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="safe-bottom flex flex-none items-end gap-2 border-t border-linesoft px-3 py-2.5">
+      <div className="flex flex-none items-end gap-2 border-t border-linesoft px-3 pt-2.5 pb-nav-safe">
         <div className="relative">
           <button
             onClick={() => fileInputRef.current?.click()}
