@@ -58,6 +58,10 @@ export default function ChatPage() {
   const [showImagePreview, setShowImagePreview] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
   const [directions, setDirections] = useState(null);
+  // True once the route param has been resolved (or definitively failed).
+  // Until then the async reads below leave displayContact null - we must show
+  // a loading frame, not the "conversation doesn't exist" error.
+  const [resolveDone, setResolveDone] = useState(false);
   const [chatData, setChatData] = useState(null);
   const [fsMessages, setFsMessages] = useState(null);
   const [editingMsg, setEditingMsg] = useState(null); // { index, id, text }
@@ -65,6 +69,11 @@ export default function ChatPage() {
   const [forwardModal, setForwardModal] = useState(null); // { index, text } | null
   const [forwardChats, setForwardChats] = useState([]);
   const scrollRef = useRef(null);
+  // Auto-scroll policy: jump to the newest message when a conversation opens,
+  // then follow new messages ONLY while the user is already near the bottom.
+  // Scrolling up to read history must never be yanked back down.
+  const nearBottomRef = useRef(true);
+  const jumpedRef = useRef(null);
   const inputRef = useRef(null);
   const recordingInterval = useRef(null);
   const fileInputRef = useRef(null);
@@ -76,9 +85,34 @@ export default function ChatPage() {
 
   const messages = fsMessages !== null ? fsMessages : (contact?.messages || []);
 
+  const handleMessagesScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+  };
+
+  // First open (or a switched conversation): jump instantly to the newest
+  // message with no animation. After that only follow new messages while the
+  // user is already near the bottom - never interrupt upward reading.
   useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !messages.length) return;
+    if (jumpedRef.current !== chatId) {
+      jumpedRef.current = chatId;
+      el.scrollTop = el.scrollHeight;
+      nearBottomRef.current = true;
+      return;
+    }
+    if (nearBottomRef.current) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages.length, chatId]);
+
+  // Follow the typing indicator only while the user is watching the bottom.
+  useEffect(() => {
+    if (!typing || !nearBottomRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length, typing]);
+  }, [typing]);
 
   // Resolve the deterministic conversation ID for this route.
   // The route param is either a user UID (from profile "Message" or search)
@@ -87,6 +121,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!chatId || !profile?.id || !db) return;
     let cancelled = false;
+    setResolveDone(false);
     async function resolveDirection() {
       try {
         // Case A: param is a user UID → deterministic pair ID.
@@ -137,6 +172,8 @@ export default function ChatPage() {
         }
       } catch (err) {
         console.warn('Failed to resolve chat direction:', err);
+      } finally {
+        if (!cancelled) setResolveDone(true);
       }
     }
     resolveDirection();
@@ -284,6 +321,7 @@ export default function ChatPage() {
     setShowEmoji(false);
     const p = sendPayload();
     if (p) {
+      nearBottomRef.current = true; // our own message should be visible
       sendFS(p.convId, {
         text: val,
         senderKey: profile.id,
@@ -453,6 +491,7 @@ export default function ChatPage() {
       const voiceText = `🎤 Voice message (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')})`;
       const p = sendPayload();
       if (p) {
+        nearBottomRef.current = true;
         sendFS(p.convId, {
           text: voiceText,
           senderKey: profile.id,
@@ -493,6 +532,7 @@ export default function ChatPage() {
     setShowImagePreview(null);
     const p = sendPayload();
     if (p) {
+      nearBottomRef.current = true;
       sendFS(p.convId, {
         text: '📷 Image',
         senderKey: profile.id,
@@ -552,8 +592,27 @@ export default function ChatPage() {
   } : null));
 
   if (!displayContact) {
+    // Still resolving the route param (1-3 async Firestore reads): show a
+    // neutral loading frame. Reporting "doesn't exist" here made the error
+    // flash - or stick - every time a conversation was opened.
+    if (!resolveDone) {
+      return (
+        <div className="app-shell chat-screen flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
+            <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Back to messages">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+            <div className="h-4 w-28 rounded-full bg-white/10" />
+          </div>
+          <div className="flex flex-1 items-center justify-center gap-2.5 text-sm text-text3">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-linesoft border-t-gold" />
+            Opening conversation…
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="app-shell flex min-h-0 flex-1 flex-col">
+      <div className="app-shell chat-screen flex min-h-0 flex-1 flex-col">
         <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
           <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
@@ -586,7 +645,7 @@ export default function ChatPage() {
   });
 
   return (
-    <div className="app-shell wide-desktop flex min-h-0 flex-1 flex-col">
+    <div className="app-shell wide-desktop chat-screen flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
         <ChatListPane activeChatId={chatId} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -644,7 +703,11 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-3.5 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleMessagesScroll}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 py-3"
+      >
         <div className="mb-4 flex items-center justify-center gap-1.5 text-[10px] text-text3">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
           Messages are end-to-end encrypted
@@ -896,7 +959,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex flex-none items-end gap-2 border-t border-linesoft px-3 pt-2.5 pb-nav-safe">
+      <div className="flex flex-none items-end gap-2 border-t border-linesoft px-3 pt-2.5 chat-input-pad">
         <div className="relative">
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -916,6 +979,11 @@ export default function ChatPage() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onFocus={() => {
+              // When the keyboard opens, make sure the composer is inside the
+              // visible viewport (no-op when already visible).
+              requestAnimationFrame(() => inputRef.current?.scrollIntoView?.({ block: 'nearest' }));
+            }}
             placeholder="Type a message..."
             aria-label="Type a message"
             rows={1}

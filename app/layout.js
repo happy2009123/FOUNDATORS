@@ -62,6 +62,9 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Let the keyboard resize the layout viewport (Android Chrome) so the chat
+  // screen's 100dvh frame shrinks and the composer stays above the keyboard.
+  interactiveWidget: 'resizes-content',
   themeColor: '#020202',
 };
 

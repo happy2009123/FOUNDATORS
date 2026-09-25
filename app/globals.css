@@ -201,17 +201,35 @@ body {
   }
 }
 
-/* Clearance for the fixed mobile bottom navigation (72px) plus the safe area.
-   Needed by bottom-anchored bars that are not a direct .no-scrollbar child of
-   .app-shell (e.g. the chat composer), so the global rule cannot reach them.
-   Reset on desktop, where the bottom nav is hidden. */
-.pb-nav-safe {
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+/* ─── Full-screen chat frame ───
+   The conversation route needs a DEFINITIVE viewport height, not min-height.
+   .app-shell only declares min-height:100dvh, so the chat column's flex chain
+   never received a definite height: the message area grew to its full content
+   height instead of scrolling internally, the document became taller than the
+   viewport, and the composer sank to the bottom of the page (covered by the
+   fixed bottom nav / pushed off-screen by the keyboard). With height:100dvh
+   the column is bounded, only the message list scrolls, and the header stay
+   pinned top while the composer stays pinned bottom. Desktop subtracts the
+   fixed 60px app header; overflow:hidden guarantees the document itself never
+   scrolls on this route. */
+.chat-screen {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 @media (min-width: 1024px) {
-  .pb-nav-safe {
-    padding-bottom: 0.625rem;
+  .chat-screen {
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
   }
+}
+
+/* Bottom inset for the chat composer. The global bottom navigation is hidden
+   on open conversations (MobileBottomNav HIDE_NAV matches /messages/), so the
+   composer only needs the device safe area plus its normal bar inset - never
+   the 72px nav clearance, which would leave a dead gap above the home bar. */
+.chat-input-pad {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.625rem);
 }
 
 /* ─── Spring-like Transitions ───
