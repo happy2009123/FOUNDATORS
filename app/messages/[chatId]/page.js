@@ -12,6 +12,7 @@ import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
 import AuthSkeleton from '@/components/AuthSkeleton';
+import ChatListPane from '@/components/ChatListPane';
 
 const EMOJI_SHORTCUTS = { ':)': '😊', ':(': '😢', ':D': '😃', '<3': '❤️', ':+1': '👍', '🔥': '🔥', '🎉': '🎉', '💡': '💡' };
 
@@ -585,18 +586,21 @@ export default function ChatPage() {
   });
 
   return (
-    <div className="app-shell flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3">
-        <button
-          onClick={() => router.push('/messages')}
-          className="flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full text-gold-hi"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-        <button onClick={openContactProfile} className="relative flex-none">
-          {displayContact.isGroup ? (
+    <div className="app-shell wide-desktop flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1">
+        <ChatListPane activeChatId={chatId} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3">
+            <button
+              onClick={() => router.push('/messages')}
+              className="flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full text-gold-hi lg:hidden"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <button onClick={openContactProfile} className="relative flex-none">
+              {displayContact.isGroup ? (
             <div className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-[rgba(217,172,61,0.1)] text-gold">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
             </div>
@@ -947,6 +951,8 @@ export default function ChatPage() {
           onClose={() => setActiveCall(null)}
         />
       )}
+        </div>
+      </div>
     </div>
   );
 }

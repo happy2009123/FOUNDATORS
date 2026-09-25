@@ -13,7 +13,7 @@ export default function TopBar() {
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
   return (
-    <div className="sticky-header flex flex-none items-center justify-between px-5 pb-2.5 pt-3.5">
+    <div className="sticky-header lg:hidden flex flex-none items-center justify-between px-5 pb-2.5 pt-3.5">
       <button
         onClick={openDrawer}
         aria-label="Open menu"

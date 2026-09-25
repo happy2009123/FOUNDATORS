@@ -72,7 +72,7 @@ export default function Opportunities() {
         ) : filtered.length === 0 ? (
           <EmptyState icon={Search} title="No opportunities found" description="Check back soon — new opportunities appear regularly." />
         ) : (
-          <div className="mt-5 space-y-3">
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
             {filtered.map((it, i) => (
               <div key={it.id || it.title} className="glass-card p-4">
                 <div className="flex items-start gap-3">

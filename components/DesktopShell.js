@@ -3,6 +3,7 @@
 import { useStore } from '@/lib/store';
 import DesktopSidebar from '@/components/DesktopSidebar';
 import DesktopHeader from '@/components/DesktopHeader';
+import DesktopRightPanel from '@/components/DesktopRightPanel';
 
 export default function DesktopShell({ children }) {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
@@ -13,6 +14,7 @@ export default function DesktopShell({ children }) {
     <>
       <DesktopSidebar />
       <DesktopHeader />
+      <DesktopRightPanel />
     </>
   );
 }

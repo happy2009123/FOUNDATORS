@@ -86,16 +86,74 @@ body {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
   }
 }
-@media (min-width: 521px) and (max-width: 1023px) {
-  .app-shell { max-width: 100%; }
+
+/* ─── Tablet (768–1023): full content width, still phone-style top/bottom chrome.
+   The mobile bottom nav and top bar remain active here, so single-column pages
+   keep their own max-width and multi-column pages (e.g. opportunities) go 2-up. ─── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-shell {
+    max-width: 100%;
+  }
 }
-@media (min-width: 1024px) {
+
+/* ─── Desktop (1024+): true app layout.
+   Feed column is centered between the fixed sidebar (240px) and the optional
+   right rail (320px, shown only at xl+). On lg-only screens (no right rail) the
+   feed centers in the space right of the sidebar. Auth/login screens center normally. ─── */
+@media (min-width: 1024px) and (max-width: 1279px) {
   .app-shell {
     max-width: 720px;
-    margin: 60px auto 0 240px;
+    margin: 60px auto 0 calc(240px + max(0px, (100% - 240px - 720px) / 2));
     box-shadow: none;
     border-left: 1px solid var(--linesoft);
     border-right: 1px solid var(--linesoft);
+  }
+}
+@media (min-width: 1280px) {
+  .app-shell {
+    max-width: 680px;
+    margin: 60px auto 0 calc(240px + (100% - 240px - 320px - 680px) / 2);
+    box-shadow: none;
+    border-left: 1px solid var(--linesoft);
+    border-right: 1px solid var(--linesoft);
+  }
+}
+/* Auth / shell-less screens: no sidebar, keep everything centered. */
+@media (min-width: 1024px) {
+  .app-shell.login-bg {
+    max-width: 460px;
+    margin: 60px auto 0;
+    border: none;
+  }
+}
+
+/* Utility: full-width desktop panels (chat 2-pane, wider dashboards) */
+.desktop-full {
+  width: 100%;
+}
+/* Wide desktop shell: stretches between sidebar and rail (used by chats/dashboards) */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .app-shell.wide-desktop {
+    max-width: none;
+    width: calc(100% - 240px);
+    margin: 60px 0 0 240px;
+  }
+}
+@media (min-width: 1280px) {
+  .app-shell.wide-desktop {
+    max-width: none;
+    width: calc(100% - 240px - 320px);
+    margin: 60px 0 0 240px;
+  }
+}
+
+/* On desktop the fixed 60px header is above the shell, so the shell must be
+   shorter than the viewport. Without this, min-height:100vh + a 60px top
+   margin overflows the page vertically on every screen. */
+@media (min-width: 1024px) {
+  .app-shell {
+    min-height: calc(100vh - 60px);
+    min-height: calc(100dvh - 60px);
   }
 }
 
