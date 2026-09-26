@@ -33,7 +33,7 @@ export default function CreatePage() {
   const [emailVerified, setEmailVerified] = useState(true);
   const { saveDraft, drafts, deleteDraft } = useDrafts();
 
-  useEffect(() => { isEmailVerified().then(setEmailVerified); }, [isEmailVerified]);
+  useEffect(() => { isEmailVerified().then(setEmailVerified).catch(() => {}); }, [isEmailVerified]);
 
   const [text, setText] = useState('');
   const [tag, setTag] = useState('idea');
@@ -93,7 +93,7 @@ export default function CreatePage() {
   }
 
   const compressImage = (file) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       const img = new Image();
@@ -109,9 +109,19 @@ export default function CreatePage() {
         canvas.width = width;
         canvas.height = height;
         ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(img.src);
         canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Could not process that image'));
+            return;
+          }
           resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
         }, 'image/jpeg', 0.8);
+      };
+      // Without this the promise never settles and the Post button spins forever.
+      img.onerror = () => {
+        URL.revokeObjectURL(img.src);
+        reject(new Error('Could not read that image'));
       };
       img.src = URL.createObjectURL(file);
     });
@@ -120,6 +130,11 @@ export default function CreatePage() {
   async function handlePublish() {
     if (!text.trim() && !selectedImage && !imagePreview) {
       showToast('Write something or add an image before posting');
+      return;
+    }
+    if (!selectedImage && imagePreview?.startsWith('blob:')) {
+      // A restored draft only has a dead blob URL — the file itself is gone.
+      showToast('Draft image expired — please re-select it');
       return;
     }
     if (text.length > MAX_TEXT) {
@@ -141,7 +156,8 @@ export default function CreatePage() {
           return;
         }
       }
-      publishPost({ text: text.trim(), tagType: tag, imageUrl: finalImageUrl });
+      const newId = await publishPost({ text: text.trim(), tagType: tag, imageUrl: finalImageUrl });
+      if (!newId) return; // publishPost already rolled back + showed the error
       notification('success');
       showToast('Post published!');
       router.push('/home');
@@ -206,7 +222,7 @@ export default function CreatePage() {
           </div>
           <button
             onClick={handlePublish}
-            disabled={!emailVerified || isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage)}
+            disabled={!emailVerified || isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage && !imagePreview)}
             className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
           >
             {isPublishing ? <Loader2 size={14} className="animate-spin" /> : 'Post'}

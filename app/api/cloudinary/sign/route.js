@@ -7,7 +7,9 @@ export async function POST(req) {
   try {
     const { resourceType = 'auto', folder = '', publicId = '' } = await req.json();
 
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    // Client-side config uses the NEXT_PUBLIC_ var — accept either name so a
+    // deploy that only sets one of them still signs uploads correctly.
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
 

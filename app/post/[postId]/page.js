@@ -168,7 +168,7 @@ export default function PostCommentsPage() {
       </div>
     );
   }
-  if (!post || !author) {
+  if (!post) {
     return (
       <div className="app-shell flex min-h-0 flex-1 flex-col">
         <SubpageHeader title="Comments" />
@@ -176,6 +176,15 @@ export default function PostCommentsPage() {
       </div>
     );
   }
+
+  // The author profile may still be loading (or the account was deleted) —
+  // fall back to the post's own fields so comments are never hidden behind
+  // a "Post not found" screen.
+  const authorData = author || {
+    id: post.authorKey,
+    name: post.authorName || 'Unknown',
+    avatar: post.authorAvatar || '',
+  };
 
   const rootComments = comments.filter((c) => !c.replyTo);
   const getReplies = (parentId) => comments.filter((c) => c.replyTo === parentId);
@@ -279,9 +288,9 @@ export default function PostCommentsPage() {
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto p-4">
         <div className="mb-4 rounded-[20px] border border-linesoft bg-card p-4">
           <div className="mb-2 flex items-center gap-2.5">
-            <Avatar src={author.avatar} name={author.name} size={36} />
+            <Avatar src={authorData.avatar} name={authorData.name} size={36} />
             <div>
-              <div className="text-sm font-bold">{author.name}</div>
+              <div className="text-sm font-bold">{authorData.name}</div>
               <div className="text-[11px] text-text2">{post.meta}</div>
             </div>
           </div>

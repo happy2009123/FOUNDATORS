@@ -82,6 +82,15 @@ service cloud.firestore {
                 && request.resource.data.location is string
                 && isValidTimestamp(request.resource.data.updatedAt)));
 
+      // FOLLOW COUNTER: another signed-in user may bump this profile's
+      // `followers` counter by exactly ±1 as part of the follow/unfollow
+      // transaction (no other field may change).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers'])
+        && request.resource.data.followers is int
+        && (request.resource.data.followers == resource.data.get('followers', 0) + 1
+            || request.resource.data.followers == resource.data.get('followers', 0) - 1);
+
       // DELETE: Users can only delete their own profile
       allow delete: if isOwner(userId);
 
@@ -125,11 +134,12 @@ service cloud.firestore {
       // FOLLOWING SUBCOLLECTION
       // users/{userId}/following/{followingId}
       // ----------------------------------------------------------
-      // Mirrors the followers subcollection — a user can see who
-      // they are following, and only they can manage it.
+      // The following graph is public (like followers) so any profile's
+      // follower/following lists can be rendered; only the owner can
+      // manage their own records.
       // ----------------------------------------------------------
       match /following/{followingId} {
-        allow read: if isOwner(userId);
+        allow read: if isSignedIn();
         // The user can follow any other user (followingId = who they follow)
         allow create: if isOwner(userId)
           && followingId != userId
@@ -164,12 +174,13 @@ service cloud.firestore {
              'tagType', 'imageUrl', 'likes', 'shares',
              'commentsCount', 'likedBy', 'bookmarkedBy', 'createdAt'
            ])
-        && isValidString(request.resource.data.text, 5000)
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 5000
         && isValidString(request.resource.data.authorKey, 128)
         && isValidString(request.resource.data.authorName, 100)
         && request.resource.data.authorAvatar is string
         && request.resource.data.tagType is string
-        && request.resource.data.imageUrl is string
+        && (request.resource.data.imageUrl is string || request.resource.data.imageUrl == null)
         && request.resource.data.likes is int
         && request.resource.data.shares is int
         && request.resource.data.commentsCount is int
@@ -178,11 +189,12 @@ service cloud.firestore {
         && isValidTimestamp(request.resource.data.createdAt);
 
       // UPDATE: Two allowed paths —
-      //  1. Anyone (signed in) can toggle likes/bookmarks on a post
+      //  1. Anyone (signed in) can toggle likes/bookmarks and bump the
+      //     comment counter when commenting
       //  2. Only the author can edit post content
       allow update: if isSignedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'likedBy', 'bookmarkedBy', 'likes'
+             'likedBy', 'bookmarkedBy', 'likes', 'commentsCount'
            ]);
       allow update: if isSignedIn()
         && resource.data.authorKey == uid()
@@ -215,7 +227,7 @@ service cloud.firestore {
           && isValidString(request.resource.data.authorKey, 128)
           && isValidString(request.resource.data.authorName, 100)
           && request.resource.data.authorAvatar is string
-          && request.resource.data.replyTo is string
+          && (request.resource.data.replyTo is string || request.resource.data.replyTo == null)
           && request.resource.data.likes is int
           && request.resource.data.likedBy is list
           && isValidTimestamp(request.resource.data.createdAt)

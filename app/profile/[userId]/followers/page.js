@@ -28,36 +28,34 @@ function FollowersInner() {
   useEffect(() => {
     let cancelled = false;
     async function fetchLists() {
+      // Each list loads independently: a failure reading one subcollection
+      // (e.g. permissions) must not blank the other one out too.
+      const profilesFor = async (ids) =>
+        Promise.all(
+          ids.map(async (fid) => {
+            try {
+              const snap = await getDoc(doc(db, 'users', fid));
+              return snap.exists() ? { id: fid, ...snap.data() } : null;
+            } catch {
+              return null;
+            }
+          })
+        ).then((list) => list.filter(Boolean));
+
       try {
         const followersSnap = await getDocs(collection(db, 'users', userId, 'followers'));
-        const followerIds = followersSnap.docs.map((d) => d.id);
-
-        const followerProfiles = await Promise.all(
-          followerIds.map(async (fid) => {
-            const snap = await getDoc(doc(db, 'users', fid));
-            return snap.exists() ? { id: fid, ...snap.data() } : null;
-          })
-        );
-
-        const followingSnap = await getDocs(collection(db, 'users', userId, 'following'));
-        const followingIds = followingSnap.docs.map((d) => d.id);
-
-        const followingProfiles = await Promise.all(
-          followingIds.map(async (fid) => {
-            const snap = await getDoc(doc(db, 'users', fid));
-            return snap.exists() ? { id: fid, ...snap.data() } : null;
-          })
-        );
-
-        if (!cancelled) {
-          setFollowers(followerProfiles.filter(Boolean));
-          setFollowingList(followingProfiles.filter(Boolean));
-        }
+        const followerProfiles = await profilesFor(followersSnap.docs.map((d) => d.id));
+        if (!cancelled) setFollowers(followerProfiles);
       } catch {
-        if (!cancelled) {
-          setFollowers([]);
-          setFollowingList([]);
-        }
+        if (!cancelled) setFollowers((prev) => prev);
+      }
+
+      try {
+        const followingSnap = await getDocs(collection(db, 'users', userId, 'following'));
+        const followingProfiles = await profilesFor(followingSnap.docs.map((d) => d.id));
+        if (!cancelled) setFollowingList(followingProfiles);
+      } catch {
+        if (!cancelled) setFollowingList((prev) => prev);
       } finally {
         if (!cancelled) setLoading(false);
       }

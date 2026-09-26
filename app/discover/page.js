@@ -14,6 +14,26 @@ import { auth } from '@/lib/firebase';
 
 const filters=['All','Co-founder','Programmer','Investor','Mentor','Freelancer'];
 
+// Keyword groups so ANY role/skills string can match a chip (previously
+// `type` was fabricated from the array index, so Mentor/Freelancer were
+// always empty and assignments changed on every load).
+const ROLE_GROUPS = {
+  'Co-founder': ['founder', 'co-founder', 'cofounder', 'entrepreneur', 'ceo', 'owner'],
+  'Programmer': ['programmer', 'developer', 'engineer', 'software', 'full-stack', 'frontend', 'backend', 'tech', 'coder', 'coding'],
+  'Investor': ['investor', 'angel', 'venture', 'vc', 'fund'],
+  'Mentor': ['mentor', 'advisor', 'coach', 'teacher'],
+  'Freelancer': ['freelancer', 'freelance', 'designer', 'creator'],
+};
+
+function matchType(user) {
+  const roleL = (user.role || '').toLowerCase();
+  const skillL = (user.skills || []).join(' ').toLowerCase();
+  const byRole = Object.keys(ROLE_GROUPS).find((g) => ROLE_GROUPS[g].some((kw) => roleL.includes(kw)));
+  if (byRole) return byRole;
+  const bySkill = Object.keys(ROLE_GROUPS).find((g) => ROLE_GROUPS[g].some((kw) => skillL.includes(kw)));
+  return bySkill || user.role || 'Member';
+}
+
 export default function DiscoverPage(){
  const router=useRouter();
  const [filter,setFilter]=useState('All');
@@ -54,7 +74,7 @@ export default function DiscoverPage(){
    return Object.values(users).map((u, i) => ({
      key: u.id,
      score: Math.max(70, 95 - i * 3),
-     type: i % 3 === 0 ? 'Co-founder' : i % 3 === 1 ? 'Programmer' : 'Investor',
+     type: matchType(u),
      reason: (u.skills || []).slice(0, 3).join(' + ') || 'General',
      need: 'Open to connect',
      location: u.location || 'Unknown',

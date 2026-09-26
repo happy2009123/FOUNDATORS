@@ -32,18 +32,18 @@ export default function HomePage(){
    lastFetchedProfile.current = profile.id;
    let cancelled = false;
 
-   const fetchMatches = async () => {
-     try {
-       const usersSnap = await getDocs(query(collection(db, 'users'), limit(5)));
-       const users = [];
-       usersSnap.forEach(d => {
-         if (d.id !== profile.id) users.push({ id: d.id, ...d.data() });
-       });
-       if (!cancelled) setMatches(users.slice(0, 4));
-     } catch (err) {
-       console.error('Failed to fetch matches:', err);
-     }
-   };
+    const fetchMatches = async () => {
+      try {
+        const usersSnap = await getDocs(query(collection(db, 'users'), limit(50)));
+        const users = [];
+        usersSnap.forEach(d => {
+          if (d.id !== profile.id) users.push({ id: d.id, ...d.data() });
+        });
+        if (!cancelled) setMatches(users.slice(0, 6));
+      } catch (err) {
+        console.error('Failed to fetch matches:', err);
+      }
+    };
 
    const fetchProjects = async () => {
      try {

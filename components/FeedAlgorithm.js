@@ -46,7 +46,7 @@ export default function FeedAlgorithm() {
   const [initialLoaded, setInitialLoaded] = useState(() => !!cachedInitial);
 
   const loadInitial = useCallback(async () => {
-    if (!db || cachedInitial) return;
+    if (!db) return;
     try {
       const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
       const snap = await getDocs(q);
@@ -87,8 +87,12 @@ export default function FeedAlgorithm() {
   const lastRef = useInfiniteScroll(loadMore, hasMore);
 
   const allPosts = useMemo(() => {
-    if (firestorePosts.length > 0) return firestorePosts;
-    return posts;
+    // Merge optimistic posts from this session (e.g. one just published)
+    // ahead of the Firestore results. Ids match once the write lands, so the
+    // dedupe below drops the duplicate automatically.
+    const fsIds = new Set(firestorePosts.map((p) => p.id));
+    const pending = posts.filter((p) => !fsIds.has(p.id));
+    return [...pending, ...firestorePosts];
   }, [firestorePosts, posts]);
 
   const feedPosts = useMemo(() => {
