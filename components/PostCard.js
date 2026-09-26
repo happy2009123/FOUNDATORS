@@ -47,7 +47,7 @@ async function fetchUser(key) {
 export default memo(function PostCard({ post }) {
   const router = useRouter();
   const [author, setAuthor] = useState(null);
-  const liked = useStore((s) => !!s.likedPosts[post.id]);
+  const likedMap = useStore((s) => s.likedPosts);
   const bookmarked = useStore((s) => !!s.bookmarkedPosts[post.id]);
   const livePost = useStore((s) => (s.posts.length ? s.posts.find((p) => p.id === post.id) : null));
   const displayPost = livePost || post;
@@ -72,6 +72,12 @@ export default memo(function PostCard({ post }) {
   const [likeAnimation, setLikeAnimation] = useState(false);
   const profile = useStore((s) => s.profile);
   const isOwnPost = post.authorKey === profile?.id;
+  // Heart state falls back to the post's own likedBy array, so likes are
+  // correct on every surface (profile tabs, search, post page) even when the
+  // feed hasn't hydrated this post. null/undefined in the store means "never
+  // synced"; false means the user explicitly unliked.
+  const liked = likedMap[post.id] ??
+    (Array.isArray(post.likedBy) && !!profile?.id && post.likedBy.includes(profile.id));
 
   useEffect(() => {
     if (post.authorKey) fetchUser(post.authorKey).then(setAuthor);
@@ -90,6 +96,12 @@ export default memo(function PostCard({ post }) {
     }
     setLocalLikeCount((n) => (liked ? n - 1 : n + 1));
   }, [liked, toggleLike, post.id, vibrate, notification]);
+
+  // Double-tap / double-click to like, like every major social app.
+  const handleDoubleTapLike = useCallback(() => {
+    if (post.noActions || liked) return;
+    handleLike();
+  }, [post.noActions, liked, handleLike]);
 
   function goToAuthor() {
     if (post.authorKey === profile?.id) {
@@ -207,14 +219,14 @@ export default memo(function PostCard({ post }) {
           </div>
         </div>
       ) : (
-        <div className="mb-2.5 text-[15px] font-semibold leading-snug"><RichText text={post.text} /></div>
+        <div className="mb-2.5 text-[15px] font-semibold leading-snug" onDoubleClick={handleDoubleTapLike}><RichText text={post.text} /></div>
       )}
 
       {/* Poll */}
       {post.poll && <PostPoll postId={post.id} poll={post.poll} />}
 
       {post.imageUrl && (
-        <img src={post.imageUrl} alt="Post image" className="mb-3 w-full rounded-2xl object-cover max-h-[300px]" loading="lazy" />
+        <img src={post.imageUrl} alt="Post image" onDoubleClick={handleDoubleTapLike} className="mb-3 w-full rounded-2xl object-cover max-h-[300px]" loading="lazy" />
       )}
 
       {post.cats2 && (

@@ -1,36 +1,37 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Search } from 'lucide-react';
+import { Suspense, useState, useEffect } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { Search } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 
-export default function FollowersPage() {
+function FollowersInner() {
   const router = useRouter();
   const { userId } = useParams();
-  const [tab, setTab] = useState('followers');
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') === 'following' ? 'following' : 'followers');
   const [search, setSearch] = useState('');
   const [followers, setFollowers] = useState([]);
   const [followingList, setFollowingList] = useState([]);
   const [loading, setLoading] = useState(true);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const followedUsers = useStore((s) => s.followedUsers);
+  const myId = useStore((s) => s.profile?.id);
   const { vibrate } = useHaptics();
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchFollowers() {
+    async function fetchLists() {
       try {
-        // Try to fetch followers subcollection
         const followersSnap = await getDocs(collection(db, 'users', userId, 'followers'));
         const followerIds = followersSnap.docs.map((d) => d.id);
 
-        // Fetch each follower's profile
         const followerProfiles = await Promise.all(
           followerIds.map(async (fid) => {
             const snap = await getDoc(doc(db, 'users', fid));
@@ -38,7 +39,6 @@ export default function FollowersPage() {
           })
         );
 
-        // Try to fetch following subcollection
         const followingSnap = await getDocs(collection(db, 'users', userId, 'following'));
         const followingIds = followingSnap.docs.map((d) => d.id);
 
@@ -54,7 +54,6 @@ export default function FollowersPage() {
           setFollowingList(followingProfiles.filter(Boolean));
         }
       } catch {
-        // Subcollections may not exist yet — show empty
         if (!cancelled) {
           setFollowers([]);
           setFollowingList([]);
@@ -63,15 +62,41 @@ export default function FollowersPage() {
         if (!cancelled) setLoading(false);
       }
     }
-    if (userId) fetchFollowers();
+    if (userId) fetchLists();
     return () => { cancelled = true; };
   }, [userId]);
 
   const list = tab === 'followers' ? followers : followingList;
   const filtered = list.filter((user) => {
     if (!user) return false;
-    return user.name?.toLowerCase().includes(search.toLowerCase()) || user.handle?.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    return (
+      user.name?.toLowerCase().includes(q) ||
+      user.handle?.toLowerCase().includes(q)
+    );
   });
+
+  function openProfile(user) {
+    if (user.id === myId) router.push('/profile');
+    else router.push(`/profile/${user.id}`);
+  }
+
+  function followBtn(user) {
+    const isFollowing = !!followedUsers[user.id];
+    const isMe = user.id === myId;
+    if (isMe) return null;
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); vibrate('light'); toggleFollowUser(user.id); }}
+        aria-label={isFollowing ? `Unfollow ${user.name}` : `Follow ${user.name}`}
+        className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
+          isFollowing ? 'border-transparent bg-gold-grad text-[#1a1300]' : 'border-gold text-gold'
+        }`}
+      >
+        {isFollowing ? 'Following' : 'Follow'}
+      </button>
+    );
+  }
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
@@ -106,38 +131,67 @@ export default function FollowersPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 space-y-2 pb-6">
         {loading ? (
-          <div className="py-12 text-center text-[13px] text-text3">Loading...</div>
-        ) : (
-          filtered.map((user) => {
-            const isFollowing = !!followedUsers[user.id];
-            return (
-              <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
-                <Avatar src={user.avatar} name={user.name} size={44} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[13px] font-bold">{user.name}</span>
-                    {user.verified && <span className="text-gold text-[10px]">&#10003;</span>}
-                  </div>
-                  <div className="text-[11px] text-text2">{user.role}</div>
-                </div>
-                <button
-                  onClick={() => { vibrate('light'); toggleFollowUser(user.id); }}
-                  className={`rounded-full border px-4 py-2 text-[11px] font-bold transition-all ${
-                    isFollowing ? 'border-transparent bg-gold text-[#1a1300]' : 'border-gold text-gold'
-                  }`}
-                >
-                  {isFollowing ? 'Following' : 'Follow'}
-                </button>
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
+              <div className="skeleton h-11 w-11 flex-none rounded-full" />
+              <div className="min-w-0 flex-1">
+                <div className="skeleton mb-1.5 h-3.5 w-28 rounded-full" />
+                <div className="skeleton h-3 w-20 rounded-full" />
               </div>
-            );
-          })
+              <div className="skeleton h-7 w-16 flex-none rounded-full" />
+            </div>
+          ))
+        ) : (
+          filtered.map((user) => (
+            <div
+              key={user.id}
+              onClick={() => openProfile(user)}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5 transition-colors hover:border-gold/30"
+            >
+              <Avatar src={user.avatar} name={user.name} size={44} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1">
+                  <span className="truncate text-[13px] font-bold">{user.name}</span>
+                  {user.verified && <VerifiedBadge size={13} />}
+                </div>
+                <div className="truncate text-[11px] text-text2">{user.role || user.handle}</div>
+              </div>
+              {followBtn(user)}
+            </div>
+          ))
         )}
         {!loading && filtered.length === 0 && (
-          <div className="py-12 text-center text-[13px] text-text2">No users found</div>
+          <div className="py-12 text-center text-[13px] text-text2">
+            {search
+              ? 'No users found'
+              : tab === 'followers'
+                ? 'No followers yet'
+                : 'Not following anyone yet'}
+          </div>
         )}
       </div>
     </div>
+  );
+}
+
+export default function FollowersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-shell flex flex-col overflow-hidden">
+          <SubpageHeader title="Followers" />
+          <div className="flex-1 px-4 pt-4">
+            <div className="skeleton mb-2 h-10 w-full rounded-2xl" />
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="skeleton mb-2 h-16 w-full rounded-2xl" />
+            ))}
+          </div>
+        </div>
+      }
+    >
+      <FollowersInner />
+    </Suspense>
   );
 }

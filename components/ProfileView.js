@@ -362,11 +362,21 @@ export default function ProfileView({ userId = null }) {
             </div>
           )}
 
-          {/* ─── Stats ─── */}
+          {/* ─── Stats (tap Posts → posts tab, Followers/Following → lists) ─── */}
           <div className="mt-4 flex overflow-hidden rounded-2xl border border-linesoft bg-card">
-            <Stat n={postList.length || feedPosts.length || 0} l="Posts" />
-            <Stat n={followerCount} l="Followers" border />
-            <Stat n={followingCount} l="Following" border />
+            <Stat n={postList.length || feedPosts.length || 0} l="Posts" onClick={() => setTab('posts')} />
+            <Stat
+              n={followerCount}
+              l="Followers"
+              border
+              onClick={() => { if (uid) router.push(`/profile/${uid}/followers`); }}
+            />
+            <Stat
+              n={followingCount}
+              l="Following"
+              border
+              onClick={() => { if (uid) router.push(`/profile/${uid}/followers?tab=following`); }}
+            />
           </div>
 
           {/* ─── UID Card ─── */}
@@ -484,12 +494,16 @@ function ProfileHeader({ title, onBack, children }) {
   );
 }
 
-function Stat({ n, l, border }) {
+function Stat({ n, l, border, onClick }) {
   return (
-    <div className={`flex-1 py-3.5 text-center ${border ? 'border-l border-linesoft' : ''}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex-1 cursor-pointer py-3.5 text-center transition-colors hover:bg-white/[0.04] active:bg-white/[0.07] ${border ? 'border-l border-linesoft' : ''}`}
+    >
       <div className="text-base font-extrabold">{n}</div>
       <div className="mt-0.5 text-[10.5px] uppercase tracking-wide text-text2">{l}</div>
-    </div>
+    </button>
   );
 }
 
