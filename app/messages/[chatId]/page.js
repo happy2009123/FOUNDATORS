@@ -62,6 +62,11 @@ export default function ChatPage() {
   // Until then the async reads below leave displayContact null - we must show
   // a loading frame, not the "conversation doesn't exist" error.
   const [resolveDone, setResolveDone] = useState(false);
+  // True once the chat-metadata read has settled (loaded, definitively missing,
+  // or failed). The "doesn't exist" error may only show after BOTH route
+  // resolution and metadata have settled - otherwise group chats flash the
+  // error for a moment while metadata is still loading.
+  const [metaDone, setMetaDone] = useState(false);
   const [chatData, setChatData] = useState(null);
   const [fsMessages, setFsMessages] = useState(null);
   const [editingMsg, setEditingMsg] = useState(null); // { index, id, text }
@@ -122,29 +127,38 @@ export default function ChatPage() {
     if (!chatId || !profile?.id || !db) return;
     let cancelled = false;
     setResolveDone(false);
+    // Clear the previous conversation so switching chats never renders the old
+    // header/messages (or a stale "not found") while this route resolves.
+    setDirections(null);
     async function resolveDirection() {
       try {
-        // Case A: param is a user UID → deterministic pair ID.
-        const userSnap = await getDoc(doc(db, 'users', chatId));
-        if (cancelled) return;
-        if (userSnap.exists()) {
-          const other = userSnap.data();
-          // Reuse an existing conversation (legacy random-ID or deterministic)
-          // so we NEVER generate a second chat for the same pair.
-          const existing = await findExistingConversation(profile.id, chatId);
-          if (cancelled) return;
-          const convId = existing
-            ? existing.id
-            : conversationIdFor(profile.id, chatId);
-          setDirections({
-            type: 'dm',
-            convId,
-            otherUid: chatId,
-            other,
-            existingChatId: existing ? existing.id : null,
-          });
-          return;
+        // Case A: param is a user UID → deterministic pair ID. If this read
+        // fails (permissions/network) fall through to Case B instead of
+        // reporting "conversation doesn't exist" for a valid chat id.
+        try {
+          const userSnap = await getDoc(doc(db, 'users', chatId));
+          if (userSnap.exists()) {
+            const other = userSnap.data();
+            // Reuse an existing conversation (legacy random-ID or deterministic)
+            // so we NEVER generate a second chat for the same pair.
+            const existing = await findExistingConversation(profile.id, chatId);
+            const convId = existing
+              ? existing.id
+              : conversationIdFor(profile.id, chatId);
+            if (cancelled) return;
+            setDirections({
+              type: 'dm',
+              convId,
+              otherUid: chatId,
+              other,
+              existingChatId: existing ? existing.id : null,
+            });
+            return;
+          }
+        } catch (err) {
+          console.warn('User lookup failed, trying chat id instead:', err);
         }
+        if (cancelled) return;
         // Case B: param is a chat doc ID (e.g. reopened from the list).
         const chatSnap = await getDoc(doc(db, 'chats', chatId));
         if (cancelled) return;
@@ -224,6 +238,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!convId || !db) return;
+    // Never carry the previous chat's typing indicator into this one.
+    setTyping(false);
     const unsub = onSnapshot(doc(db, 'chats', convId), (snap) => {
       const data = snap.data();
       const typingData = data?.typing || {};
@@ -236,8 +252,14 @@ export default function ChatPage() {
   }, [convId, profile?.id]);
 
   useEffect(() => {
-    if (!convId || !db) return;
+    // No conversation resolved yet (still resolving, or definitively missing):
+    // there is no metadata read to wait for.
+    if (!convId || !db) {
+      setMetaDone(true);
+      return;
+    }
     let cancelled = false;
+    setMetaDone(false);
     async function fetchChatMeta() {
       try {
         const chatSnap = await getDoc(doc(db, 'chats', convId));
@@ -264,6 +286,8 @@ export default function ChatPage() {
         }
       } catch (err) {
         console.warn('Failed to load chat metadata:', err);
+      } finally {
+        if (!cancelled) setMetaDone(true);
       }
     }
     fetchChatMeta();
@@ -272,6 +296,9 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!convId || !db) return;
+    // Drop the previous conversation's messages the instant we switch, so the
+    // new chat never renders a stale list while the first snapshot is in flight.
+    setFsMessages(null);
     const unsub = subscribeToMessages(convId, (msgs) => {
       setFsMessages(msgs.map((m) => ({
         ...m,
@@ -592,10 +619,11 @@ export default function ChatPage() {
   } : null));
 
   if (!displayContact) {
-    // Still resolving the route param (1-3 async Firestore reads): show a
-    // neutral loading frame. Reporting "doesn't exist" here made the error
-    // flash - or stick - every time a conversation was opened.
-    if (!resolveDone) {
+    // Still resolving the route param / loading chat metadata: show a neutral
+    // loading frame. Reporting "doesn't exist" here made the error flash -
+    // or stick - every time a conversation was opened (group chats resolve
+    // their metadata after the route, so both flags must be settled first).
+    if (!resolveDone || !metaDone) {
       return (
         <div className="app-shell chat-screen flex min-h-0 flex-1 flex-col">
           <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
