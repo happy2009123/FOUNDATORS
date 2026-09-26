@@ -49,8 +49,8 @@ export default function PostCommentsPage() {
 
   const MAX_COMMENT_CHARS = 500;
 
-  const post = posts.find((p) => p.id === postId) || directPost;
   const [directPost, setDirectPost] = useState(null);
+  const post = posts.find((p) => p.id === postId) || directPost;
   const [postLoading, setPostLoading] = useState(!post);
   const [author, setAuthor] = useState(null);
 
