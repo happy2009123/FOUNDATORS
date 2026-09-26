@@ -163,7 +163,7 @@ export default function StoryCreator() {
 
       {/* Preview */}
       <div className="flex-1 flex items-center justify-center px-4">
-        <div className={`relative w-full max-w-[320px] aspect-[9/16] rounded-3xl overflow-hidden bg-gradient-to-br ${bg} flex items-center justify-center p-8`}>
+        <div className={`relative w-full max-w-[320px] aspect-[9/16] rounded-3xl overflow-hidden dark-surface bg-gradient-to-br ${bg} flex items-center justify-center p-8`}>
           {mode === 'text' && (
             <textarea
               value={text}

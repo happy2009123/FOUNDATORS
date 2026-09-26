@@ -34,29 +34,176 @@ body {
   --bg: #f5f3ef;
   --text: #1a1a1a;
   --text2: #666;
-  --text3: #999;
+  --text3: #737373;
   --shell-bg: linear-gradient(180deg, #f5f3ef, #ebe8e3);
   --card: rgba(0,0,0,0.03);
   --card-border: rgba(0,0,0,0.08);
   --linesoft: rgba(0,0,0,0.08);
   --line: rgba(0,0,0,0.12);
+  /* Bright-mode inversion: Tailwind utilities like text-white / bg-white/10
+     carry hard white values that vanish on white surfaces. They are remapped
+     through these variables to dark ink and dark tints instead. Genuinely
+     dark surfaces re-declare the same variables with their original white
+     values (see .dark-surface block below), so nested light cards flip back
+     to dark text automatically. Everything stays under .theme-light. */
+  --inv-text: #161616;
+  --inv-text-90: rgba(0,0,0,0.87);
+  --inv-text-80: rgba(0,0,0,0.78);
+  --inv-text-70: rgba(0,0,0,0.70);
+  --inv-text-60: rgba(0,0,0,0.60);
+  --inv-text-50: rgba(0,0,0,0.52);
+  --inv-text-40: rgba(0,0,0,0.45);
+  --inv-text-30: rgba(0,0,0,0.38);
+  --inv-bg-5: rgba(0,0,0,0.045);
+  --inv-bg-10: rgba(0,0,0,0.07);
+  --inv-bg-15: rgba(0,0,0,0.09);
+  --inv-bg-20: rgba(0,0,0,0.11);
+  --inv-bg-30: rgba(0,0,0,0.16);
+  --inv-bg-40: rgba(0,0,0,0.22);
+  --inv-bg-02: rgba(0,0,0,0.03);
+  --inv-bg-03: rgba(0,0,0,0.04);
+  --inv-bg-04: rgba(0,0,0,0.05);
+  --inv-bg-06: rgba(0,0,0,0.07);
+  --inv-bg-08: rgba(0,0,0,0.10);
+  --inv-bd-10: rgba(0,0,0,0.14);
+  --inv-bd-20: rgba(0,0,0,0.22);
+  --inv-bd-30: rgba(0,0,0,0.30);
+  --inv-bd-40: rgba(0,0,0,0.40);
+  --inv-ph: #6f6f6f;
+  --inv-t2: #666;
+  --inv-t3: #737373;
 }
 .theme-light body { color: var(--text); }
 .theme-light .bg-card { background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.08); }
 .theme-light .glass-card { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.08); }
 .theme-light .gold-card { background: linear-gradient(145deg, rgba(217,172,61,0.08), rgba(255,255,255,0.6)); }
-.theme-light .text-text2 { color: #666; }
-.theme-light .text-text3 { color: #999; }
+.theme-light .text-text2 { color: var(--inv-t2); }
+.theme-light .text-text3 { color: var(--inv-t3); }
 .theme-light .border-linesoft { border-color: rgba(0,0,0,0.08); }
 .theme-light .border-line { border-color: rgba(0,0,0,0.12); }
 .theme-light .bg-gold-grad { background: linear-gradient(135deg, #f7dd8f, #d9ac3d, #b8860b); }
 .theme-light .text-gold { color: #b8860b; }
 .theme-light .text-gold-hi { color: #d4a017; }
-.theme-light input { color: #1a1a1a; }
-.theme-light textarea { color: #1a1a1a; }
+.theme-light input { color: var(--inv-text); }
+.theme-light textarea { color: var(--inv-text); }
 .theme-light .border-t-linesoft { border-color: rgba(0,0,0,0.08); }
-.theme-light .bg-white\/5 { background: rgba(0,0,0,0.04); }
-.theme-light ::placeholder { color: #aaa; }
+.theme-light ::placeholder { color: var(--inv-ph); }
+
+/* Dark surfaces inside bright mode (media viewers, editors, black cards,
+   video overlays, dark buttons) keep white-on-dark. Re-declaring the palette
+   here covers the surface itself and everything nested inside it, including
+   hover states. */
+.theme-light :is(
+  .dark-surface,
+  .bg-black, .bg-ink,
+  .bg-black\/30, .bg-black\/40, .bg-black\/50, .bg-black\/60,
+  .bg-black\/70, .bg-black\/80, .bg-black\/90,
+  .bg-zinc-900, .bg-zinc-800,
+  .bg-\[\#020202\], .bg-\[\#0a0a0a\], .bg-\[\#0a0a02\], .bg-\[\#0d1117\],
+  .bg-\[\#111\], .bg-\[\#111111\], .bg-\[\#1a1a1a\], .bg-\[\#222\], .bg-\[\#2a2a2a\]
+) {
+  --inv-text: #fff;
+  --inv-text-90: rgba(255,255,255,0.9);
+  --inv-text-80: rgba(255,255,255,0.8);
+  --inv-text-70: rgba(255,255,255,0.7);
+  --inv-text-60: rgba(255,255,255,0.6);
+  --inv-text-50: rgba(255,255,255,0.5);
+  --inv-text-40: rgba(255,255,255,0.4);
+  --inv-text-30: rgba(255,255,255,0.3);
+  --inv-bg-5: rgba(255,255,255,0.05);
+  --inv-bg-10: rgba(255,255,255,0.10);
+  --inv-bg-15: rgba(255,255,255,0.15);
+  --inv-bg-20: rgba(255,255,255,0.20);
+  --inv-bg-30: rgba(255,255,255,0.30);
+  --inv-bg-40: rgba(255,255,255,0.40);
+  --inv-bg-02: rgba(255,255,255,0.02);
+  --inv-bg-03: rgba(255,255,255,0.03);
+  --inv-bg-04: rgba(255,255,255,0.04);
+  --inv-bg-06: rgba(255,255,255,0.06);
+  --inv-bg-08: rgba(255,255,255,0.08);
+  --inv-bd-10: rgba(255,255,255,0.10);
+  --inv-bd-20: rgba(255,255,255,0.20);
+  --inv-bd-30: rgba(255,255,255,0.30);
+  --inv-bd-40: rgba(255,255,255,0.40);
+  --inv-ph: rgba(255,255,255,0.55);
+  --inv-t2: #b5b3ad;
+  --inv-t3: #9a9a95;
+}
+
+/* Light cards nested inside those dark overlays flip back to dark ink. */
+.theme-light :is(.bg-card, .bg-white, .glass-card, .gold-card) {
+  --inv-text: #161616;
+  --inv-text-90: rgba(0,0,0,0.87);
+  --inv-text-80: rgba(0,0,0,0.78);
+  --inv-text-70: rgba(0,0,0,0.70);
+  --inv-text-60: rgba(0,0,0,0.60);
+  --inv-text-50: rgba(0,0,0,0.52);
+  --inv-text-40: rgba(0,0,0,0.45);
+  --inv-text-30: rgba(0,0,0,0.38);
+  --inv-bg-5: rgba(0,0,0,0.045);
+  --inv-bg-10: rgba(0,0,0,0.07);
+  --inv-bg-15: rgba(0,0,0,0.09);
+  --inv-bg-20: rgba(0,0,0,0.11);
+  --inv-bg-30: rgba(0,0,0,0.16);
+  --inv-bg-40: rgba(0,0,0,0.22);
+  --inv-bg-02: rgba(0,0,0,0.03);
+  --inv-bg-03: rgba(0,0,0,0.04);
+  --inv-bg-04: rgba(0,0,0,0.05);
+  --inv-bg-06: rgba(0,0,0,0.07);
+  --inv-bg-08: rgba(0,0,0,0.10);
+  --inv-bd-10: rgba(0,0,0,0.14);
+  --inv-bd-20: rgba(0,0,0,0.22);
+  --inv-bd-30: rgba(0,0,0,0.30);
+  --inv-bd-40: rgba(0,0,0,0.40);
+  --inv-ph: #6f6f6f;
+  --inv-t2: #666;
+  --inv-t3: #737373;
+}
+
+/* Text utilities */
+.theme-light .text-white { color: var(--inv-text); }
+.theme-light .text-white\/90 { color: var(--inv-text-90); }
+.theme-light .text-white\/80 { color: var(--inv-text-80); }
+.theme-light .text-white\/70 { color: var(--inv-text-70); }
+.theme-light .text-white\/60 { color: var(--inv-text-60); }
+.theme-light .text-white\/50 { color: var(--inv-text-50); }
+.theme-light .text-white\/40 { color: var(--inv-text-40); }
+.theme-light .text-white\/30 { color: var(--inv-text-30); }
+.theme-light .hover\:text-white:hover { color: var(--inv-text); }
+.theme-light .hover\:text-white\/70:hover { color: var(--inv-text-70); }
+.theme-light .placeholder\:text-white\/50::placeholder { color: var(--inv-text-50); }
+
+/* Background washes (solid white variants + hover states) */
+.theme-light .bg-white\/5 { background-color: var(--inv-bg-5); }
+.theme-light .bg-white\/10 { background-color: var(--inv-bg-10); }
+.theme-light .bg-white\/15 { background-color: var(--inv-bg-15); }
+.theme-light .bg-white\/20 { background-color: var(--inv-bg-20); }
+.theme-light .bg-white\/30 { background-color: var(--inv-bg-30); }
+.theme-light .bg-white\/40 { background-color: var(--inv-bg-40); }
+.theme-light .bg-white\/\[0\.02\] { background-color: var(--inv-bg-02); }
+.theme-light .bg-white\/\[0\.03\] { background-color: var(--inv-bg-03); }
+.theme-light .bg-white\/\[0\.04\] { background-color: var(--inv-bg-04); }
+.theme-light .bg-white\/\[0\.06\] { background-color: var(--inv-bg-06); }
+.theme-light .bg-white\/\[0\.08\] { background-color: var(--inv-bg-08); }
+.theme-light .hover\:bg-white\/5:hover { background-color: var(--inv-bg-5); }
+.theme-light .hover\:bg-white\/10:hover { background-color: var(--inv-bg-10); }
+.theme-light .hover\:bg-white\/15:hover { background-color: var(--inv-bg-15); }
+.theme-light .hover\:bg-white\/\[0\.03\]:hover { background-color: var(--inv-bg-03); }
+.theme-light .hover\:bg-white\/\[0\.04\]:hover { background-color: var(--inv-bg-04); }
+
+/* Borders */
+.theme-light .border-white\/10 { border-color: var(--inv-bd-10); }
+.theme-light .border-white\/20 { border-color: var(--inv-bd-20); }
+.theme-light .border-white\/30 { border-color: var(--inv-bd-30); }
+.theme-light .border-white\/40 { border-color: var(--inv-bd-40); }
+.theme-light .hover\:border-white\/10:hover { border-color: var(--inv-bd-10); }
+.theme-light .hover\:border-white\/20:hover { border-color: var(--inv-bd-20); }
+
+/* Literal grays that were only legible on black */
+.theme-light .text-\[\#e6e6e6\] { color: #444; }
+.theme-light .text-\[\#C0C0C0\] { color: #6a6a6a; }
+.theme-light .text-\[\#c0c0c0\] { color: #6a6a6a; }
+.theme-light .text-\[\#D9AC3D\], .theme-light .text-\[\#d9ac3d\] { color: #a8791f; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 4px; }

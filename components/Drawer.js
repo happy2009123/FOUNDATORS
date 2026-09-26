@@ -53,7 +53,7 @@ export default function Drawer() {
         }`}
       />
       <div
-        className={`fixed bottom-0 left-0 top-0 z-[301] flex w-[76%] max-w-[290px] flex-col overflow-y-auto border-r border-line bg-gradient-to-b from-[#0c0c0c] to-black transition-transform duration-300 ${
+        className={`fixed bottom-0 left-0 top-0 z-[301] flex w-[76%] max-w-[290px] flex-col overflow-y-auto border-r border-line dark-surface bg-gradient-to-b from-[#0c0c0c] to-black transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

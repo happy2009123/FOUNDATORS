@@ -144,7 +144,7 @@ function PhonePreview({ code, templateName }) {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full overflow-hidden"
+      className="dark-surface w-full h-full overflow-hidden"
       style={{ background: '#0a0a1a' }}
     >
       {renderedComponent}
@@ -512,7 +512,7 @@ function TemplateDetailInner() {
           </div>
 
           <div
-            className="rounded-2xl border border-linesoft overflow-hidden"
+            className="dark-surface rounded-2xl border border-linesoft overflow-hidden"
             style={{ background: '#0d1117' }}
           >
             <div className="flex items-center gap-1.5 border-b border-[#21262d] px-3.5 py-2">

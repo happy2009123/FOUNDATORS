@@ -40,7 +40,7 @@ export default function CallScreen({ userId, type, onClose }) {
   }, [vibrate, onClose]);
 
   return (
-    <div className="fixed inset-0 z-[500] bg-gradient-to-b from-zinc-900 to-black flex flex-col">
+    <div className="dark-surface fixed inset-0 z-[500] bg-gradient-to-b from-zinc-900 to-black flex flex-col">
       {/* Status */}
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="relative">
