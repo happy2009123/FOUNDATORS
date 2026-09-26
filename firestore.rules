@@ -150,6 +150,31 @@ service cloud.firestore {
         // No updates allowed on following records
         allow update: if false;
       }
+
+      // ----------------------------------------------------------
+      // SETTINGS SUBCOLLECTION (privacy / notification prefs)
+      // users/{userId}/settings/{settingId}
+      // ----------------------------------------------------------
+      // Private preferences: only the owner may read or write them.
+      // ----------------------------------------------------------
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // ----------------------------------------------------------
+      // BOOKMARKS SUBCOLLECTION
+      // users/{userId}/bookmarks/{postId}
+      // ----------------------------------------------------------
+      // Only the owner can see or manage their saved posts.
+      // ----------------------------------------------------------
+      match /bookmarks/{postId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['postId', 'createdAt'])
+          && isValidTimestamp(request.resource.data.createdAt);
+        allow delete: if isOwner(userId);
+        allow update: if false;
+      }
     }
 
     // ============================================================
@@ -435,14 +460,15 @@ service cloud.firestore {
     // ANALYTICS COLLECTION
     // analytics/{eventId}
     // ============================================================
+    // Events are write-once from the client: { eventType, ...payload,
+    // createdAt } (payload keys are caller-defined, so they can't be
+    // enumerated here). No reads, no updates, no deletes.
+    // ============================================================
     match /analytics/{eventId} {
       allow read: if false;
       allow create: if isSignedIn()
-        && request.resource.data.keys().hasAll([
-             'eventType', 'data', 'createdAt'
-           ])
+        && request.resource.data.keys().hasAll(['eventType', 'createdAt'])
         && isValidString(request.resource.data.eventType, 100)
-        && request.resource.data.data is map
         && isValidTimestamp(request.resource.data.createdAt);
       allow update, delete: if false;
     }
