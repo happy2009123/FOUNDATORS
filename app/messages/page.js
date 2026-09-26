@@ -12,6 +12,7 @@ import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { subscribeToChats, deleteChat as deleteChatFS } from '@/lib/firestore';
+import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -48,6 +49,20 @@ export default function MessagesPage() {
     return () => unsub();
   }, [profile?.id]);
 
+  // Watch lastSeen for every direct-message partner (and local contacts) so
+  // rows show a real online dot / "Last seen" instead of always "Online".
+  const presenceIds = useMemo(() => {
+    const ids = new Set();
+    fsChats.forEach((chat) => {
+      if (chat.isGroup) return;
+      const otherId = (chat.participants || []).find((p) => p !== profile?.id);
+      if (otherId) ids.add(otherId);
+    });
+    Object.keys(contacts).forEach((k) => ids.add(k));
+    return [...ids];
+  }, [fsChats, contacts, profile?.id]);
+  const presence = usePresence(presenceIds);
+
   const unreadFor = (key, c) => (c && typeof c.unread === 'number' ? c.unread : unreadByContact[key] || 0);
 
   const mergedContacts = useMemo(() => {
@@ -64,12 +79,15 @@ export default function MessagesPage() {
         const otherAvatar = chat.participantAvatars && otherId
           ? chat.participantAvatars[otherId] || null
           : null;
+        const online = otherId ? isOnline(presence[otherId]) : false;
         merged[convId] = {
           name: otherName,
           avatar: otherAvatar,
-          online: true,
-          status: 'Online',
-          lastActive: 'Now',
+          online,
+          status: online ? 'Online' : '',
+          lastActive: chat.isGroup
+            ? formatChatTime(chat.lastMessageAt, !!chat.lastMessage)
+            : formatPresenceShort(presence[otherId]),
           isGroup: !!chat.isGroup,
           messages: chat.lastMessage ? [{ text: chat.lastMessage, who: 'them' }] : [],
           chatId: convId,
@@ -84,10 +102,16 @@ export default function MessagesPage() {
       if (merged[key]) return;
       const covered = fsChats.some((chat) => (chat.participants || []).includes(key));
       if (covered) return;
-      merged[key] = { ...c, chatId: key, unread: unreadByContact[key] || 0 };
+      merged[key] = {
+        ...c,
+        online: isOnline(presence[key]),
+        lastActive: c.isGroup ? (c.lastActive || '') : formatPresenceShort(presence[key]),
+        chatId: key,
+        unread: unreadByContact[key] || 0,
+      };
     });
     return merged;
-  }, [contacts, fsChats, profile?.id, unreadByContact]);
+  }, [contacts, fsChats, profile?.id, unreadByContact, presence]);
 
   const totalUnread = useMemo(
     () => Object.entries(mergedContacts).reduce((a, [key, c]) => a + unreadFor(key, c), 0),

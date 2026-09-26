@@ -9,6 +9,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
 import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
+import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
 import CallScreen from '@/components/CallScreen';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -198,6 +199,11 @@ export default function ChatPage() {
   const otherUid = directions?.otherUid || null;
   const other = directions?.other || null;
 
+  // Live presence of the direct-message partner (never for groups).
+  const presence = usePresence(otherUid ? [otherUid] : []);
+  const presenceMs = otherUid ? presence[otherUid] : null;
+  const onlineNow = otherUid ? isOnline(presenceMs) : false;
+
   const sendPayload = useCallback(() => {
     if (!convId || !profile?.id) return null;
     const isGroup = directions?.type === 'group';
@@ -275,8 +281,6 @@ export default function ChatPage() {
             avatar: data.isGroup
               ? null
               : (uidField && data.participantAvatars && data.participantAvatars[uidField]) || other?.avatar || null,
-            online: true,
-            status: 'Online',
             isGroup: !!data.isGroup,
             groupName: data.groupName || '',
             participants,
@@ -607,13 +611,9 @@ export default function ChatPage() {
   const displayContact = contact || (chatData ? {
     ...chatData,
     messages: messages,
-    lastActive: 'Now',
   } : (other ? {
     name: other.name || 'Chat',
     avatar: other.avatar || null,
-    online: true,
-    status: 'Online',
-    lastActive: 'Now',
     isGroup: false,
     messages: messages,
   } : null));
@@ -704,7 +704,7 @@ export default function ChatPage() {
           ) : (
             <>
               <Avatar src={displayContact.avatar} name={displayContact.name} size={40} />
-              {displayContact.online && (
+              {onlineNow && (
                 <span className="absolute bottom-0 right-0 h-[11px] w-[11px] rounded-full border-2 border-black bg-brandgreen" />
               )}
             </>
@@ -712,8 +712,10 @@ export default function ChatPage() {
         </button>
         <button onClick={openContactProfile} className="min-w-0 flex-1 text-left">
           <div className="truncate text-[15px] font-extrabold">{displayContact.name}</div>
-          <div className={`text-[11px] font-semibold ${displayContact.online ? 'text-brandgreen' : 'text-text3'}`}>
-            {displayContact.online ? 'Online now' : displayContact.status}
+          <div className={`text-[11px] font-semibold ${onlineNow ? 'text-brandgreen' : 'text-text3'}`}>
+            {displayContact.isGroup
+              ? `${displayContact.participants?.length || 0} members`
+              : onlineNow ? 'Online now' : formatLastSeen(presenceMs)}
           </div>
         </button>
         <div className="flex flex-none gap-1">

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import { isFirebaseConfigured, auth, db } from '@/lib/firebase';
 import { initialsAvatar } from '@/lib/avatar';
+import { startPresenceHeartbeat, stopPresenceHeartbeat } from '@/lib/presence';
 import {
   collection,
   doc,
@@ -26,6 +27,9 @@ export default function FirestoreProvider({ children }) {
     const userId = auth?.currentUser?.uid;
     if (!userId) return;
 
+    // Heartbeat my own lastSeen so others can show "Online"/"Last seen".
+    startPresenceHeartbeat(userId);
+
     const unsubs = [];
 
     // ── Own profile: subscribe to updates ────────
@@ -33,8 +37,8 @@ export default function FirestoreProvider({ children }) {
     const unsubProfile = onSnapshot(ownProfileRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        set((s) => ({
-          profile: {
+        set((s) => {
+          const profile = {
             ...s.profile,
             name: data.name || s.profile.name,
             handle: data.handle || s.profile.handle,
@@ -46,8 +50,15 @@ export default function FirestoreProvider({ children }) {
             skills: Array.isArray(data.skills) ? data.skills : [],
             followers: data.followers || 0,
             following: data.following || 0,
-          },
-        }));
+          };
+          // The presence heartbeat writes `lastSeen` every ~30s, firing this
+          // snapshot too. Returning `s` (identity) makes zustand skip the
+          // update entirely so the whole app doesn't re-render on each beat.
+          const unchanged = Object.keys(profile).every(
+            (k) => JSON.stringify(profile[k]) === JSON.stringify(s.profile[k])
+          );
+          return unchanged ? s : { profile };
+        });
       }
     });
     unsubs.push(unsubProfile);
@@ -191,6 +202,7 @@ export default function FirestoreProvider({ children }) {
 
     unsubRef.current = unsubs;
     return () => {
+      stopPresenceHeartbeat();
       unsubs.forEach((u) => {
         try { u(); } catch (e) {}
       });

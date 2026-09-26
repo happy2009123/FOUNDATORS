@@ -6,6 +6,7 @@ import { MessageCircle, Users, Search } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { subscribeToChats } from '@/lib/firestore';
+import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
 
 export default function ChatListPane({ activeChatId = null }) {
   const router = useRouter();
@@ -21,6 +22,19 @@ export default function ChatListPane({ activeChatId = null }) {
     return () => unsub();
   }, [profile?.id]);
 
+  // Live lastSeen for every direct-message partner (and local contacts).
+  const presenceIds = useMemo(() => {
+    const ids = new Set();
+    fsChats.forEach((chat) => {
+      if (chat.isGroup) return;
+      const otherId = (chat.participants || []).find((p) => p !== profile?.id);
+      if (otherId) ids.add(otherId);
+    });
+    Object.keys(contacts).forEach((k) => ids.add(k));
+    return [...ids];
+  }, [fsChats, contacts, profile?.id]);
+  const presence = usePresence(presenceIds);
+
   const rows = useMemo(() => {
     const merged = {};
     fsChats.forEach((chat) => {
@@ -31,19 +45,29 @@ export default function ChatListPane({ activeChatId = null }) {
         ? chat.participantNames[otherId] || 'Chat'
         : chat.isGroup ? (chat.groupName || 'Group') : 'Chat';
       const otherAvatar = chat.participantAvatars && otherId ? chat.participantAvatars[otherId] || null : null;
+      const online = otherId ? isOnline(presence[otherId]) : false;
       merged[convId] = {
         name: otherName,
         avatar: otherAvatar,
+        online,
         isGroup: !!chat.isGroup,
         chatId: convId,
         unread: myUnread,
         lastMessage: chat.lastMessage,
-        lastActive: chat.lastActive || 'Now',
+        lastActive: chat.isGroup
+          ? formatChatTime(chat.lastMessageAt, !!chat.lastMessage)
+          : formatPresenceShort(presence[otherId]),
       };
     });
     Object.entries(contacts).forEach(([key, c]) => {
       if (merged[key] || (fsChats || []).some((chat) => (chat.participants || []).includes(key))) return;
-      merged[key] = { ...c, chatId: key, unread: unreadByContact[key] || 0 };
+      merged[key] = {
+        ...c,
+        online: isOnline(presence[key]),
+        lastActive: c.isGroup ? (c.lastActive || '') : formatPresenceShort(presence[key]),
+        chatId: key,
+        unread: unreadByContact[key] || 0,
+      };
     });
     let list = Object.values(merged).sort((a, b) => ((b.unread || 0) - (a.unread || 0)));
     if (query.trim()) {
@@ -51,7 +75,7 @@ export default function ChatListPane({ activeChatId = null }) {
       list = list.filter((c) => c.name?.toLowerCase().includes(q) || c.lastMessage?.toLowerCase().includes(q));
     }
     return list;
-  }, [fsChats, contacts, profile?.id, unreadByContact, query]);
+  }, [fsChats, contacts, profile?.id, unreadByContact, query, presence]);
 
   return (
     <div className="hidden lg:flex w-[340px] flex-none flex-col border-r border-linesoft bg-card/40">
