@@ -32,7 +32,9 @@ export default function DesktopSidebar() {
   return (
     <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-[240px] flex-col border-r border-linesoft bg-card z-50">
       <div className="px-5 pt-5 pb-4">
-        <Logo size={32} />
+        <button onClick={() => router.push('/home')} aria-label="Go to home" className="block cursor-pointer">
+          <Logo size={32} />
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-4">

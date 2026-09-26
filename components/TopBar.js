@@ -21,10 +21,14 @@ export default function TopBar() {
       >
         <Menu size={20} strokeWidth={2} />
       </button>
-      <div className="flex items-center gap-2.5">
+      <button
+        onClick={() => router.push('/home')}
+        aria-label="Go to home"
+        className="flex items-center gap-2.5"
+      >
         <Logo size={24} />
         <Wordmark size="text-[16px]" />
-      </div>
+      </button>
       <button
         onClick={() => router.push('/notifications')}
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}

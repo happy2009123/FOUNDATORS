@@ -208,10 +208,14 @@ export default function MessagesPage() {
     <MainScreenShell>
       {/* Header */}
       <div className="flex flex-none items-center justify-between px-5 pb-1 pt-3.5">
-        <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => router.push('/home')}
+          aria-label="Go to home"
+          className="flex items-center gap-2.5"
+        >
           <Logo size={26} />
           <Wordmark size="text-[17px]" />
-        </div>
+        </button>
         <div className="flex items-center gap-3.5">
           <button onClick={() => router.push('/profile')} className="relative">
             <Avatar src={profile.avatar} name={profile.name} size={34} />

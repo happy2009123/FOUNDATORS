@@ -370,11 +370,19 @@ body {
     height: calc(100dvh - 60px);
   }
 }
+/* The bottom navigation stays visible on open conversations, so the whole
+   chat frame is lifted above it (mobile only - the nav is hidden at lg+).
+   This keeps the composer and messages from sitting underneath the bar. */
+@media (max-width: 1023px) {
+  .chat-screen {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  }
+}
 
-/* Bottom inset for the chat composer. The global bottom navigation is hidden
-   on open conversations (MobileBottomNav HIDE_NAV matches /messages/), so the
-   composer only needs the device safe area plus its normal bar inset - never
-   the 72px nav clearance, which would leave a dead gap above the home bar. */
+/* Bottom inset for the chat composer: device safe area plus a small bar inset.
+   The bottom navigation stays visible on open conversations - the .chat-screen
+   frame is lifted above it (mobile padding rule), so the composer must not add
+   the 72px nav clearance again or a dead gap appears above the home bar. */
 .chat-input-pad {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.625rem);
 }

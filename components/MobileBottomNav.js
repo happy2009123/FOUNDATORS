@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 
-const HIDE_NAV = ['/login', '/signup', '/onboarding', '/forgot-password', '/verify', '/stories/create', '/reels/create', '/messages/'];
+const HIDE_NAV = ['/login', '/signup', '/onboarding', '/forgot-password', '/verify', '/stories/create', '/reels/create', '/messages/create-group'];
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
