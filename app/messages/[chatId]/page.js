@@ -625,30 +625,40 @@ export default function ChatPage() {
     // their metadata after the route, so both flags must be settled first).
     if (!resolveDone || !metaDone) {
       return (
-        <div className="app-shell chat-screen flex min-h-0 flex-1 flex-col">
-          <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
-            <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Back to messages">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-            </button>
-            <div className="h-4 w-28 rounded-full bg-white/10" />
-          </div>
-          <div className="flex flex-1 items-center justify-center gap-2.5 text-sm text-text3">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-linesoft border-t-gold" />
-            Opening conversation…
+        <div className="app-shell wide-desktop chat-screen flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1">
+            <ChatListPane activeChatId={chatId} />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3">
+                <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Back to messages">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                </button>
+                <div className="h-4 w-28 rounded-full bg-white/10" />
+              </div>
+              <div className="flex min-h-0 flex-1 items-center justify-center gap-2.5 text-sm text-text3">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-linesoft border-t-gold" />
+                Opening conversation…
+              </div>
+            </div>
           </div>
         </div>
       );
     }
     return (
-      <div className="app-shell chat-screen flex min-h-0 flex-1 flex-col">
-        <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3.5">
-          <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-          </button>
-          <h2 className="text-[15px] font-extrabold">Conversation not found</h2>
-        </div>
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text2">
-          This conversation doesn&apos;t exist or has been removed.
+      <div className="app-shell wide-desktop chat-screen flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <ChatListPane activeChatId={chatId} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex flex-none items-center gap-3 border-b border-linesoft px-4 py-3">
+              <button onClick={() => router.push('/messages')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Back to messages">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              </button>
+              <h2 className="text-[15px] font-extrabold">Conversation not found</h2>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-text2">
+              This conversation doesn&apos;t exist or has been removed.
+            </div>
+          </div>
         </div>
       </div>
     );
