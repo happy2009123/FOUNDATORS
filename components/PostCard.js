@@ -48,7 +48,7 @@ export default memo(function PostCard({ post }) {
   const router = useRouter();
   const [author, setAuthor] = useState(null);
   const likedMap = useStore((s) => s.likedPosts);
-  const bookmarked = useStore((s) => !!s.bookmarkedPosts[post.id]);
+  const bookmarkedMap = useStore((s) => s.bookmarkedPosts);
   const livePost = useStore((s) => (s.posts.length ? s.posts.find((p) => p.id === post.id) : null));
   const displayPost = livePost || post;
   const localCommentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
@@ -78,6 +78,11 @@ export default memo(function PostCard({ post }) {
   // synced"; false means the user explicitly unliked.
   const liked = likedMap[post.id] ??
     (Array.isArray(post.likedBy) && !!profile?.id && post.likedBy.includes(profile.id));
+  // Same fallback pattern as likes: bookmarks only live in the store for
+  // toggles made this session, so fall back to the post's own
+  // bookmarkedBy array — otherwise every refresh emptied the saved hearts.
+  const bookmarked = bookmarkedMap[post.id] ??
+    (Array.isArray(post.bookmarkedBy) && !!profile?.id && post.bookmarkedBy.includes(profile.id));
 
   useEffect(() => {
     if (post.authorKey) fetchUser(post.authorKey).then(setAuthor);
@@ -122,22 +127,40 @@ export default memo(function PostCard({ post }) {
       return;
     }
     vibrate('light');
-    firestoreUpdatePost(post.id, { text: editText.trim() }).catch(() => {});
+    const prevText = post.text;
     useStore.setState((s) => ({
       posts: s.posts.map((p) => p.id === post.id ? { ...p, text: editText.trim() } : p),
     }));
     setIsEditing(false);
-    showToast('Post updated');
+    firestoreUpdatePost(post.id, { text: editText.trim() }).then((res) => {
+      if (res?.success) {
+        showToast('Post updated');
+        return;
+      }
+      useStore.setState((s) => ({
+        posts: s.posts.map((p) => p.id === post.id ? { ...p, text: prevText } : p),
+      }));
+      showToast(`Could not save edit${res?.error ? `: ${res.error}` : ' — check that security rules are published'}`);
+    });
   }
 
   function handleDelete() {
     vibrate('medium');
-    firestoreDeletePost(post.id).catch(() => {});
+    const removed = post;
     useStore.setState((s) => ({
       posts: s.posts.filter((p) => p.id !== post.id),
     }));
     setShowDeleteConfirm(false);
-    showToast('Post deleted');
+    firestoreDeletePost(post.id).then((res) => {
+      if (res?.success) {
+        showToast('Post deleted');
+        return;
+      }
+      // Restore — the old code toasted "Post deleted" even when the write
+      // was rejected, so the post silently reappeared on every refresh.
+      useStore.setState((s) => ({ posts: [removed, ...s.posts] }));
+      showToast(`Could not delete post${res?.error ? `: ${res.error}` : ' — check that security rules are published'}`);
+    });
   }
 
   return (

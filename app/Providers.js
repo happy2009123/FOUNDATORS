@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import { useSecurityAudit } from '@/lib/useSecurityAudit';
 import { initErrorTracking } from '@/lib/errorTracking';
 import { useAuthInit } from '@/lib/useAuthInit';
+import { useSocialSync } from '@/lib/useSocialSync';
 import FirestoreProvider from './FirestoreProvider';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DesktopShell from '@/components/DesktopShell';
@@ -23,6 +24,7 @@ import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 export default function Providers({ children }) {
   useHydration();
   useAuthInit();
+  useSocialSync();
   useSecurityAudit();
   const router = useRouter();
   const pathname = usePathname();

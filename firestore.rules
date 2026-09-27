@@ -305,11 +305,15 @@ service cloud.firestore {
           && resource.data.authorKey == uid()
           && request.resource.data.authorKey == resource.data.authorKey;
 
-        // DELETE: Only the comment author can delete their comment;
-        // admins can remove comments as part of moderation
+        // DELETE: comment author, admin, or the author of the post the
+        // comment lives on. deletePost() batch-clears all comments when a
+        // post is removed — without the post-author clause the whole batch
+        // fails whenever someone ELSE commented, making posts undeletable.
         allow delete: if (isSignedIn()
           && resource.data.authorKey == uid())
-          || isAdmin();
+          || isAdmin()
+          || (isSignedIn()
+              && get(/databases/$(database)/documents/posts/$(postId)).data.authorKey == uid());
       }
     }
 
