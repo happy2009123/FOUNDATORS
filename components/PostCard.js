@@ -52,7 +52,7 @@ export default memo(function PostCard({ post }) {
   const livePost = useStore((s) => (s.posts.length ? s.posts.find((p) => p.id === post.id) : null));
   const displayPost = livePost || post;
   const localCommentCount = useStore((s) => (s.commentsByPost[post.id] || []).length);
-  const commentCount = displayPost.commentsCount || localCommentCount;
+  const commentCount = Math.max(displayPost.commentsCount ?? 0, localCommentCount);
   const [localLikeCount, setLocalLikeCount] = useState(displayPost.likes);
   useEffect(() => {
     setLocalLikeCount(displayPost.likes);

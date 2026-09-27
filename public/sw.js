@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foundators-v3';
+const CACHE_NAME = 'foundators-v4';
 const PRECACHE = ['/', '/home', '/discover', '/messages', '/login', '/icon.svg'];
 
 self.addEventListener('install', (e) => {

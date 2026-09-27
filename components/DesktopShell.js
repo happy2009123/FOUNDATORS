@@ -13,12 +13,17 @@ import DesktopRightPanel from '@/components/DesktopRightPanel';
 // full-screen player at /gestures/view is immersive.
 const IMMERSIVE = ['/reels', '/stories/create', '/gestures/view', '/onboarding'];
 
+// The admin console renders its own desktop frame (sidebar + header);
+// the consumer chrome must not double up on /admin routes.
+const ADMIN = '/admin';
+
 export default function DesktopShell({ children }) {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const pathname = usePathname() || '';
   const immersive = IMMERSIVE.some((p) => pathname === p || pathname.startsWith(p + '/'));
+  const isAdminRoute = pathname === ADMIN || pathname.startsWith(ADMIN + '/');
 
-  if (!isLoggedIn) return null;
+  if (!isLoggedIn || isAdminRoute) return null;
 
   return (
     <>

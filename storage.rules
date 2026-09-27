@@ -1,0 +1,75 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/.*');
+    }
+
+    function underLimit(bytes) {
+      return request.resource.size <= bytes;
+    }
+
+    // Profile photos: stored as "profile-photos/<uid>.<ext>".
+    // The owner may only write their own file; reads are public (avatars).
+    match /profile-photos/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && fileName.matches('^' + request.auth.uid + '\\..+')
+        && isImage()
+        && underLimit(5 * 1024 * 1024);
+    }
+
+    // Cover photos: stored as "cover-photos/<uid>.<ext>". Same rule as avatars.
+    match /cover-photos/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && fileName.matches('^' + request.auth.uid + '\\..+')
+        && isImage()
+        && underLimit(5 * 1024 * 1024);
+    }
+
+    // Post images: uploaded as "posts/<postId>/<name>" BEFORE the Firestore
+    // post document exists (see app/create/page.js), so ownership cannot be
+    // verified against Firestore at upload time. Signed-in + type + size only.
+    match /posts/{postId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && isImage()
+        && underLimit(10 * 1024 * 1024);
+    }
+
+    // Reels: "reels/<uid>/<timestamp>" — owner only, video only.
+    match /reels/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && isVideo()
+        && underLimit(100 * 1024 * 1024);
+    }
+
+    // Stories: "stories/<uid>/<name>" — owner only.
+    match /stories/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && (isImage() || isVideo())
+        && underLimit(20 * 1024 * 1024);
+    }
+
+    // Everything else in the bucket stays closed (OR semantics: the specific
+    // matches above still allow their paths).
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

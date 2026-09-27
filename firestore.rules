@@ -22,6 +22,24 @@ service cloud.firestore {
       return isSignedIn() && uid() == userId;
     }
 
+    // ============================================================
+    // ADMIN AUTHORIZATION (server-side, tamper-proof)
+    // ============================================================
+    // Admin status is determined ONLY by the existence of an
+    // admins/{uid} document. That collection has no client write
+    // path (see match /admins below), so it can only be seeded
+    // once from the Firebase Console / Admin SDK — a normal user
+    // can never grant themselves admin, and the frontend check is
+    // purely cosmetic. Every admin capability below (reading
+    // reports/analytics, moderating content, restricting users)
+    // re-verifies this on the server via exists(), so a tampered
+    // client still gets permission-denied.
+    // ============================================================
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     // Validates that required string fields exist and are non-empty
     function isValidString(value, maxLength) {
       return value is string && value.size() > 0 && value.size() <= maxLength;
@@ -68,9 +86,14 @@ service cloud.firestore {
         && request.resource.data.location is string
         && isValidTimestamp(request.resource.data.updatedAt);
 
-      // UPDATE: Users can only update their own profile
+      // UPDATE: Users can only update their own profile.
+      // `status` (moderation state) and `verified` are admin-managed —
+      // an owner must never clear their own restriction or grant
+      // themselves a verification badge.
       // Validates changed fields if they are present
       allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['status', 'verified'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['name', 'handle', 'bio', 'avatar',
                        'role', 'location', 'updatedAt'])
@@ -82,6 +105,17 @@ service cloud.firestore {
                 && request.resource.data.location is string
                 && isValidTimestamp(request.resource.data.updatedAt)));
 
+      // ADMIN: may set the moderation status and verification badge on
+      // any user — nothing else on the profile can be touched.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'verified'])
+        && (request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['verified'])
+            || request.resource.data.status in ['active', 'restricted', 'suspended'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified'])
+            || request.resource.data.verified is bool);
+
       // FOLLOW COUNTER: another signed-in user may bump this profile's
       // `followers` counter by exactly ±1 as part of the follow/unfollow
       // transaction (no other field may change).
@@ -91,8 +125,9 @@ service cloud.firestore {
         && (request.resource.data.followers == resource.data.get('followers', 0) + 1
             || request.resource.data.followers == resource.data.get('followers', 0) - 1);
 
-      // DELETE: Users can only delete their own profile
-      allow delete: if isOwner(userId);
+      // DELETE: owner (account removal) or admin (moderation removal,
+      // always behind an explicit confirmation workflow in the UI)
+      allow delete: if isOwner(userId) || isAdmin();
 
       // ----------------------------------------------------------
       // NOTIFICATIONS SUBCOLLECTION
@@ -225,8 +260,10 @@ service cloud.firestore {
         && resource.data.authorKey == uid()
         && request.resource.data.authorKey == resource.data.authorKey;
 
-      // DELETE: Only the author can delete their own post
-      allow delete: if isSignedIn() && resource.data.authorKey == uid();
+      // DELETE: Only the author can delete their own post; admins can
+      // remove posts as part of moderation (logged via adminActions)
+      allow delete: if (isSignedIn() && resource.data.authorKey == uid())
+        || isAdmin();
 
       // ----------------------------------------------------------
       // COMMENTS SUBCOLLECTION
@@ -268,9 +305,11 @@ service cloud.firestore {
           && resource.data.authorKey == uid()
           && request.resource.data.authorKey == resource.data.authorKey;
 
-        // DELETE: Only the comment author can delete their comment
-        allow delete: if isSignedIn()
-          && resource.data.authorKey == uid();
+        // DELETE: Only the comment author can delete their comment;
+        // admins can remove comments as part of moderation
+        allow delete: if (isSignedIn()
+          && resource.data.authorKey == uid())
+          || isAdmin();
       }
     }
 
@@ -284,12 +323,14 @@ service cloud.firestore {
     // ============================================================
     match /chats/{chatId} {
 
-      // READ: Participants can read chat metadata. Also allow
+      // READ: Participants can read chat metadata (admins can, too —
+      // read-only monitoring in the admin console). Also allow
       // reading a chat that DOES NOT EXIST yet, so the client can
       // detect "no conversation yet" and auto-create one, instead
       // of getting a false "permission denied".
       allow read: if isSignedIn()
-        && (!exists(/databases/$(database)/documents/chats/$(chatId))
+        && (isAdmin()
+            || !exists(/databases/$(database)/documents/chats/$(chatId))
             || uid() in resource.data.participants);
 
       // CREATE: Any authenticated user can create a chat, but they
@@ -316,11 +357,13 @@ service cloud.firestore {
       // ----------------------------------------------------------
       match /messages/{messageId} {
 
-        // READ: Chat participants can read messages. Also allow
-        // reading when the parent chat does NOT exist yet, so the
-        // client gets an empty list instead of a false denial.
+        // READ: Chat participants can read messages (admins can, too —
+        // read-only monitoring). Also allow reading when the parent chat
+        // does NOT exist yet, so the client gets an empty list instead of
+        // a false denial.
         allow read: if isSignedIn()
-          && (!exists(/databases/$(database)/documents/chats/$(chatId))
+          && (isAdmin()
+              || !exists(/databases/$(database)/documents/chats/$(chatId))
               || uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
 
         // CREATE: Only participants can send messages; senderKey
@@ -438,11 +481,21 @@ service cloud.firestore {
     // REPORTS COLLECTION
     // reports/{reportId}
     // ============================================================
+    // Any signed-in user can FILE a report (only about themselves as
+    // reporter). Reading and resolving reports is admin-only — a
+    // normal user can never enumerate reports through the API.
+    // ============================================================
     match /reports/{reportId} {
-      allow read: if false;
+      allow read: if isAdmin();
       allow create: if isSignedIn()
         && request.resource.data.reporterId == uid();
-      allow update, delete: if false;
+      // Admin triage: Pending → Reviewing → Resolved, plus an
+      // optional resolution note. Nothing else may be edited.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'resolution', 'reviewedAt', 'reviewedBy'])
+        && request.resource.data.status in ['pending', 'reviewing', 'resolved'];
+      allow delete: if isAdmin();
     }
 
     // ============================================================
@@ -460,15 +513,54 @@ service cloud.firestore {
     // ANALYTICS COLLECTION
     // analytics/{eventId}
     // ============================================================
-    // Events are write-once from the client: { eventType, ...payload,
-    // createdAt } (payload keys are caller-defined, so they can't be
-    // enumerated here). No reads, no updates, no deletes.
+    // Write-once from the client: { eventType, ...payload, createdAt }
+    // (payload keys are caller-defined, so they can't be enumerated
+    // here). Reading the event stream is admin-only; nobody may edit
+    // or delete events.
     // ============================================================
     match /analytics/{eventId} {
-      allow read: if false;
+      allow read: if isAdmin()
+        // Users may read the events they themselves generated (their
+        // own post/comment/like activity feeds the personal analytics
+        // page). Actor fields vary by event type, so check each.
+        || (isSignedIn()
+            && (resource.data.get('authorKey', '') == uid()
+                || resource.data.get('userId', '') == uid()
+                || resource.data.get('followerId', '') == uid()));
       allow create: if isSignedIn()
         && request.resource.data.keys().hasAll(['eventType', 'createdAt'])
         && isValidString(request.resource.data.eventType, 100)
+        && isValidTimestamp(request.resource.data.createdAt);
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // ADMINS COLLECTION
+    // admins/{adminUid}
+    // ============================================================
+    // THE source of truth for admin authorization (see isAdmin()).
+    // Clients may read only their own entry (used to render the
+    // admin UI) — NO client may create, update, or delete entries.
+    // Seeding/removal happens once from the Firebase Console or the
+    // Admin SDK, which bypasses these rules. This is what makes the
+    // dashboard impossible to reach by tampering with the frontend.
+    // ============================================================
+    match /admins/{adminUid} {
+      allow read: if isSignedIn() && uid() == adminUid;
+      allow write: if false;
+    }
+
+    // ============================================================
+    // ADMIN ACTIONS (audit trail)
+    // adminActions/{actionId}
+    // ============================================================
+    // Append-only log of moderation decisions. Admin-only: normal
+    // users can neither read the log nor forge entries.
+    // ============================================================
+    match /adminActions/{actionId} {
+      allow read, create: if isAdmin()
+        && request.resource.data.keys().hasAll(['action', 'createdAt'])
+        && isValidString(request.resource.data.action, 50)
         && isValidTimestamp(request.resource.data.createdAt);
       allow update, delete: if false;
     }
