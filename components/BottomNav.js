@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Film, Plus, MessageCircle, User, Bot } from 'lucide-react';
+import { Home, Film, Plus, MessageCircle, User } from 'lucide-react';
 import { useHaptics } from '@/lib/useHaptics';
 
 const TABS = [
@@ -9,7 +9,6 @@ const TABS = [
   { href: '/reels', icon: Film, label: 'Reels' },
   { href: '__create__', icon: Plus, label: 'Create' },
   { href: '/messages', icon: MessageCircle, label: 'Messages' },
-  { href: '/copilot', icon: Bot, label: 'Copilot' },
   { href: '/profile', icon: User, label: 'Profile' },
 ];
 
