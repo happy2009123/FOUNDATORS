@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { firebaseConfig } from '@/lib/firebaseConfig';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -18,7 +19,8 @@ async function verifyIdToken(idToken) {
   const key =
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
     process.env.FIREBASE_WEB_API_KEY ||
-    process.env.FIREBASE_API_KEY;
+    process.env.FIREBASE_API_KEY ||
+    firebaseConfig.apiKey;
   if (!key) return { error: 'missing-key' };
   if (!idToken) return { error: 'missing-token' };
   try {
