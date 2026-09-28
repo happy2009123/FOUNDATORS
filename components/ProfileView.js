@@ -31,7 +31,8 @@ import ModerationSheet from '@/components/ModerationSheet';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { auth, db } from '@/lib/firebase';
-import { collection, query, where, limit, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, limit, onSnapshot, doc, getDocs } from 'firebase/firestore';
+import { listMyProjects } from '@/lib/copilot';
 
 const TABS = [
   { key: 'about', label: 'About' },
@@ -434,8 +435,8 @@ export default function ProfileView({ userId = null }) {
             {tab === 'skills' && (
               <SkillsSection skills={skills} isOwn={isOwn} onEdit={() => router.push('/settings/edit-profile')} />
             )}
-            {tab === 'projects' && <ProjectsSection isOwn={isOwn} onCreate={() => router.push('/create')} />}
-            {tab === 'build' && <BuildWithMeSection isOwn={isOwn} onCreate={() => router.push('/create')} />}
+        {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
+        {tab === 'build' && <BuildWithMeSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
             {tab === 'posts' && (
               <div className="flex flex-col gap-4">
                 {loadingProfile && displayPosts.length === 0 ? (
@@ -645,44 +646,166 @@ function SkillsSection({ skills, isOwn, onEdit }) {
   );
 }
 
-function ProjectsSection({ isOwn, onCreate }) {
-  if (!isOwn) {
+function ProjectsSection({ uid, isOwn, onCreate }) {
+  const router = useRouter();
+  const [items, setItems] = useState(undefined);
+
+  useEffect(() => {
+    if (!uid) {
+      setItems([]);
+      return undefined;
+    }
+    let on = true;
+    listMyProjects(uid)
+      .then((list) => {
+        if (on) setItems(list);
+      })
+      .catch(() => {
+        if (on) setItems([]);
+      });
+    return () => {
+      on = false;
+    };
+  }, [uid]);
+
+  if (items === undefined) {
+    return <div className="px-4 py-6 text-center text-[12px] text-text3">Loading projects…</div>;
+  }
+
+  if (!items.length) {
+    if (!isOwn) {
+      return (
+        <TabEmpty
+          icon={Rocket}
+          title="No projects yet"
+          body="They haven't shared any projects yet."
+        />
+      );
+    }
     return (
       <TabEmpty
         icon={Rocket}
         title="No projects yet"
-        body="They haven't shared any projects yet."
+        body="Projects you create will appear here. Share your current build to attract collaborators."
+        action="Share a project"
+        onAction={onCreate}
       />
     );
   }
+
   return (
-    <TabEmpty
-      icon={Rocket}
-      title="No projects yet"
-      body="Projects you create will appear here. Share your current build to attract collaborators."
-      action="Share a project"
-      onAction={onCreate}
-    />
+    <div className="space-y-3 px-4 py-4">
+      {items.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => router.push(`/copilot?project=${p.id}`)}
+          className="gold-card w-full p-4 text-left"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[14px] font-extrabold text-text1">{p.name}</span>
+            <span className="shrink-0 rounded-full border border-line px-2 py-1 text-[9px] font-bold text-gold">
+              {p.stage || 'Building'}
+            </span>
+          </div>
+          {p.description ? <div className="mt-1 text-[11.5px] text-text2">{p.description}</div> : null}
+          <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-white/5">
+            <div className="h-full rounded-full bg-gold-grad" style={{ width: `${p.progress || 0}%` }} />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-text3">
+            <span>{p.progress || 0}% complete</span>
+            <span>
+              {p.tasksDone || 0}/{p.tasksTotal || 0} tasks
+            </span>
+          </div>
+        </button>
+      ))}
+      {isOwn ? (
+        <button
+          onClick={onCreate}
+          className="w-full rounded-xl border border-line py-2.5 text-[11.5px] font-bold text-gold-hi"
+        >
+          Share a project
+        </button>
+      ) : null}
+    </div>
   );
 }
 
-function BuildWithMeSection({ isOwn, onCreate }) {
-  if (!isOwn) {
+function BuildWithMeSection({ uid, isOwn, onCreate }) {
+  const [items, setItems] = useState(undefined);
+
+  useEffect(() => {
+    if (!uid) {
+      setItems([]);
+      return undefined;
+    }
+    let on = true;
+    getDocs(query(collection(db, 'posts'), where('authorKey', '==', uid), where('tagType', '==', 'cofounder'), limit(20)))
+      .then((snap) => {
+        if (on) setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      })
+      .catch(() => {
+        if (on) setItems([]);
+      });
+    return () => {
+      on = false;
+    };
+  }, [uid]);
+
+  if (items === undefined) {
+    return <div className="px-4 py-6 text-center text-[12px] text-text3">Loading posts…</div>;
+  }
+
+  if (!items.length) {
+    if (!isOwn) {
+      return (
+        <TabEmpty
+          icon={FolderOpen}
+          title="No collaborations yet"
+          body="They haven't posted any collaborations yet."
+        />
+      );
+    }
     return (
       <TabEmpty
         icon={FolderOpen}
         title="No collaborations yet"
-        body="They haven't posted any collaborations yet."
+        body="Post what you're looking to build and invite others to join you."
+        action="Start building"
+        onAction={onCreate}
       />
     );
   }
+
   return (
-    <TabEmpty
-      icon={FolderOpen}
-      title="No collaborations yet"
-      body="Post what you're looking to build and invite others to join you."
-      action="Start building"
-      onAction={onCreate}
-    />
+    <div className="space-y-3 px-4 py-4">
+      {items.map((post) => {
+        const when =
+          post.createdAt && post.createdAt.toDate
+            ? post.createdAt.toDate().toLocaleDateString([], { month: 'short', day: 'numeric' })
+            : '';
+        return (
+          <div key={post.id} className="gold-card p-4">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-gold-hi">
+                <Users size={11} /> Build With Me
+              </span>
+              <span className="text-[10px] text-text3">{when}</span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-[12.5px] leading-relaxed text-text1">
+              {String(post.text || '').slice(0, 400)}
+            </p>
+          </div>
+        );
+      })}
+      {isOwn ? (
+        <button
+          onClick={onCreate}
+          className="w-full rounded-xl border border-line py-2.5 text-[11.5px] font-bold text-gold-hi"
+        >
+          Post a new collaboration
+        </button>
+      ) : null}
+    </div>
   );
 }

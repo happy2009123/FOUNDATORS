@@ -22,6 +22,9 @@ export default function DesktopShell({ children }) {
   const pathname = usePathname() || '';
   const immersive = IMMERSIVE.some((p) => pathname === p || pathname.startsWith(p + '/'));
   const isAdminRoute = pathname === ADMIN || pathname.startsWith(ADMIN + '/');
+  // The copilot workspace runs its own right panel (project/task context),
+  // so the consumer right rail is dropped here to avoid double panels.
+  const noRail = pathname === '/copilot' || pathname.startsWith('/copilot/');
 
   if (!isLoggedIn || isAdminRoute) return null;
 
@@ -29,7 +32,7 @@ export default function DesktopShell({ children }) {
     <>
       <DesktopSidebar />
       <DesktopHeader />
-      {!immersive && <DesktopRightPanel />}
+      {!immersive && !noRail && <DesktopRightPanel />}
     </>
   );
 }

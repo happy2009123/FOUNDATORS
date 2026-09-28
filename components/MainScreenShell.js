@@ -3,11 +3,11 @@
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import PageTransition from '@/components/PageTransition';
 
-export default function MainScreenShell({ children }) {
+export default function MainScreenShell({ children, className = '' }) {
   const ready = useRequireAuth();
 
   return (
-    <div className="app-shell flex min-h-0 flex-1 flex-col">
+    <div className={`app-shell flex min-h-0 flex-1 flex-col ${className}`}>
       <div className="no-scrollbar flex-1 overflow-y-auto">
         {ready ? (
           <PageTransition>{children}</PageTransition>

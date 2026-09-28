@@ -210,6 +210,35 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
         allow update: if false;
       }
+
+      // ----------------------------------------------------------
+      // AI COPILOT CONVERSATIONS SUBCOLLECTION
+      // users/{userId}/copilotConversations/{conversationId}
+      // ----------------------------------------------------------
+      // Private AI workspace. Only the owner can read or write the
+      // conversation, its messages, and any generated payloads.
+      // ----------------------------------------------------------
+      match /copilotConversations/{conversationId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['title', 'mode', 'createdAt', 'updatedAt'])
+          && isValidString(request.resource.data.title, 200)
+          && isValidString(request.resource.data.mode, 30)
+          && isValidTimestamp(request.resource.data.createdAt)
+          && isValidTimestamp(request.resource.data.updatedAt);
+        allow update: if isOwner(userId);
+
+        match /messages/{messageId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId)
+            && request.resource.data.keys().hasAll(['role', 'text', 'createdAt'])
+            && request.resource.data.role in ['user', 'assistant']
+            && request.resource.data.text is string
+            && request.resource.data.text.size() <= 12000
+            && isValidTimestamp(request.resource.data.createdAt);
+          allow update, delete: if isOwner(userId);
+        }
+      }
     }
 
     // ============================================================
@@ -314,6 +343,72 @@ service cloud.firestore {
           || isAdmin()
           || (isSignedIn()
               && get(/databases/$(database)/documents/posts/$(postId)).data.authorKey == uid());
+      }
+    }
+
+    // ============================================================
+    // PROJECTS COLLECTION
+    // projects/{projectId}
+    // ============================================================
+    // Real founder projects (created from the AI Copilot MVP roadmap).
+    // Any signed-in user can browse them; only the owner (or an admin)
+    // can change or delete one, and tasks inherit the owner check from
+    // their parent project.
+    // ============================================================
+    match /projects/{projectId} {
+
+      // READ: any authenticated user (projects surface in /projects
+      // and on profiles as collaboration listings)
+      allow read: if isSignedIn();
+
+      // CREATE: the authenticated user must own the project and be
+      // listed as its only initial member
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == uid()
+        && request.resource.data.keys().hasAll([
+             'name', 'description', 'ownerUid', 'ownerName',
+             'members', 'tasksTotal', 'tasksDone', 'progress',
+             'createdAt', 'updatedAt'
+           ])
+        && isValidString(request.resource.data.name, 120)
+        && isValidString(request.resource.data.description, 4000)
+        && isValidString(request.resource.data.ownerUid, 128)
+        && isValidString(request.resource.data.ownerName, 100)
+        && request.resource.data.members is list
+        && uid() in request.resource.data.members
+        && request.resource.data.tasksTotal is int
+        && request.resource.data.tasksDone is int
+        && request.resource.data.progress is int
+        && isValidTimestamp(request.resource.data.createdAt)
+        && isValidTimestamp(request.resource.data.updatedAt);
+
+      // UPDATE: owner (progress, tasks, metadata) or admin (moderation)
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.ownerUid == uid());
+
+      // DELETE: owner or admin
+      allow delete: if isAdmin()
+        || (isSignedIn() && resource.data.ownerUid == uid());
+
+      // ----------------------------------------------------------
+      // PROJECT TASKS SUBCOLLECTION
+      // projects/{projectId}/tasks/{taskId}
+      // ----------------------------------------------------------
+      // Readable by signed-in users; only the parent project's owner
+      // (or an admin) may create, update, or delete tasks.
+      // ----------------------------------------------------------
+      match /tasks/{taskId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == uid()
+          && request.resource.data.keys().hasAll(['title', 'status', 'order', 'createdAt'])
+          && isValidString(request.resource.data.title, 300)
+          && request.resource.data.status in ['todo', 'in_progress', 'done']
+          && request.resource.data.order is int
+          && isValidTimestamp(request.resource.data.createdAt);
+        allow update, delete: if isAdmin()
+          || (isSignedIn()
+              && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == uid());
       }
     }
 

@@ -2,7 +2,7 @@
 
 // ─────────────────────────────────────────────────────────────
 // ADMIN → BUILD WITH ME
-// Real collaboration content: posts tagged "cofinder" (Looking
+// Real collaboration content: posts tagged "cofounder" (Looking
 // for Co-founder) straight from the posts collection — the same
 // data the feed uses. Moderation actions are shared with the
 // Posts page (admin delete + audit log).
@@ -33,7 +33,7 @@ export default function AdminBuildWithMePage() {
     setError(null);
     setRows(null);
     try {
-      const q = query(collection(db, 'posts'), where('tagType', '==', 'cofinder'), limit(50));
+      const q = query(collection(db, 'posts'), where('tagType', '==', 'cofounder'), limit(50));
       const snap = await getDocs(q);
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       list.sort((a, b) => {
