@@ -322,7 +322,7 @@ export default function CopilotPage() {
     return null;
   }
 
-  async function onCardAction(actionKey) {
+  async function onCardAction(actionKey, extra) {
     if (actionKey === 'goto-validate') return switchMode('validate');
     if (actionKey === 'goto-mvp') return switchMode('mvp');
     if (actionKey === 'goto-launch') return switchMode('launch');
@@ -333,13 +333,15 @@ export default function CopilotPage() {
 
     if (actionKey === 'create-project') {
       if (!uid) return;
+      const chosen = extra && Array.isArray(extra.features) && extra.features.length ? extra.features : msg.card.features;
+      const card = { ...msg.card, features: Array.isArray(chosen) ? chosen : [] };
       setBusy(true);
       try {
-        const projectId = await createProjectFromCard(msg.card, profile, activeId);
+        const projectId = await createProjectFromCard(card, profile, activeId);
         const note = {
           id: localId('a'),
           role: 'assistant',
-          text: `Project “${msg.card.title}” created with ${Array.isArray(msg.card.tasks) ? msg.card.tasks.length : 0} tasks. Select it in the context panel to track TODO / IN PROGRESS / DONE.`,
+          text: `Project “${card.title}” created with ${Array.isArray(card.tasks) ? card.tasks.length : 0} tasks and ${card.features.length} selected feature${card.features.length === 1 ? '' : 's'}. Select it in the context panel to track TODO / IN PROGRESS / DONE.`,
           cardType: null,
           card: null,
           source: 'system',
@@ -434,6 +436,53 @@ export default function CopilotPage() {
   }
 
   const activeMode = modeMeta(mode);
+
+  const modesBlock = (
+    <div className="px-3 py-3">
+      <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-wider text-text3">Modes</div>
+      <div className="space-y-1">
+        {MODES.map((m) => {
+          const Icon = MODE_ICONS[m.key];
+          return (
+            <button
+              key={m.key}
+              onClick={() => {
+                setMobileContext(false);
+                switchMode(m.key);
+              }}
+              className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-all ${
+                m.key === mode ? 'bg-gold/10 text-gold' : 'text-text2 active:bg-white/5'
+              }`}
+            >
+              <Icon size={15} />
+              <span className="text-[12.5px] font-bold">{m.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const recentBlock = conversations.length ? (
+    <div className="px-3 pb-3">
+      <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-wider text-text3">Recent</div>
+      <div className="space-y-1">
+        {conversations.slice(0, 8).map((c) => (
+          <button
+            key={c.id}
+            onClick={() => openConversation(c)}
+            className={`w-full truncate rounded-xl px-2.5 py-2 text-left text-[12px] transition-all ${
+              c.id === activeId ? 'bg-white/10 font-bold text-text1' : 'text-text2 active:bg-white/5'
+            }`}
+            title={c.title}
+          >
+            {c.title}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   const contextPanel = (
     <CopilotContext
       projects={projects}
@@ -460,55 +509,11 @@ export default function CopilotPage() {
                 New chat
               </button>
             </div>
-            <div className="px-3 py-3">
-              <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-wider text-text3">Modes</div>
-              <div className="space-y-1">
-                {MODES.map((m) => {
-                  const Icon = MODE_ICONS[m.key];
-                  return (
-                    <button
-                      key={m.key}
-                      onClick={() => {
-                        setMobileContext(false);
-                        switchMode(m.key);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-all ${
-                        m.key === mode ? 'bg-gold/10 text-gold' : 'text-text2 hover:bg-white/5'
-                      }`}
-                    >
-                      <Icon size={15} />
-                      <span className="text-[12.5px] font-bold">{m.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar px-3 pb-3">
-              {conversations.length ? (
-                <>
-                  <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-wider text-text3">Recent</div>
-                  <div className="space-y-1">
-                    {conversations.slice(0, 8).map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => openConversation(c)}
-                        className={`w-full truncate rounded-xl px-2.5 py-2 text-left text-[12px] transition-all ${
-                          c.id === activeId
-                            ? 'bg-white/10 font-bold text-text1'
-                            : 'text-text2 hover:bg-white/5'
-                        }`}
-                        title={c.title}
-                      >
-                        {c.title}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </div>
+            {modesBlock}
+            <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">{recentBlock}</div>
           </aside>
 
-          <section className="flex min-h-0 flex-1 flex-col border-linesoft lg:border-x-0">
+          <section className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-card/40 lg:m-0 lg:rounded-none lg:border-0 lg:bg-transparent">
             <header className="flex items-center gap-2 border-b border-linesoft px-3 py-2.5">
               {mobileContext ? (
                 <button
@@ -531,16 +536,16 @@ export default function CopilotPage() {
                 <div className="flex items-center gap-1.5">
                   <Sparkles size={13} className="shrink-0 text-gold" />
                   <span className="truncate text-[13.5px] font-extrabold">
-                    {mobileContext ? 'Context' : activeMeta ? activeMeta.title : 'AI Founder Copilot'}
+                    {mobileContext ? 'Panel' : activeMeta ? activeMeta.title : 'AI Founder Copilot'}
                   </span>
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-text3">
-                  {mobileContext ? `${projects.length} projects` : activeMode.label}
+                  {mobileContext ? `Modes · ${projects.length} projects` : activeMode.label}
                 </div>
               </div>
               <button
                 onClick={() => setMobileContext(true)}
-                aria-label="Open context panel"
+                aria-label="Open copilot panel"
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-line text-gold lg:hidden"
               >
                 <FolderKanban size={16} />
@@ -570,7 +575,13 @@ export default function CopilotPage() {
             ) : null}
 
             {mobileContext ? (
-              <div className="min-h-0 flex-1 overflow-hidden">{contextPanel}</div>
+              <div className="no-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                <div className="overflow-hidden rounded-2xl border border-line bg-card/60">{modesBlock}</div>
+                {recentBlock ? (
+                  <div className="overflow-hidden rounded-2xl border border-line bg-card/60">{recentBlock}</div>
+                ) : null}
+                <div className="overflow-hidden rounded-2xl border border-line bg-card/60">{contextPanel}</div>
+              </div>
             ) : activeId ? (
               <>
                 {loadingThread ? (

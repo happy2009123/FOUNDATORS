@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight, ClipboardList, Flag, ListChecks, MessageSquare, Rocket, Sparkles, Users } from 'lucide-react';
 import { MODES } from '@/lib/copilot';
 
@@ -23,7 +23,13 @@ const STEPS = [
 export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
   const [mode, setMode] = useState('analyze');
   const [text, setText] = useState('');
+  const inputRef = useRef(null);
   const active = MODES.find((m) => m.key === mode) || MODES[0];
+
+  const pickMode = (key) => {
+    setMode(key);
+    inputRef.current?.focus();
+  };
 
   const start = () => {
     if (!text.trim() || busy) return;
@@ -51,7 +57,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
             return (
               <button
                 key={m.key}
-                onClick={() => setMode(m.key)}
+                onClick={() => pickMode(m.key)}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-extrabold transition-all ${
                   on
                     ? 'border-gold/70 bg-[rgba(217,172,61,0.14)] text-gold-hi'
@@ -67,6 +73,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
 
         <div className="gold-card mt-4 p-3">
           <textarea
+            ref={inputRef}
             rows={4}
             value={text}
             placeholder={active.placeholder}
@@ -98,7 +105,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
             return (
               <button
                 key={m.key}
-                onClick={() => setMode(m.key)}
+                onClick={() => pickMode(m.key)}
                 className={`rounded-2xl border p-3 text-left transition-all ${
                   on ? 'border-gold/60 bg-[rgba(217,172,61,0.07)]' : 'border-line bg-card active:bg-white/5'
                 }`}

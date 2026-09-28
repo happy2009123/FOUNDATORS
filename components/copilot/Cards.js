@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -83,7 +84,7 @@ function ActionRow({ actions, onAction, busy }) {
         <button
           key={action.key}
           disabled={busy || action.disabled}
-          onClick={() => onAction(action.key)}
+          onClick={() => onAction(action.key, action.data)}
           className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-extrabold transition-all disabled:opacity-50 ${
             action.primary
               ? 'bg-gold-grad text-[#171100] active:scale-[0.98]'
@@ -153,13 +154,33 @@ function ValidationCard({ card, onAction, busy }) {
 }
 
 function MvpCard({ card, onAction, busy, hasProject }) {
+  const features = Array.isArray(card.features) ? card.features : [];
+  const [selectedNames, setSelectedNames] = useState(() => new Set(features.map((f) => f.name)));
+  const selectedFeatures = features.filter((f) => selectedNames.has(f.name));
+  const toggleFeature = (name) => {
+    setSelectedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        if (next.size <= 1) return prev;
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
   const actions = [
-    { key: 'create-project', label: 'Create project + tasks', icon: Rocket, primary: true },
+    {
+      key: 'create-project',
+      label: `Create project + tasks (${selectedFeatures.length} features)`,
+      icon: Rocket,
+      primary: true,
+      data: { features: selectedFeatures },
+    },
     { key: 'add-tasks', label: 'Add tasks to selected project', icon: ListChecks, disabled: !hasProject },
     { key: 'goto-launch', label: 'Plan the launch', icon: Flag },
   ];
   const phases = Array.isArray(card.phases) ? card.phases : [];
-  const features = Array.isArray(card.features) ? card.features : [];
   const tech = Array.isArray(card.tech) ? card.tech : [];
   const taskCount = Array.isArray(card.tasks) ? card.tasks.length : 0;
   return (
@@ -169,19 +190,28 @@ function MvpCard({ card, onAction, busy, hasProject }) {
         <Section icon={Target} title="Problem">{card.problem}</Section>
         <Section icon={Lightbulb} title="Solution">{card.solution}</Section>
       </div>
+      <div className="text-[10.5px] font-bold uppercase tracking-wide text-text3">
+        Features — tap to include or skip
+      </div>
       <div className="flex flex-wrap gap-1.5">
-        {features.map((f, i) => (
-          <span
-            key={i}
-            className={`rounded-full border px-2.5 py-1 text-[10.5px] font-bold ${
-              f.priority === 'core'
-                ? 'border-[rgba(217,172,61,0.4)] bg-[rgba(217,172,61,0.12)] text-gold-hi'
-                : 'border-line bg-white/5 text-text3'
-            }`}
-          >
-            {f.name}
-          </span>
-        ))}
+        {features.map((f) => {
+          const on = selectedNames.has(f.name);
+          return (
+            <button
+              key={f.name}
+              onClick={() => toggleFeature(f.name)}
+              aria-pressed={on}
+              className={`rounded-full border px-2.5 py-1 text-[10.5px] font-bold transition-all active:scale-95 ${
+                on
+                  ? 'border-[rgba(217,172,61,0.4)] bg-[rgba(217,172,61,0.12)] text-gold-hi'
+                  : 'border-line bg-white/5 text-text3 line-through opacity-60'
+              }`}
+            >
+              {on ? '✓ ' : '✕ '}
+              {f.name}
+            </button>
+          );
+        })}
       </div>
       {tech.length ? (
         <div className="text-[11.5px] text-text3">Suggested stack: {tech.join(' · ')}</div>
@@ -213,8 +243,10 @@ function LaunchCard({ card, onAction, busy }) {
     { key: 'goto-chat', label: 'Work the launch with me', icon: ArrowRight, primary: true },
     { key: 'goto-mvp', label: 'Back to MVP plan', icon: ListChecks },
   ];
+  const [checked, setChecked] = useState({});
   const checklist = Array.isArray(card.checklist) ? card.checklist : [];
   const categories = [...new Set(checklist.map((c) => c.category))];
+  const doneCount = Object.values(checked).filter(Boolean).length;
   return (
     <CardShell icon={Rocket} label="Launch Checklist" source={card.source} busy={busy}>
       <div className="text-[13px] font-semibold leading-relaxed text-text1">{card.summary}</div>
@@ -223,15 +255,34 @@ function LaunchCard({ card, onAction, busy }) {
           <ul className="space-y-1.5">
             {checklist
               .filter((c) => c.category === category)
-              .map((c, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12.5px] text-text2">
-                  <span className="mt-0.5 h-3 w-3 shrink-0 rounded border border-gold/60" />
-                  {c.label}
-                </li>
-              ))}
+              .map((c, i) => {
+                const key = `${category}::${i}::${c.label}`;
+                const on = !!checked[key];
+                return (
+                  <li key={key}>
+                    <button
+                      onClick={() => setChecked((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      aria-pressed={on}
+                      className="flex w-full items-start gap-2 text-left text-[12.5px] active:opacity-70"
+                    >
+                      <span
+                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] font-black ${
+                          on ? 'border-brandgreen bg-brandgreen text-black' : 'border-gold/60'
+                        }`}
+                      >
+                        {on ? '✓' : ''}
+                      </span>
+                      <span className={on ? 'text-text3 line-through' : 'text-text2'}>{c.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
           </ul>
         </Section>
       ))}
+      <div className="text-[11px] font-bold text-text3">
+        {doneCount}/{checklist.length} done — tap items to track them locally
+      </div>
       <div className="rounded-xl border border-[rgba(217,172,61,0.4)] bg-[rgba(217,172,61,0.10)] p-3 text-[12.5px] text-gold-hi">
         <div className="font-extrabold">One metric: {card.metric}</div>
         <div className="mt-1">{card.timeline}</div>

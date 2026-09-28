@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Menu, Bell } from 'lucide-react';
+import { Menu, Bell, Bot } from 'lucide-react';
 import Logo, { Wordmark } from './Logo';
 import { useStore } from '@/lib/store';
 
@@ -29,18 +29,27 @@ export default function TopBar() {
         <Logo size={24} />
         <Wordmark size="text-[16px]" />
       </button>
-      <button
-        onClick={() => router.push('/notifications')}
-        aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
-        className="relative flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi active:bg-linesoft"
-      >
-        <Bell size={20} strokeWidth={2} className={unreadCount > 0 ? 'bell-ring' : ''} />
-        {unreadCount > 0 && (
-          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-black bg-gold px-[3px] text-[10px] font-extrabold text-[#1a1300] badge-bounce">
-            {unreadCount}
-          </span>
-        )}
-      </button>
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => router.push('/copilot')}
+          aria-label="AI Copilot"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi active:bg-linesoft"
+        >
+          <Bot size={20} strokeWidth={2} />
+        </button>
+        <button
+          onClick={() => router.push('/notifications')}
+          aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+          className="relative flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi active:bg-linesoft"
+        >
+          <Bell size={20} strokeWidth={2} className={unreadCount > 0 ? 'bell-ring' : ''} />
+          {unreadCount > 0 && (
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-black bg-gold px-[3px] text-[10px] font-extrabold text-[#1a1300] badge-bounce">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
