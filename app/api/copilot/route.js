@@ -15,8 +15,12 @@ function clip(value, max) {
 }
 
 async function verifyIdToken(idToken) {
-  const key = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!key || !idToken) return null;
+  const key =
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+    process.env.FIREBASE_WEB_API_KEY ||
+    process.env.FIREBASE_API_KEY;
+  if (!key) return { error: 'missing-key' };
+  if (!idToken) return { error: 'missing-token' };
   try {
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${key}`,
@@ -26,12 +30,22 @@ async function verifyIdToken(idToken) {
         body: JSON.stringify({ idToken }),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const errJson = await res.json();
+        detail = (errJson.error && errJson.error.message) || '';
+      } catch (e) {
+        detail = '';
+      }
+      return { error: `lookup-${res.status}${detail ? `:${detail}` : ''}` };
+    }
     const json = await res.json();
     const user = json && json.users && json.users[0];
-    return user && user.localId ? { uid: user.localId, email: user.email || '' } : null;
-  } catch (e) {
-    return null;
+    if (!user || !user.localId) return { error: 'no-user' };
+    return { user: { uid: user.localId, email: user.email || '' } };
+  } catch (err) {
+    return { error: `network:${err.message}` };
   }
 }
 
@@ -399,10 +413,20 @@ export async function POST(req) {
     return NextResponse.json({ ok: false, error: 'Unknown mode' }, { status: 400 });
   }
 
-  const user = await verifyIdToken(body && body.idToken);
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'Sign in required' }, { status: 401 });
+  const verified = await verifyIdToken(body && body.idToken);
+  if (verified.error) {
+    const isClientFault = verified.error === 'missing-token';
+    return NextResponse.json(
+      {
+        ok: false,
+        error: isClientFault
+          ? 'Sign in required'
+          : `Token verification failed (${verified.error})`,
+      },
+      { status: 401 }
+    );
   }
+  const user = verified.user;
 
   const raw = (body && body.payload) || {};
   const payload = {
