@@ -18,6 +18,7 @@ import {
   BarChart3,
   FileText,
   CompassIcon,
+  Mic,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import Avatar from './Avatar';
@@ -84,6 +85,7 @@ export default function Drawer() {
           <DrawerLink icon={<Compass size={19} />} label="Explore" onClick={() => go('/explore')} />
           <DrawerLink icon={<Sparkles size={19} />} label="Foundators Match" onClick={() => go('/match')} />
           <DrawerLink icon={<Bot size={19} />} label="AI Copilot" onClick={() => go('/copilot')} />
+          <DrawerLink icon={<Mic size={19} />} label="Voice" onClick={() => go('/voice')} />
           <DrawerLink icon={<BarChart3 size={19} />} label="Analytics" onClick={() => go('/analytics')} />
           <DrawerLink icon={<FileText size={19} />} label="Drafts" onClick={() => go('/drafts')} />
           <DrawerLink icon={<Gift size={19} />} label="Gestures" onClick={() => go('/gestures')} />

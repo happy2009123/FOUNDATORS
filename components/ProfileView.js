@@ -23,6 +23,7 @@ import {
   Ban,
   MoreHorizontal,
   Shield,
+  Mic,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -33,12 +34,15 @@ import { useHaptics } from '@/lib/useHaptics';
 import { auth, db } from '@/lib/firebase';
 import { collection, query, where, limit, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { listMyProjects } from '@/lib/copilot';
+import { fetchHostRooms } from '@/lib/voice';
+import VoiceRoomCard from '@/components/voice/VoiceRoomCard';
 
 const TABS = [
   { key: 'about', label: 'About' },
   { key: 'skills', label: 'Skills' },
   { key: 'projects', label: 'Projects' },
   { key: 'build', label: 'Build With Me' },
+  { key: 'voice', label: 'Voice' },
   { key: 'posts', label: 'Posts' },
 ];
 
@@ -437,6 +441,7 @@ export default function ProfileView({ userId = null }) {
             )}
         {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
         {tab === 'build' && <BuildWithMeSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
+        {tab === 'voice' && <VoiceSection uid={uid} isOwn={isOwn} />}
             {tab === 'posts' && (
               <div className="flex flex-col gap-4">
                 {loadingProfile && displayPosts.length === 0 ? (
@@ -804,6 +809,77 @@ function BuildWithMeSection({ uid, isOwn, onCreate }) {
           className="w-full rounded-xl border border-line py-2.5 text-[11.5px] font-bold text-gold-hi"
         >
           Post a new collaboration
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function VoiceSection({ uid, isOwn }) {
+  const router = useRouter();
+  const [rooms, setRooms] = useState(undefined);
+
+  useEffect(() => {
+    if (!uid) {
+      setRooms([]);
+      return () => {};
+    }
+    let dead = false;
+    fetchHostRooms(uid)
+      .then((r) => { if (!dead) setRooms(r); })
+      .catch(() => { if (!dead) setRooms([]); });
+    return () => { dead = true; };
+  }, [uid]);
+
+  if (rooms === undefined) {
+    return (
+      <div className="space-y-3 px-4 py-6">
+        <div className="skeleton h-24 w-full rounded-2xl" />
+        <div className="skeleton h-24 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
+  const live = rooms.filter((r) => r.status === 'live');
+  const upcoming = rooms
+    .filter((r) => r.status === 'scheduled')
+    .sort((a, b) => (a.scheduledAtMs || 0) - (b.scheduledAtMs || 0));
+  const past = rooms
+    .filter((r) => r.status === 'ended')
+    .sort((a, b) => (b.endedAtMs || 0) - (a.endedAtMs || 0));
+  const shown = [...live, ...upcoming, ...past.slice(0, 4)];
+
+  if (!shown.length) {
+    return (
+      <TabEmpty
+        icon={Mic}
+        title={isOwn ? 'No voice rooms yet' : 'No voice rooms yet'}
+        body={
+          isOwn
+            ? 'Host a live room to talk with founders in real time. Your sessions show up here.'
+            : 'They have not hosted any voice rooms yet.'
+        }
+        action={isOwn ? 'Start a room' : undefined}
+        onAction={isOwn ? () => router.push('/voice/create') : undefined}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3 px-4 py-4">
+      {shown.map((room) => (
+        <VoiceRoomCard
+          key={room.roomId}
+          room={room}
+          onJoin={(r) => router.push(`/voice/room/${r.roomId}`)}
+        />
+      ))}
+      {isOwn ? (
+        <button
+          onClick={() => router.push('/voice/create')}
+          className="w-full rounded-xl border border-line py-2.5 text-[11.5px] font-bold text-gold-hi"
+        >
+          Start a voice room
         </button>
       ) : null}
     </div>

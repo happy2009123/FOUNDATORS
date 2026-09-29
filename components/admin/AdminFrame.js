@@ -15,7 +15,7 @@ import {
   LayoutDashboard, Users, FileText, Flag, FolderKanban, Hammer, Globe,
   MessageCircle, BarChart3, ShieldCheck, Settings, Search, Bell, Plus,
   Menu, X, ChevronLeft, ChevronRight, LogOut, User, LogIn,
-  ArrowRight, Megaphone, Lightbulb, CalendarDays,
+  ArrowRight, Megaphone, Lightbulb, CalendarDays, Mic,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { searchUsers } from '@/lib/firestore';
@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { icon: FolderKanban, label: 'Projects', path: '/admin/projects' },
   { icon: Hammer, label: 'Build With Me', path: '/admin/build-with-me' },
   { icon: Globe, label: 'Communities', path: '/admin/communities' },
+  { icon: Mic, label: 'Voice', path: '/admin/voice' },
   { icon: MessageCircle, label: 'Messages', path: '/admin/messages' },
   { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
   { icon: ShieldCheck, label: 'Moderation', path: '/admin/moderation' },

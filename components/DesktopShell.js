@@ -23,8 +23,13 @@ export default function DesktopShell({ children }) {
   const immersive = IMMERSIVE.some((p) => pathname === p || pathname.startsWith(p + '/'));
   const isAdminRoute = pathname === ADMIN || pathname.startsWith(ADMIN + '/');
   // The copilot workspace runs its own right panel (project/task context),
-  // so the consumer right rail is dropped here to avoid double panels.
-  const noRail = pathname === '/copilot' || pathname.startsWith('/copilot/');
+  // and the Voice section renders its own categories/stats rail, so the
+  // consumer right rail is dropped on both to avoid double panels.
+  const noRail =
+    pathname === '/copilot' ||
+    pathname.startsWith('/copilot/') ||
+    pathname === '/voice' ||
+    pathname.startsWith('/voice/');
 
   if (!isLoggedIn || isAdminRoute) return null;
 

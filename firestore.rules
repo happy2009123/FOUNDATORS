@@ -665,8 +665,229 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // DEFAULT DENY
+    // FOUNDATORS VOICE (voiceRooms + subcollections)
     // ============================================================
+
+    function voiceRoomData(roomId) {
+      return get(/databases/$(database)/documents/voiceRooms/$(roomId)).data;
+    }
+
+    // Role-based checks for the AUTHENTICATED caller inside a room.
+    // exists() guards every get() so a caller WITHOUT a participant
+    // document (e.g. a listener about to join) gets a clean `false`
+    // instead of an evaluation error that would deny the request.
+    function voiceParticipantIs(roomId, role) {
+      return exists(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(request.auth.uid))
+        && get(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(request.auth.uid)).data.role == role;
+    }
+
+    function voiceParticipantIn(roomId, roles) {
+      return exists(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(request.auth.uid))
+        && get(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(request.auth.uid)).data.role in roles;
+    }
+
+    // Public rooms are open; followers-only rooms require a follow
+    // edge; private rooms are readable only by host or participants.
+    function voiceRoomReadable(room, roomId) {
+      return isSignedIn()
+        && (room.hostId == uid()
+            || room.type == 'public'
+            || (room.type == 'followers'
+                && exists(/databases/$(database)/documents/users/$(uid())/following/$(room.hostId)))
+            || exists(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(uid())));
+    }
+
+    match /voiceRooms/{roomId} {
+      allow read: if voiceRoomReadable(resource.data, roomId) || isAdmin();
+
+      // Only a signed-in user can create a room, and only as their
+      // own room (hostId can never be spoofed onto someone else).
+      allow create: if isSignedIn()
+        && request.resource.data.roomId == roomId
+        && request.resource.data.hostId == uid()
+        && isValidString(request.resource.data.title, 120)
+        && request.resource.data.type in ['public', 'followers', 'private']
+        && request.resource.data.status in ['live', 'scheduled'];
+
+      // hostId is immutable (no room hijacking). The room host has full
+      // control; co-hosts may only touch moderation/count fields; admins
+      // may moderate anything.
+      allow update: if isSignedIn()
+        && request.resource.data.get('hostId', '') == resource.data.hostId
+        && request.resource.data.get('roomId', '') == resource.data.roomId
+        && request.resource.data.status in ['scheduled', 'live', 'ended']
+        && (
+          resource.data.hostId == uid()
+          || isAdmin()
+          || (voiceParticipantIs(roomId, 'coHost')
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'title', 'description', 'pinnedTopic', 'isLocked',
+                'participantCount', 'speakerCount', 'previewAvatars',
+                'allowRaiseHand', 'allowReactions', 'allowQuestions', 'maxSpeakers'
+              ]))
+        );
+
+      allow delete: if isSignedIn() && (resource.data.hostId == uid() || isAdmin());
+
+      match /participants/{pid} {
+        allow read: if voiceRoomReadable(voiceRoomData(roomId), roomId) || isAdmin();
+
+        // Self-join is only possible into a live, unlocked public or
+        // followers-only room as a listener (never as speaker/host),
+        // and never if the host has blocked you. The host/co-host may
+        // add invited participants. The creator joins as host.
+        allow create: if isSignedIn()
+          && request.resource.data.uid == pid
+          && request.resource.data.status in ['joined', 'invited']
+          && (
+            (pid == uid()
+              && voiceRoomData(roomId).hostId == uid()
+              && request.resource.data.role == 'host')
+            || (voiceParticipantIn(roomId, ['host', 'coHost'])
+                && pid != uid()
+                && request.resource.data.role == 'listener')
+            || (pid == uid()
+                && request.resource.data.role == 'listener'
+                && voiceRoomData(roomId).status == 'live'
+                && voiceRoomData(roomId).isLocked == false
+                && voiceRoomData(roomId).type in ['public', 'followers']
+                && (voiceRoomData(roomId).type == 'public'
+                    || exists(/databases/$(database)/documents/users/$(uid())/following/$(voiceRoomData(roomId).hostId)))
+                && !exists(/databases/$(database)/documents/users/$(voiceRoomData(roomId).hostId)/blocked/$(uid())))
+          );
+
+        // A participant may only edit their own presence fields, may
+        // never upgrade themselves (listener -> speaker is denied),
+        // and may only step DOWN from speaker/co-host. Moderators may
+        // change other people's roles; only the room host assigns
+        // co-host. No body can take the host's own document.
+        allow update: if isSignedIn()
+          && (
+            (pid == uid()
+              && request.resource.data.get('uid', pid) == pid
+              && request.resource.data.status in ['joined', 'left']
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'isMuted', 'raisedHand', 'lastActiveAt', 'status', 'role',
+                'name', 'avatar', 'verified', 'invited'
+              ])
+              && (request.resource.data.role == resource.data.role
+                  || (request.resource.data.role == 'listener'
+                      && resource.data.role in ['speaker', 'coHost'])))
+            || (isSignedIn()
+                && voiceRoomData(roomId).hostId == uid()
+                && pid != uid()
+                && request.resource.data.role in ['listener', 'speaker', 'coHost']
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'role', 'isMuted', 'status', 'raisedHand'
+                ]))
+            || (isSignedIn()
+                && voiceParticipantIs(roomId, 'coHost')
+                && pid != uid()
+                && voiceRoomData(roomId).hostId != pid
+                && request.resource.data.role in ['listener', 'speaker']
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'role', 'isMuted', 'status'
+                ]))
+            || isAdmin()
+          );
+
+        // Self-leave, host/co-host kick, admin cleanup. Nobody can
+        // remove the host from their own room.
+        allow delete: if isSignedIn()
+          && (
+            pid == uid()
+            || (voiceRoomData(roomId).hostId == uid() && pid != uid())
+            || (voiceParticipantIs(roomId, 'coHost')
+                && pid != uid()
+                && voiceRoomData(roomId).hostId != pid)
+            || isAdmin()
+          );
+      }
+
+      match /speakerRequests/{reqId} {
+        allow read: if isSignedIn()
+          && (reqId == uid() || voiceParticipantIn(roomId, ['host', 'coHost']));
+        allow create: if isSignedIn()
+          && reqId == uid()
+          && request.resource.data.uid == uid()
+          && request.resource.data.status == 'pending'
+          && voiceRoomData(roomId).status == 'live'
+          && voiceRoomData(roomId).allowRaiseHand == true
+          && voiceRoomData(roomId).isLocked == false
+          && get(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(uid())).data.role == 'listener';
+        allow update: if isAdmin() || (isSignedIn() && voiceParticipantIn(roomId, ['host', 'coHost']));
+        allow delete: if isAdmin() || (isSignedIn() && (reqId == uid() || voiceParticipantIn(roomId, ['host', 'coHost'])));
+      }
+
+      match /questions/{qid} {
+        allow read: if voiceRoomReadable(voiceRoomData(roomId), roomId) || isAdmin();
+        allow create: if isSignedIn()
+          && request.resource.data.authorId == uid()
+          && isValidString(request.resource.data.text, 500)
+          && voiceRoomData(roomId).allowQuestions == true
+          && exists(/databases/$(database)/documents/voiceRooms/$(roomId)/participants/$(uid()));
+        // Authors may edit only their own text; moderators control
+        // moderation state (pending/pinned/answered).
+        allow update: if isAdmin()
+          || (isSignedIn()
+              && resource.data.authorId == uid()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']))
+          || (isSignedIn()
+              && voiceParticipantIn(roomId, ['host', 'coHost'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+        allow delete: if isAdmin()
+          || (isSignedIn() && resource.data.authorId == uid())
+          || (isSignedIn() && voiceParticipantIn(roomId, ['host', 'coHost']));
+      }
+
+      match /reactions/{reactionId} {
+        allow read: if voiceRoomReadable(voiceRoomData(roomId), roomId) || isAdmin();
+        allow create: if isSignedIn()
+          && request.resource.data.userId == uid()
+          && voiceRoomData(roomId).allowReactions != false
+          && voiceRoomReadable(voiceRoomData(roomId), roomId);
+        allow update: if false;
+        allow delete: if isAdmin()
+          || (isSignedIn() && resource.data.userId == uid())
+          || (isSignedIn() && voiceParticipantIn(roomId, ['host', 'coHost']));
+      }
+
+      // WebRTC signaling (SDP/ICE) - ephemeral, only between two
+      // participants of the same room, consumed (deleted) on read.
+      match /signals/{signalId} {
+        allow read: if isSignedIn()
+          && voiceParticipantIn(roomId, ['host', 'coHost', 'speaker', 'listener'])
+          && (resource.data.from == uid() || resource.data.to == uid());
+        allow create: if isSignedIn()
+          && request.resource.data.from == uid()
+          && request.resource.data.to != uid()
+          && request.resource.data.kind in ['sdp', 'ice', 'nudge']
+          && voiceParticipantIn(roomId, ['host', 'coHost', 'speaker', 'listener']);
+        allow update: if false;
+        // The recipient consumes a signal, the sender prunes its own,
+        // and the room host (or an admin) may purge all signaling in
+        // their room when ending it.
+        allow delete: if isSignedIn()
+          && (resource.data.from == uid()
+              || resource.data.to == uid()
+              || voiceRoomData(roomId).hostId == uid()
+              || isAdmin());
+      }
+
+      match /reminders/{remUid} {
+        allow read: if isSignedIn()
+          && (remUid == uid() || voiceRoomData(roomId).hostId == uid() || isAdmin());
+        allow create: if isSignedIn() && remUid == uid();
+        allow update: if false;
+        allow delete: if isSignedIn()
+          && (remUid == uid() || voiceRoomData(roomId).hostId == uid() || isAdmin());
+      }
+    }
+
+    // Per-user reminder bookmarks (enables one-tap toggle state).
+    match /users/{userId}/voiceReminders/{voiceReminderId} {
+      allow read, write: if isOwner(userId);
+    }
     match /{document=**} {
       allow read, write: if false;
     }

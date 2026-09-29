@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Bot, CheckCircle2, Filter, FolderKanban, Plus, Rocket, Users } from 'lucide-react';
+import { ArrowRight, Bot, CheckCircle2, Filter, FolderKanban, Mic, Plus, Rocket, Users } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
 import { listRecentProjects } from '@/lib/copilot';
@@ -140,6 +140,15 @@ export default function Projects() {
             Tasks, milestones, files, team chat and AI assistance can live inside every project.
           </p>
         </div>
+        <button
+          onClick={() => {
+            const firstReal = rows.find((r) => r.real);
+            router.push(firstReal ? `/voice/create?project=${firstReal.id}` : '/voice/create');
+          }}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-line py-3 text-[11.5px] font-black text-gold-hi active:bg-white/5"
+        >
+          <Mic size={15} /> Discuss in a Voice room
+        </button>
       </div>
     </MainScreenShell>
   );

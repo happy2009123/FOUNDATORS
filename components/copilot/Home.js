@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ArrowRight, ClipboardList, Flag, ListChecks, MessageSquare, Rocket, Sparkles, Users } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, ClipboardList, Flag, ListChecks, MessageSquare, Mic, Rocket, Sparkles, Users } from 'lucide-react';
 import { MODES } from '@/lib/copilot';
 
 export const MODE_ICONS = {
@@ -21,6 +22,7 @@ const STEPS = [
 ];
 
 export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
+  const router = useRouter();
   const [mode, setMode] = useState('analyze');
   const [text, setText] = useState('');
   const inputRef = useRef(null);
@@ -133,6 +135,24 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
               {i < STEPS.length - 1 ? <Flag size={11} className="ml-1 text-text3" /> : null}
             </div>
           ))}
+        </div>
+
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-3.5 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-8 w-8 flex-none items-center justify-center rounded-xl border border-line bg-white/5 text-gold">
+              <Mic size={16} />
+            </span>
+            <div className="min-w-0 leading-tight">
+              <div className="text-[12.5px] font-extrabold text-text1">Foundators Voice</div>
+              <div className="text-[10.5px] text-text3">Talk it out live with other founders</div>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push('/voice')}
+            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-[11.5px] font-black text-gold-hi active:scale-95"
+          >
+            Open <ArrowRight size={13} />
+          </button>
         </div>
 
         {conversations.length ? (
