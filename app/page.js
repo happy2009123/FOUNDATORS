@@ -1,9 +1,12 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Sparkles, Users, Code2, BriefcaseBusiness, Globe2, ShieldCheck, Zap } from 'lucide-react';
 import Logo, { Wordmark } from '@/components/Logo';
 import { useStore } from '@/lib/store';
+import { useHydration } from '@/lib/useHydration';
+import { auth } from '@/lib/firebase';
 import Intro from '@/components/Intro';
 
 const pillars = [
@@ -15,7 +18,19 @@ const pillars = [
 export default function LandingPage() {
   const router = useRouter();
   const isLoggedIn = useStore((s) => s.isLoggedIn);
-  const go = () => router.push(isLoggedIn ? '/home' : '/login');
+  const authReady = useStore((s) => s.authReady);
+  const hydrated = useHydration();
+
+  // A live session must land directly on /home — never on the landing
+  // screen or /login. Fires once the auth observer reports the restored
+  // session (or as soon as Firebase has a current user).
+  useEffect(() => {
+    if (hydrated && authReady && (isLoggedIn || auth?.currentUser)) {
+      router.replace('/home');
+    }
+  }, [hydrated, authReady, isLoggedIn, router]);
+
+  const go = () => router.push(isLoggedIn || auth?.currentUser ? '/home' : '/login');
 
   return (
     <Intro>

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
+import { auth } from '@/lib/firebase';
 import Onboarding from '@/components/Onboarding';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
@@ -12,7 +13,9 @@ export default function OnboardingPage() {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
 
   useEffect(() => {
-    if (authReady && !isLoggedIn) {
+    // auth?.currentUser keeps a just-signed-in user off /login even if
+    // the store has not caught up yet (same guard as useRequireAuth).
+    if (authReady && !isLoggedIn && !auth?.currentUser) {
       router.replace('/login');
     }
   }, [authReady, isLoggedIn, router]);

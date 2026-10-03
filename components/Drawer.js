@@ -21,6 +21,7 @@ import {
   Mic,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { signOutFully } from '@/lib/authActions';
 import Avatar from './Avatar';
 import ThemeToggle from './ThemeToggle';
 
@@ -28,7 +29,6 @@ export default function Drawer() {
   const router = useRouter();
   const isOpen = useStore((s) => s.isDrawerOpen);
   const closeDrawer = useStore((s) => s.closeDrawer);
-  const logout = useStore((s) => s.logout);
   const profile = useStore((s) => s.profile);
   const notifications = useStore((s) => s.notifications);
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
@@ -41,10 +41,11 @@ export default function Drawer() {
 
   const handleLogout = useCallback(() => {
     closeDrawer();
-    logout();
-    showToast('Logged out');
-    router.push('/login');
-  }, [closeDrawer, logout, showToast, router]);
+    signOutFully().finally(() => {
+      showToast('Logged out');
+      router.push('/login');
+    });
+  }, [closeDrawer, showToast, router]);
 
   return (
     <>

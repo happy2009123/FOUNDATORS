@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Users, Loader2 } from 'lucide-react';
 import Logo from '@/components/Logo';
@@ -8,12 +8,25 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { useHydration } from '@/lib/useHydration';
+import { auth } from '@/lib/firebase';
 
 export default function LoginPage() {
   const router = useRouter();
   const showToast = useStore((s) => s.showToast);
   const { notification } = useHaptics();
   const { signInWithEmail, signInWithGoogle } = useFirebaseAuth();
+  const hydrated = useHydration();
+  const isLoggedIn = useStore((s) => s.isLoggedIn);
+  const authReady = useStore((s) => s.authReady);
+
+  // A live session must never land on the login screen: if the user is
+  // already signed in (Firebase session restored on reload, or a login
+  // that just completed), skip straight to home.
+  useEffect(() => {
+    if (!hydrated || !authReady) return;
+    if (isLoggedIn || auth?.currentUser) router.replace('/home');
+  }, [hydrated, authReady, isLoggedIn, router]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

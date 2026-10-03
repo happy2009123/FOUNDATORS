@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, Mail, Lock, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 import Logo from '@/components/Logo';
@@ -8,12 +8,23 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { useHydration } from '@/lib/useHydration';
+import { auth } from '@/lib/firebase';
 
 export default function SignupPage() {
   const router = useRouter();
   const showToast = useStore((s) => s.showToast);
   const { notification } = useHaptics();
   const { signUpWithEmail, signInWithGoogle } = useFirebaseAuth();
+  const hydrated = useHydration();
+  const isLoggedIn = useStore((s) => s.isLoggedIn);
+  const authReady = useStore((s) => s.authReady);
+
+  // Already signed in? Never show the signup form — go straight home.
+  useEffect(() => {
+    if (!hydrated || !authReady) return;
+    if (isLoggedIn || auth?.currentUser) router.replace('/home');
+  }, [hydrated, authReady, isLoggedIn, router]);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

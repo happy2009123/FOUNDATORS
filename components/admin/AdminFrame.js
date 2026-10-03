@@ -18,6 +18,7 @@ import {
   ArrowRight, Megaphone, Lightbulb, CalendarDays, Mic,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { signOutFully } from '@/lib/authActions';
 import { searchUsers } from '@/lib/firestore';
 import { timeAgo } from '@/lib/admin';
 import { AvatarDot, useClickAway } from '@/components/admin/ui';
@@ -137,7 +138,6 @@ export default function AdminFrame({ children }) {
   const pathname = usePathname() || '/admin';
   const router = useRouter();
   const profile = useStore((s) => s.profile);
-  const logout = useStore((s) => s.logout);
   const notifications = useStore((s) => s.notifications);
   const showToast = useStore((s) => s.showToast);
 
@@ -390,7 +390,7 @@ export default function AdminFrame({ children }) {
                     <LogIn size={15} className="text-gold" /> Exit to app
                   </button>
                   <button
-                    onClick={() => { logout?.(); setOpenMenu(null); router.replace('/login'); }}
+                    onClick={async () => { setOpenMenu(null); await signOutFully(); router.replace('/login'); }}
                     className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13px] text-brandred hover:bg-brandred/10"
                   >
                     <LogOut size={15} /> Sign out

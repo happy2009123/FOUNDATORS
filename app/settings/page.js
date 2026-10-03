@@ -6,6 +6,7 @@ import SubpageHeader from '@/components/SubpageHeader';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
+import { signOutFully } from '@/lib/authActions';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const NOTIF_ROWS = [
@@ -23,13 +24,12 @@ export default function SettingsPage() {
   const router = useRouter();
   const settings = useStore((s) => s.settings);
   const toggleSetting = useStore((s) => s.toggleSetting);
-  const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
 
   if (!ready) return <AuthSkeleton />;
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await signOutFully();
     showToast('Logged out');
     router.push('/login');
   }
