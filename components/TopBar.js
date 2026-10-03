@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Menu, Bell, Bot } from 'lucide-react';
+import { Menu, Bell, Bot, Mic } from 'lucide-react';
 import Logo, { Wordmark } from './Logo';
 import { useStore } from '@/lib/store';
 
@@ -30,6 +30,13 @@ export default function TopBar() {
         <Wordmark size="text-[16px]" />
       </button>
       <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => router.push('/voice')}
+          aria-label="Voice rooms"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi active:bg-linesoft"
+        >
+          <Mic size={20} strokeWidth={2} />
+        </button>
         <button
           onClick={() => router.push('/copilot')}
           aria-label="AI Copilot"

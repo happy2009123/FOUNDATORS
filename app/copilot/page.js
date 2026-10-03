@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, FolderKanban, Plus, Sparkles } from 'lucide-react';
+import { ChevronLeft, FolderKanban, Mic, Plus, Sparkles } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
@@ -511,6 +511,12 @@ export default function CopilotPage() {
             </div>
             {modesBlock}
             <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">{recentBlock}</div>
+            <button
+              onClick={() => router.push('/voice')}
+              className="flex flex-none items-center gap-2 border-t border-linesoft px-3 py-3 text-[12.5px] font-bold text-text2 transition-colors hover:text-gold-hi"
+            >
+              <Mic size={15} className="text-gold" /> Foundators Voice
+            </button>
           </aside>
 
           <section className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-card/40 lg:m-0 lg:rounded-none lg:border-0 lg:bg-transparent">
@@ -581,6 +587,12 @@ export default function CopilotPage() {
                   <div className="overflow-hidden rounded-2xl border border-line bg-card/60">{recentBlock}</div>
                 ) : null}
                 <div className="overflow-hidden rounded-2xl border border-line bg-card/60">{contextPanel}</div>
+                <button
+                  onClick={() => router.push('/voice')}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-line bg-card/60 px-3.5 py-3 text-left text-[12.5px] font-bold text-text2 active:bg-white/5"
+                >
+                  <Mic size={15} className="text-gold" /> Foundators Voice
+                </button>
               </div>
             ) : activeId ? (
               <>

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, BriefcaseBusiness, Code2, Coins, Lightbulb, MapPin, MessageCircle, Plus, Rocket, Sparkles, Target, UserPlus, Users, Zap } from 'lucide-react';
+import { ArrowRight, BriefcaseBusiness, Code2, Coins, Lightbulb, MapPin, MessageCircle, Mic, Plus, Rocket, Sparkles, Target, UserPlus, Users, Zap } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import TopBar from '@/components/TopBar';
 import StoriesBar from '@/components/StoriesBar';
@@ -12,10 +12,11 @@ import FeedAlgorithm from '@/components/FeedAlgorithm';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
+import { subscribeVoiceByStatus } from '@/lib/voice';
 
 const quick = [
   ['idea','Start a business',Lightbulb,'/ideas'], ['cofounder','Co-founder',UserPlus,'/match/find_cofounder'], ['programmer','Programmer',Code2,'/programmers'], ['funding','Funding',Coins,'/opportunities'],
-  ['work','Find work',BriefcaseBusiness,'/opportunities'], ['mentor','Mentor',Users,'/match/find_mentor'], ['project','Join project',Rocket,'/projects'], ['learn','Learn',Zap,'/challenges'],
+  ['work','Find work',BriefcaseBusiness,'/opportunities'], ['mentor','Mentor',Users,'/match/find_mentor'], ['project','Join project',Rocket,'/projects'], ['voice','Voice Rooms',Mic,'/voice'], ['learn','Learn',Zap,'/challenges'],
 ];
 
 export default function HomePage(){
@@ -89,6 +90,7 @@ export default function HomePage(){
     <div className="gold-card relative overflow-hidden p-5"><div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-[rgba(217,172,61,.12)] opacity-30"/><div className="relative"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.16em] text-gold"><Sparkles size={13}/> Opportunity Radar</div><h1 className="mt-2 text-[24px] font-black leading-tight">What are you<br/><span className="text-gold-gradient">building today?</span></h1><p className="mt-2 max-w-[290px] text-[11.5px] leading-5 text-text2">Your network is ready. Find people, projects and opportunities matched to you.</p><button onClick={()=>router.push('/match')} className="mt-4 flex items-center gap-2 rounded-full bg-gold-grad px-4 py-2.5 text-[11.5px] font-black text-[#171100]">Explore matches <ArrowRight size={14}/></button></div></div>
    </div>
    <div className="no-scrollbar flex gap-2.5 overflow-x-auto px-[18px] py-4">{quick.map(([key,label,Icon,href])=><button key={key} onClick={()=>router.push(href)} className="flex w-[82px] flex-none flex-col items-center gap-2 text-center"><span className="flex h-[50px] w-[50px] items-center justify-center rounded-2xl border border-line bg-[rgba(217,172,61,.06)] text-gold"><Icon size={19}/></span><span className="text-[10px] font-semibold leading-tight text-text2">{label}</span></button>)}</div>
+   <VoiceLive router={router}/>
    {mission && (
      <Section title="Your Project" action="View" onClick={()=>router.push('/projects')}><div className="glass-card p-4"><div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gold-grad text-[#171100]"><Target size={20}/></div><div className="min-w-0 flex-1"><div className="text-[14px] font-extrabold truncate">{mission.title}</div><div className="mt-0.5 text-[11px] text-text2">Your latest post</div></div></div></div></Section>
    )}
@@ -121,3 +123,4 @@ export default function HomePage(){
 }
 function Section({title,action,onClick,children}){return <section className="mt-5"><div className="mb-2.5 flex items-center justify-between px-[18px]"><h2 className="text-[16px] font-extrabold">{title}</h2><button onClick={onClick} className="text-[11px] font-bold text-gold">{action}</button></div><div className="px-[18px]">{children}</div></section>}
 function Mini({icon:Icon,title,value,onClick}){return <button onClick={onClick} className="glass-card flex min-h-[105px] flex-col justify-between p-3.5 text-left"><Icon size={18} className="text-gold"/><div><div className="text-[12px] font-extrabold">{title}</div><div className="mt-0.5 text-[10px] text-text3">{value}</div></div></button>}
+function VoiceLive({router}){const [rooms,setRooms]=useState(undefined);useEffect(()=>{let dead=false;const unsub=subscribeVoiceByStatus('live',(list)=>{if(!dead)setRooms(list);},()=>{if(!dead)setRooms([]);});return()=>{dead=true;try{unsub&&unsub();}catch{}};},[]);const n=(rooms||[]).length;return <Section title="Foundators Voice" action="Open" onClick={()=>router.push('/voice')}><button onClick={()=>router.push('/voice')} className="gold-card w-full p-4 text-left"><div className="flex items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-line bg-[rgba(217,172,61,.06)] text-gold"><Mic size={19}/></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-[13.5px] font-extrabold">Where founders talk live</span>{rooms!==undefined&&n>0?<span className="flex items-center gap-1 rounded-full bg-brandred/15 px-2 py-0.5 text-[9.5px] font-black uppercase text-brandred"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brandred"/>{n} live</span>:null}</div><div className="mt-0.5 text-[10.5px] text-text2">{rooms===undefined?'Checking live rooms...':n>0?'Join the stage or listen in':'Schedule a room or start talking now'}</div></div><ArrowRight size={16} className="text-text3"/></div></button></Section>}

@@ -75,9 +75,43 @@ function RemoteAudio({ stream }) {
     const el = ref.current;
     if (!el) return;
     el.srcObject = stream || null;
-    if (stream) el.play().catch(() => {});
+    if (stream) attemptPlay(el);
   }, [stream]);
   return <audio ref={ref} autoPlay playsInline />;
+}
+
+// iOS/Safari block programmatic play() that did not start from a user
+// gesture. Queue any element whose play() rejected and retry it on the
+// next tap anywhere on screen, so remote voice unblocks after one touch
+// instead of staying silent forever.
+const pendingPlays = new Set();
+let unlockListenerBound = false;
+
+function attemptPlay(el) {
+  const p = el.play();
+  if (!p || typeof p.catch !== 'function') return;
+  p.catch(() => {
+    pendingPlays.add(el);
+    if (unlockListenerBound) return;
+    unlockListenerBound = true;
+    const onGesture = () => {
+      pendingPlays.forEach((target) => {
+        const retry = target.play();
+        if (retry && typeof retry.then === 'function') {
+          retry.then(() => pendingPlays.delete(target)).catch(() => {});
+        } else {
+          pendingPlays.delete(target);
+        }
+      });
+      if (pendingPlays.size === 0) {
+        document.removeEventListener('pointerdown', onGesture);
+        document.removeEventListener('touchstart', onGesture);
+        unlockListenerBound = false;
+      }
+    };
+    document.addEventListener('pointerdown', onGesture, { passive: true });
+    document.addEventListener('touchstart', onGesture, { passive: true });
+  });
 }
 
 function SpeakerTile({ p, active, isMe, muted, compact }) {
