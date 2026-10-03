@@ -1,15 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { Phone, Video, PhoneOff, Mic, MicOff, Camera, CameraOff, MoreHorizontal } from 'lucide-react';
-import { useStore } from '@/lib/store';
+import { PhoneOff, Mic, MicOff, Camera, CameraOff } from 'lucide-react';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 import { initialsAvatar } from '@/lib/avatar';
 
-export default function CallScreen({ userId, type, onClose }) {
-  const router = useRouter();
+export default function CallScreen({ userId, type, name, avatar, onClose }) {
   const { vibrate } = useHaptics();
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -17,7 +14,7 @@ export default function CallScreen({ userId, type, onClose }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRinging, setIsRinging] = useState(true);
 
-  const user = { name: 'Arjun Verma', avatar: initialsAvatar('Arjun Verma') };
+  const user = { name: name || 'Connecting...', avatar: avatar || initialsAvatar(name || '?') };
 
   useEffect(() => {
     if (isRinging) {
@@ -76,16 +73,10 @@ export default function CallScreen({ userId, type, onClose }) {
           </button>
           <button
             onClick={handleEnd}
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-red"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-brandred"
             aria-label="End call"
           >
             <PhoneOff size={24} className="text-white" />
-          </button>
-          <button
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10"
-            aria-label="More options"
-          >
-            <MoreHorizontal size={20} className="text-white" />
           </button>
         </div>
       </div>

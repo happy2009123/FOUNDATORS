@@ -34,14 +34,14 @@ function formatTime(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function ConfettiParticle({ delay, left, color }) {
+function ConfettiParticle({ delay, left, color, radius, duration }) {
   return (
     <div
       className="pointer-events-none fixed z-[100] animate-confetti-fall"
       style={{
         left: `${left}%`, top: '-10px', width: '8px', height: '8px',
-        borderRadius: Math.random() > 0.5 ? '50%' : '2px', backgroundColor: color,
-        animationDelay: `${delay}ms`, animationDuration: `${1200 + Math.random() * 800}ms`,
+        borderRadius: radius, backgroundColor: color,
+        animationDelay: `${delay}ms`, animationDuration: `${duration}ms`,
         animationFillMode: 'forwards', animationIterationCount: '1',
       }}
     />
@@ -53,6 +53,8 @@ function ConfettiOverlay() {
   const particles = useMemo(() => Array.from({ length: 40 }, (_, i) => ({
     id: i, delay: Math.random() * 400, left: Math.random() * 100,
     color: colors[Math.floor(Math.random() * colors.length)],
+    radius: Math.random() > 0.5 ? '50%' : '2px',
+    duration: 1200 + Math.random() * 800,
   })), []);
   return (
     <div className="fixed inset-0 z-[99] pointer-events-none">
@@ -268,13 +270,13 @@ export default function ChallengesContent() {
           <div className="mt-4 space-y-3">
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Challenge Name</label>
-              <input value={newChallenge.name} onChange={(e) => setNewChallenge((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Build a landing page in 10 min" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.name ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.name && <p className="mt-1 text-[10px] text-red-400">{formErrors.name}</p>}
+              <input value={newChallenge.name} onChange={(e) => setNewChallenge((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Build a landing page in 10 min" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.name ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.name && <p className="mt-1 text-[10px] text-brandred">{formErrors.name}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Description</label>
-              <textarea value={newChallenge.description} onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))} placeholder="What should participants build or do?" rows={3} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.description && <p className="mt-1 text-[10px] text-red-400">{formErrors.description}</p>}
+              <textarea value={newChallenge.description} onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))} placeholder="What should participants build or do?" rows={3} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.description && <p className="mt-1 text-[10px] text-brandred">{formErrors.description}</p>}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -363,7 +365,7 @@ export default function ChallengesContent() {
               <div className="mt-5 glass-card border-gold/30 p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-gold">Currently working on</div>
-                  <div className="flex items-center gap-1 text-[11px] text-text2"><Clock size={12} /><span className={timer <= 30 ? 'font-bold text-red' : ''}>{formatTime(timer)}</span></div>
+                  <div className="flex items-center gap-1 text-[11px] text-text2"><Clock size={12} /><span className={timer <= 30 ? 'font-bold text-brandred' : ''}>{formatTime(timer)}</span></div>
                 </div>
                 <div className="mt-2 text-[14px] font-extrabold">{activeChallenge.name}</div>
                 <div className="mt-1 text-[10.5px] text-text2">{activeChallenge.description}</div>

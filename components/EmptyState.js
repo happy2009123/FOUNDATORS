@@ -3,7 +3,7 @@
 import { AlertTriangle, SearchX, Wifi, FolderOpen, UserX, MessageCircle, FileText } from 'lucide-react';
 
 const ILLUSTRATIONS = {
-  error: { icon: AlertTriangle, title: 'Something went wrong', color: 'text-red' },
+  error: { icon: AlertTriangle, title: 'Something went wrong', color: 'text-brandred' },
   notFound: { icon: SearchX, title: 'Not found', color: 'text-text3' },
   offline: { icon: Wifi, title: 'No connection', color: 'text-amber-500' },
   empty: { icon: FolderOpen, title: 'Nothing here yet', color: 'text-text3' },

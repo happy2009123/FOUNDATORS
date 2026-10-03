@@ -236,7 +236,7 @@ export default function ProfileView({ userId = null }) {
                   </button>
                   <button
                     onClick={() => { blockUser(uid); showToast(isBlocked ? 'User unblocked' : 'User blocked'); setShowMenu(false); }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[12.5px] text-red hover:bg-white/5"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[12.5px] text-brandred hover:bg-white/5"
                   >
                     <Ban size={14} /> {isBlocked ? 'Unblock' : 'Block'}
                   </button>

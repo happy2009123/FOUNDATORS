@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { X, Heart, Send, MoreHorizontal } from 'lucide-react';
+import { X, Heart, Send } from 'lucide-react';
 import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
+import { timeAgo } from '@/lib/admin';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, increment, arrayUnion, arrayRemove, doc, getDoc } from 'firebase/firestore';
 
@@ -42,15 +43,20 @@ export default function ReelComments({ reelId, onClose }) {
   const send = async () => {
     if (!text.trim() || !profile) return;
     vibrate('light');
-    await addDoc(collection(db, 'reels', reelId, 'comments'), {
+    const body = {
       text: text.trim(),
       authorKey: profile.id,
       authorName: profile.name,
       authorAvatar: profile.avatar,
-      createdAt: serverTimestamp(),
       likes: 0,
       likedBy: [],
-    });
+    };
+    if (replyTo && comments.some((c) => c.id === replyTo)) {
+      const reply = { ...body, id: `r_${Date.now()}`, createdAt: Date.now() };
+      await updateDoc(doc(db, 'reels', reelId, 'comments', replyTo), { replies: arrayUnion(reply) });
+    } else {
+      await addDoc(collection(db, 'reels', reelId, 'comments'), { ...body, createdAt: serverTimestamp() });
+    }
     setText('');
     setReplyTo(null);
   };
@@ -62,6 +68,25 @@ export default function ReelComments({ reelId, onClose }) {
       await updateDoc(ref, { likes: increment(-1), likedBy: arrayRemove(profile.id) });
     } else {
       await updateDoc(ref, { likes: increment(1), likedBy: arrayUnion(profile.id) });
+    }
+  };
+
+  const toggleReplyLike = async (parentId, reply, alreadyLiked) => {
+    if (!profile) return;
+    vibrate('light');
+    const ref = doc(db, 'reels', reelId, 'comments', parentId);
+    const updated = {
+      ...reply,
+      likes: Math.max(0, (reply.likes || 0) + (alreadyLiked ? -1 : 1)),
+      likedBy: alreadyLiked
+        ? (reply.likedBy || []).filter((i) => i !== profile.id)
+        : [...(reply.likedBy || []), profile.id],
+    };
+    try {
+      await updateDoc(ref, { replies: arrayRemove(reply) });
+      await updateDoc(ref, { replies: arrayUnion(updated) });
+    } catch {
+      // reply predates stable ids — skip the optimistic like
     }
   };
 
@@ -82,7 +107,7 @@ export default function ReelComments({ reelId, onClose }) {
         {REACTIONS.map((r) => (
           <button
             key={r}
-            onClick={() => { vibrate('light'); }}
+            onClick={() => { vibrate('light'); setText((t) => (t + r).slice(0, 500)); inputRef.current?.focus(); }}
             className="rounded-full bg-white/5 px-3 py-1.5 text-[18px] hover:bg-white/10 transition-colors"
             aria-label={`React with ${r}`}
           >
@@ -102,7 +127,7 @@ export default function ReelComments({ reelId, onClose }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-bold">{commentUser?.name || comment.authorName || 'You'}</span>
-                    <span className="text-[10px] text-text3">{comment.time}</span>
+                    <span className="text-[10px] text-text3">{comment.createdAt ? timeAgo(comment.createdAt) : (comment.time || '')}</span>
                   </div>
                   <p className="text-[13px] text-text mt-0.5">{comment.text}</p>
                   <div className="flex items-center gap-3 mt-1.5">
@@ -121,9 +146,6 @@ export default function ReelComments({ reelId, onClose }) {
                     >
                       Reply
                     </button>
-                    <button className="text-text3" aria-label="More options">
-                      <MoreHorizontal size={14} />
-                    </button>
                   </div>
                 </div>
               </div>
@@ -139,12 +161,12 @@ export default function ReelComments({ reelId, onClose }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-bold">{replyUser?.name || reply.authorName || 'You'}</span>
-                            <span className="text-[10px] text-text3">{reply.time}</span>
+                            <span className="text-[10px] text-text3">{reply.createdAt ? timeAgo(reply.createdAt) : (reply.time || '')}</span>
                           </div>
                           <p className="text-[12px] text-text mt-0.5">{reply.text}</p>
                           <div className="flex items-center gap-3 mt-1">
                             <button
-                              onClick={() => toggleLikeComment(reply.id, reply.likedBy?.includes(profile?.id))}
+                              onClick={() => toggleReplyLike(comment.id, reply, reply.likedBy?.includes(profile?.id))}
                               className="flex items-center gap-1 text-[10px] text-text3"
                               aria-label="Like reply"
                             >

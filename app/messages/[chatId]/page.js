@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Download, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { db } from '@/lib/firebase';
@@ -733,7 +733,7 @@ export default function ChatPage() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHeaderMenu(false)} />
                 <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] rounded-2xl border border-linesoft bg-card p-1.5 shadow-xl">
-                  <button onClick={handleDeleteChat} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-red-400 hover:bg-red-500/10">
+                  <button onClick={handleDeleteChat} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
                     <Trash2 size={14} /> Delete chat
                   </button>
                 </div>
@@ -782,9 +782,6 @@ export default function ChatPage() {
                     <div className="truncate text-[12.5px] font-bold">{m.name}</div>
                     <div className="text-[10.5px] text-text3">{m.size}</div>
                   </div>
-                  <button className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-gold text-gold">
-                    <Download size={14} />
-                  </button>
                 </div>
                 <div className="mt-0.5 flex items-center gap-1 text-[9.5px] text-text3">
                   {m.time} <CheckCheck size={13} className="text-gold" />
@@ -876,7 +873,7 @@ export default function ChatPage() {
             <button onClick={handleOpenForward} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Forward size={14} className="text-gold" /> Forward
             </button>
-            <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-red-400 hover:bg-red-500/10">
+            <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
               <Trash2 size={14} /> Delete
             </button>
           </div>
@@ -985,8 +982,8 @@ export default function ChatPage() {
 
       {isRecording && (
         <div className="flex items-center gap-3 border-t border-linesoft bg-card px-4 py-3">
-          <div className="h-3 w-3 rounded-full bg-red animate-pulse" />
-          <span className="text-[13px] font-bold text-red">
+          <div className="h-3 w-3 rounded-full bg-brandred animate-pulse" />
+          <span className="text-[13px] font-bold text-brandred">
             Recording {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
           </span>
           <div className="flex-1" />
@@ -1043,7 +1040,7 @@ export default function ChatPage() {
           <button
             onClick={isRecording ? stopRecording : startRecording}
             className={`flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full transition-all duration-150 ${
-              isRecording ? 'bg-red text-white animate-pulse' : 'bg-white/10 text-text3'
+              isRecording ? 'bg-brandred text-white animate-pulse' : 'bg-white/10 text-text3'
             }`}
             aria-label={isRecording ? 'Stop recording' : 'Record voice message'}
           >
@@ -1056,6 +1053,8 @@ export default function ChatPage() {
         <CallScreen
           userId={otherUid}
           type={activeCall}
+          name={other?.name}
+          avatar={other?.avatar}
           onClose={() => setActiveCall(null)}
         />
       )}

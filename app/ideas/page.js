@@ -271,7 +271,7 @@ export default function Ideas() {
                     <div className="flex items-center rounded-xl border border-line bg-[rgba(255,255,255,.03)]">
                       <button onClick={() => handleVote(idea.id)} className={`flex items-center gap-1 rounded-l-xl px-3 py-2 transition-all ${voted ? 'text-[#D9AC3D]' : 'text-text2 hover:text-gold-hi'}`}><ChevronUp size={14} /></button>
                       <span className="border-x border-line px-2 py-2 text-[10px] font-bold text-text2">{voteCount}</span>
-                      <button onClick={() => handleVote(idea.id)} className={`flex items-center gap-1 rounded-r-xl px-3 py-2 transition-all ${voted ? 'text-red-400' : 'text-text2 hover:text-red-400'}`}><ChevronDown size={14} /></button>
+                      <button onClick={() => handleVote(idea.id)} className={`flex items-center gap-1 rounded-r-xl px-3 py-2 transition-all ${voted ? 'text-brandred' : 'text-text2 hover:text-brandred'}`}><ChevronDown size={14} /></button>
                     </div>
                     <button onClick={() => openIdea(idea.id)} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line py-2.5 text-[10px] font-bold text-gold-hi"><Eye size={12} /> View</button>
                     <button onClick={() => handleShareIdea(idea)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={13} /></button>
@@ -342,7 +342,7 @@ export default function Ideas() {
                 <div className="flex items-center rounded-xl border border-line bg-[rgba(255,255,255,.03)]">
                   <button onClick={() => handleVote(openIdeaData.id)} className={`flex items-center gap-1 rounded-l-xl px-4 py-2.5 transition-all ${getVote(openIdeaData.id) ? 'text-[#D9AC3D]' : 'text-text2 hover:text-gold-hi'}`}><ChevronUp size={16} /></button>
                   <span className="border-x border-line px-3 py-2.5 text-[11px] font-bold text-text2">{getVoteCount(openIdeaData)}</span>
-                  <button onClick={() => handleVote(openIdeaData.id)} className={`flex items-center gap-1 rounded-r-xl px-4 py-2.5 transition-all ${getVote(openIdeaData.id) ? 'text-red-400' : 'text-text2 hover:text-red-400'}`}><ChevronDown size={16} /></button>
+                  <button onClick={() => handleVote(openIdeaData.id)} className={`flex items-center gap-1 rounded-r-xl px-4 py-2.5 transition-all ${getVote(openIdeaData.id) ? 'text-brandred' : 'text-text2 hover:text-brandred'}`}><ChevronDown size={16} /></button>
                 </div>
                 <button onClick={() => handleShareIdea(openIdeaData)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={15} /></button>
                 <button onClick={() => { vibrate('light'); router.push('/match/find_programmer'); }} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[11px] font-black text-[#171100]">Build team <ArrowRight size={13} /></button>

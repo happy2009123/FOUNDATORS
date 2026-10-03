@@ -187,8 +187,8 @@ function SignCollabInner() {
           </div>
           {collab.deadline && (
             <div className="flex items-center justify-center gap-1.5 mt-1">
-              <Clock size={11} className={isPastDeadline ? 'text-red-400' : 'text-text3'} />
-              <span className={`text-[10px] ${isPastDeadline ? 'text-red-400' : 'text-text3'}`}>
+              <Clock size={11} className={isPastDeadline ? 'text-brandred' : 'text-text3'} />
+              <span className={`text-[10px] ${isPastDeadline ? 'text-brandred' : 'text-text3'}`}>
                 Deadline: {formatDate(collab.deadline)}
               </span>
             </div>
@@ -198,7 +198,7 @@ function SignCollabInner() {
         {/* Card Closed State */}
         {cardClosed && !hasSigned && (
           <div className="px-[18px] mt-5">
-            <div className="rounded-2xl border border-red-400/20 bg-[rgba(239,68,68,0.06)] p-5 text-center">
+            <div className="rounded-2xl border border-brandred/20 bg-[rgba(239,68,68,0.06)] p-5 text-center">
               <div className="text-3xl mb-2">🔒</div>
               <div className="text-[14px] font-extrabold text-white mb-1">This card is closed</div>
               <div className="text-[11px] text-text2">

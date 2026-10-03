@@ -159,7 +159,7 @@ export default function AnalyticsPage() {
                 <div key={key} className="rounded-2xl border border-linesoft bg-card p-4">
                   <div className="text-[11px] text-text3 capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
                   <div className="mt-1 text-[22px] font-black">{data.value}</div>
-                  <div className={`mt-0.5 text-[11px] font-bold ${data.change > 0 ? 'text-brandgreen' : data.change < 0 ? 'text-red' : 'text-text3'}`}>
+                  <div className={`mt-0.5 text-[11px] font-bold ${data.change > 0 ? 'text-brandgreen' : data.change < 0 ? 'text-brandred' : 'text-text3'}`}>
                     {data.change > 0 ? '+' : ''}{data.change}% {data.period}
                   </div>
                 </div>

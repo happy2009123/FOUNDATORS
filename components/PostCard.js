@@ -200,7 +200,7 @@ export default memo(function PostCard({ post }) {
                       <button onClick={handleEdit} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5">
                         <Pencil size={14} /> Edit post
                       </button>
-                      <button onClick={() => { setShowDeleteConfirm(true); setShowMenu(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-red hover:bg-white/5">
+                      <button onClick={() => { setShowDeleteConfirm(true); setShowMenu(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-brandred hover:bg-white/5">
                         <Trash2 size={14} /> Delete post
                       </button>
                     </>
@@ -373,8 +373,8 @@ export default memo(function PostCard({ post }) {
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShowDeleteConfirm(false)}>
           <div className="w-full max-w-[300px] rounded-3xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red/10 mx-auto">
-              <Trash2 size={20} className="text-red" />
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brandred/10 mx-auto">
+              <Trash2 size={20} className="text-brandred" />
             </div>
             <h3 className="text-[16px] font-bold">Delete post?</h3>
             <p className="mt-1 text-[13px] text-text2">This action cannot be undone.</p>
@@ -382,7 +382,7 @@ export default memo(function PostCard({ post }) {
               <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 rounded-full border border-linesoft py-3 text-[13px] font-bold text-text2" aria-label="Cancel delete">
                 Cancel
               </button>
-              <button onClick={handleDelete} className="flex-1 rounded-full bg-red py-3 text-[13px] font-bold text-white" aria-label="Confirm delete">
+              <button onClick={handleDelete} className="flex-1 rounded-full bg-brandred py-3 text-[13px] font-bold text-white" aria-label="Confirm delete">
                 Delete
               </button>
             </div>

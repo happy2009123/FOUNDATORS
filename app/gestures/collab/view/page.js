@@ -176,7 +176,7 @@ function CollabViewInner() {
                 </button>
                 <div className="flex items-center gap-2">
                   {cardClosed ? (
-                    <span className="flex items-center gap-1 rounded-full bg-red-400/10 px-2.5 py-1 text-[10px] font-bold text-red-400">
+                    <span className="flex items-center gap-1 rounded-full bg-brandred/10 px-2.5 py-1 text-[10px] font-bold text-brandred">
                       <Lock size={10} />
                       Closed
                     </span>
@@ -249,8 +249,8 @@ function CollabViewInner() {
                   </div>
                   {collab.deadline && (
                     <div className="flex items-center gap-1">
-                      <Clock size={10} className={isPastDeadline ? 'text-red-400' : 'text-text3'} />
-                      <span className={`text-[9px] ${isPastDeadline ? 'text-red-400' : 'text-text3'}`}>
+                      <Clock size={10} className={isPastDeadline ? 'text-brandred' : 'text-text3'} />
+                      <span className={`text-[9px] ${isPastDeadline ? 'text-brandred' : 'text-text3'}`}>
                         {formatDate(collab.deadline)}
                       </span>
                     </div>
@@ -330,7 +330,7 @@ function CollabViewInner() {
 
         {isPastDeadline && !isFull && (
           <div className="px-[18px] mt-5">
-            <div className="rounded-2xl border border-red-400/20 bg-[rgba(239,68,68,0.06)] p-5 text-center">
+            <div className="rounded-2xl border border-brandred/20 bg-[rgba(239,68,68,0.06)] p-5 text-center">
               <div className="text-3xl mb-2">⏰</div>
               <div className="text-[14px] font-extrabold text-white mb-1">Signing period has ended</div>
               <div className="text-[11px] text-text2">This card has passed its deadline.</div>
@@ -366,7 +366,7 @@ function CollabViewInner() {
                 </div>
                 <span className="text-[11px] text-text2">Deadline</span>
               </div>
-              <span className={`text-[11px] font-bold ${isPastDeadline ? 'text-red-400' : 'text-white'}`}>
+              <span className={`text-[11px] font-bold ${isPastDeadline ? 'text-brandred' : 'text-white'}`}>
                 {collab.deadline ? formatDate(collab.deadline) : 'No deadline'}
               </span>
             </div>
@@ -386,11 +386,11 @@ function CollabViewInner() {
             <div className="rounded-xl border border-[#2a2a2a] bg-[#111111] px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="h-6 w-6 rounded-full bg-gold/20 flex items-center justify-center">
-                  {cardClosed ? <Lock size={10} className="text-red-400" /> : <Pen size={10} className="text-[#00c853]" />}
+                  {cardClosed ? <Lock size={10} className="text-brandred" /> : <Pen size={10} className="text-[#00c853]" />}
                 </div>
                 <span className="text-[11px] text-text2">Status</span>
               </div>
-              <span className={`text-[11px] font-bold ${cardClosed ? 'text-red-400' : 'text-[#00c853]'}`}>
+              <span className={`text-[11px] font-bold ${cardClosed ? 'text-brandred' : 'text-[#00c853]'}`}>
                 {cardClosed ? 'Closed' : 'Open'}
               </span>
             </div>
@@ -407,7 +407,7 @@ function CollabViewInner() {
               {!cardClosed && (
                 <button
                   onClick={handleCloseCard}
-                  className="w-full flex items-center justify-center gap-2 rounded-2xl border border-red-400/20 bg-[rgba(239,68,68,0.06)] py-3.5 text-[12px] font-bold text-red-400 transition-all hover:bg-[rgba(239,68,68,0.12)]"
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl border border-brandred/20 bg-[rgba(239,68,68,0.06)] py-3.5 text-[12px] font-bold text-brandred transition-all hover:bg-[rgba(239,68,68,0.12)]"
                 >
                   <Lock size={14} />
                   Close Card

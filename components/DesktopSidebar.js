@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Home, Compass, Film, MessageCircle, Bell, Bookmark, User, Plus, Search, Settings, LogOut, TrendingUp, BarChart3, Lightbulb, Users, Briefcase, Sparkles, Bot, Mic } from 'lucide-react';
+import { Home, Compass, Film, MessageCircle, Bell, Bookmark, User, Plus, Search, Settings, TrendingUp, BarChart3, Lightbulb, Users, Briefcase, Sparkles, Bot, Mic } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import Logo from '@/components/Logo';
 
@@ -27,7 +27,6 @@ export default function DesktopSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const profile = useStore((s) => s.profile);
-  const logout = useStore((s) => s.logout);
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const unreadCount = useStore((s) => s.notifications.filter((n) => !n.read).length);
 
@@ -59,7 +58,7 @@ export default function DesktopSidebar() {
                 <span className="ml-auto h-5 min-w-[20px] rounded-full bg-gold px-1.5 flex items-center justify-center text-[11px] font-bold text-[#1a1300]">3</span>
               )}
               {item.label === 'Notifications' && unreadCount > 0 && (
-                <span className="ml-auto h-5 min-w-[20px] rounded-full bg-red px-1.5 flex items-center justify-center text-[11px] font-bold text-white">{unreadCount}</span>
+                <span className="ml-auto h-5 min-w-[20px] rounded-full bg-brandred px-1.5 flex items-center justify-center text-[11px] font-bold text-white">{unreadCount}</span>
               )}
             </button>
           );

@@ -265,7 +265,7 @@ export default function EditProfilePage() {
                 className="field-input resize-none pr-14"
                 style={{ minHeight: '80px' }}
               />
-              <span className={`absolute bottom-2.5 right-3 text-[11px] font-bold tabular-nums ${bio.length >= BIO_MAX ? 'text-red' : 'text-text3'}`}>
+              <span className={`absolute bottom-2.5 right-3 text-[11px] font-bold tabular-nums ${bio.length >= BIO_MAX ? 'text-brandred' : 'text-text3'}`}>
                 {bio.length}/{BIO_MAX}
               </span>
             </div>

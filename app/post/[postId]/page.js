@@ -260,7 +260,7 @@ export default function PostCommentsPage() {
                       <button onClick={() => handleEdit(comment)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] text-text2 hover:bg-white/5">
                         <Pencil size={12} /> Edit
                       </button>
-                      <button onClick={() => { setDeleteConfirm(comment.id); setShowMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] text-red hover:bg-white/5">
+                      <button onClick={() => { setDeleteConfirm(comment.id); setShowMenu(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] text-brandred hover:bg-white/5">
                         <Trash2 size={12} /> Delete
                       </button>
                     </div>
@@ -332,7 +332,7 @@ export default function PostCommentsPage() {
         <div className="flex flex-1 flex-col gap-1 rounded-2xl border border-linesoft bg-card px-3.5 py-2.5">
           <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder={replyTo ? `Replying...` : 'Add a comment...'} aria-label="Add a comment" className="flex-1 bg-transparent text-[13.5px] text-white placeholder:text-text3 focus:outline-none" />
           <div className="flex justify-end">
-            <span className={`text-[10px] ${input.length > MAX_COMMENT_CHARS ? 'text-red-500' : 'text-text3'}`}>
+            <span className={`text-[10px] ${input.length > MAX_COMMENT_CHARS ? 'text-brandred' : 'text-text3'}`}>
               {input.length}/{MAX_COMMENT_CHARS}
             </span>
           </div>
@@ -344,12 +344,12 @@ export default function PostCommentsPage() {
       {deleteConfirm && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setDeleteConfirm(null)}>
           <div className="w-full max-w-[280px] rounded-3xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <Trash2 size={24} className="text-red mx-auto mb-3" />
+            <Trash2 size={24} className="text-brandred mx-auto mb-3" />
             <h3 className="text-[15px] font-bold">Delete comment?</h3>
             <p className="mt-1 text-[12px] text-text2">This cannot be undone.</p>
             <div className="mt-4 flex gap-3">
               <button onClick={() => setDeleteConfirm(null)} className="flex-1 rounded-full border border-linesoft py-2.5 text-[12px] font-bold text-text2">Cancel</button>
-              <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 rounded-full bg-red py-2.5 text-[12px] font-bold text-white">Delete</button>
+              <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 rounded-full bg-brandred py-2.5 text-[12px] font-bold text-white">Delete</button>
             </div>
           </div>
         </div>

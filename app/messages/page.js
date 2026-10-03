@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PenSquare, MessageCircle, AtSign, Users, MoreHorizontal, Plus, Send, Pin, Archive, Trash2, Clock, Star } from 'lucide-react';
+import { PenSquare, MessageCircle, AtSign, Users, Plus, Send, Pin, Archive, ArchiveRestore, Trash2, Clock, Star } from 'lucide-react';
 import Logo, { Wordmark } from '@/components/Logo';
 import MainScreenShell from '@/components/MainScreenShell';
 import ScrollToTop from '@/components/ScrollToTop';
@@ -36,6 +36,7 @@ export default function MessagesPage() {
   const [newConvo, setNewConvo] = useState('');
   const [swipedKey, setSwipedKey] = useState(null);
   const [pinned, setPinned] = useState(['sophia']);
+  const [archived, setArchived] = useState([]);
   const [userSearch, setUserSearch] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [fsChats, setFsChats] = useState([]);
@@ -120,15 +121,16 @@ export default function MessagesPage() {
 
   const rows = useMemo(() => {
     return Object.entries(mergedContacts).filter(([key, c]) => {
+      if (tab === 'archived') return archived.includes(key);
+      if (archived.includes(key)) return false;
       if (tab === 'unread') return unreadFor(key, c) > 0;
       if (tab === 'groups') return c.isGroup;
-      if (tab === 'archived') return false;
       if (!query) return true;
       const q = query.toLowerCase();
       return c.name?.toLowerCase().includes(q) ||
         c.messages?.some(m => m.text?.toLowerCase().includes(q));
     });
-  }, [mergedContacts, query, tab, unreadByContact]);
+  }, [mergedContacts, query, tab, unreadByContact, archived]);
 
   const pinnedRows = useMemo(
     () => rows.filter(([key]) => pinned.includes(key)),
@@ -193,6 +195,14 @@ export default function MessagesPage() {
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
     showToast(pinned.includes(key) ? 'Unpinned conversation' : 'Pinned to top');
+  }
+
+  function toggleArchive(key) {
+    vibrate('light');
+    setArchived((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+    showToast(archived.includes(key) ? 'Unarchived conversation' : 'Archived conversation');
   }
 
   function deleteConversation(key, c) {
@@ -346,7 +356,7 @@ export default function MessagesPage() {
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
-            const count = t.key === 'unread' ? totalUnread : t.key === 'messages' ? rows.length : 0;
+            const count = t.key === 'unread' ? totalUnread : t.key === 'messages' ? rows.length : t.key === 'archived' ? archived.length : 0;
             return (
               <button
                 key={t.key}
@@ -405,7 +415,10 @@ export default function MessagesPage() {
 
         {/* Conversation List */}
         <div className="flex flex-col px-[18px] pb-3">
-          {pinnedRows.length === 0 && unpinnedRows.length === 0 && (
+          {pinnedRows.length === 0 && unpinnedRows.length === 0 && tab === 'archived' && (
+            <EmptyState icon={Archive} title="No archived chats" description="Swipe a conversation to archive it — it will wait for you here." />
+          )}
+          {pinnedRows.length === 0 && unpinnedRows.length === 0 && tab !== 'archived' && (
             <EmptyState icon={MessageCircle} title="No conversations yet" description="Start a conversation to connect with people." />
           )}
 
@@ -422,10 +435,12 @@ export default function MessagesPage() {
                   c={c}
                   unread={unreadFor(key, c)}
                   isPinned={pinned.includes(key)}
+                  isArchived={archived.includes(key)}
                   isSwiped={swipedKey === key}
                   typingText={getTypingText(key)}
                   onSwipe={handleSwipe}
                   onTogglePin={togglePin}
+                  onToggleArchive={toggleArchive}
                   onDeleteChat={() => deleteConversation(key, c)}
                   onOpen={() => {
                     vibrate('light');
@@ -449,10 +464,12 @@ export default function MessagesPage() {
               c={c}
               unread={unreadFor(key, c)}
               isPinned={pinned.includes(key)}
+              isArchived={archived.includes(key)}
               isSwiped={swipedKey === key}
               typingText={getTypingText(key)}
               onSwipe={handleSwipe}
               onTogglePin={togglePin}
+              onToggleArchive={toggleArchive}
               onDeleteChat={() => deleteConversation(key, c)}
               onOpen={() => {
                 vibrate('light');
@@ -488,7 +505,7 @@ export default function MessagesPage() {
   );
 }
 
-function ConversationRow({ contactKey, c, unread, isPinned, isSwiped, typingText, onSwipe, onTogglePin, onDeleteChat, onOpen }) {
+function ConversationRow({ contactKey, c, unread, isPinned, isArchived, isSwiped, typingText, onSwipe, onTogglePin, onToggleArchive, onDeleteChat, onOpen }) {
   const lastMsg = c.messages[c.messages.length - 1];
   return (
     <div className="relative mb-1.5 overflow-hidden rounded-2xl">
@@ -504,10 +521,14 @@ function ConversationRow({ contactKey, c, unread, isPinned, isSwiped, typingText
         >
           <Pin size={14} />
         </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-text2">
-          <Archive size={14} />
+        <button
+          onClick={() => onToggleArchive(contactKey)}
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-text2"
+          aria-label={isArchived ? 'Unarchive conversation' : 'Archive conversation'}
+        >
+          {isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
         </button>
-        <button onClick={onDeleteChat} className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/20 text-red-400">
+        <button onClick={onDeleteChat} className="flex h-9 w-9 items-center justify-center rounded-full bg-brandred/20 text-brandred">
           <Trash2 size={14} />
         </button>
       </div>

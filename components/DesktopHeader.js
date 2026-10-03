@@ -56,7 +56,7 @@ export default function DesktopHeader({ onMenuToggle }) {
         >
           <Bell size={20} className="text-text2" />
           {unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">{unreadCount}</span>
+            <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brandred px-1 text-[10px] font-bold text-white">{unreadCount}</span>
           )}
         </button>
         <button

@@ -222,18 +222,18 @@ export default function Events() {
           <div className="mt-4 space-y-3">
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Event Name</label>
-              <input value={newEvent.name} onChange={(e) => setNewEvent((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Weekend Hack Session" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.name ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.name && <p className="mt-1 text-[10px] text-red-400">{formErrors.name}</p>}
+              <input value={newEvent.name} onChange={(e) => setNewEvent((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Weekend Hack Session" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.name ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.name && <p className="mt-1 text-[10px] text-brandred">{formErrors.name}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Date & Time</label>
-              <input value={newEvent.date} onChange={(e) => setNewEvent((p) => ({ ...p, date: e.target.value }))} placeholder="e.g. Tomorrow · 6:00 PM" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.date ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.date && <p className="mt-1 text-[10px] text-red-400">{formErrors.date}</p>}
+              <input value={newEvent.date} onChange={(e) => setNewEvent((p) => ({ ...p, date: e.target.value }))} placeholder="e.g. Tomorrow · 6:00 PM" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.date ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.date && <p className="mt-1 text-[10px] text-brandred">{formErrors.date}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Location</label>
-              <input value={newEvent.location} onChange={(e) => setNewEvent((p) => ({ ...p, location: e.target.value }))} placeholder="e.g. Online / coworking space name" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.location ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.location && <p className="mt-1 text-[10px] text-red-400">{formErrors.location}</p>}
+              <input value={newEvent.location} onChange={(e) => setNewEvent((p) => ({ ...p, location: e.target.value }))} placeholder="e.g. Online / coworking space name" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.location ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.location && <p className="mt-1 text-[10px] text-brandred">{formErrors.location}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Category</label>
@@ -245,8 +245,8 @@ export default function Events() {
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Description</label>
-              <textarea value={newEvent.description} onChange={(e) => setNewEvent((p) => ({ ...p, description: e.target.value }))} placeholder="Tell people what this event is about..." rows={4} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-red-500' : 'border-linesoft focus:border-gold'}`} />
-              {formErrors.description && <p className="mt-1 text-[10px] text-red-400">{formErrors.description}</p>}
+              <textarea value={newEvent.description} onChange={(e) => setNewEvent((p) => ({ ...p, description: e.target.value }))} placeholder="Tell people what this event is about..." rows={4} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              {formErrors.description && <p className="mt-1 text-[10px] text-brandred">{formErrors.description}</p>}
             </div>
             <div className="flex gap-2.5 pt-2">
               <button onClick={() => { setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>

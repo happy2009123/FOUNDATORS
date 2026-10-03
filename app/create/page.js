@@ -214,7 +214,7 @@ export default function CreatePage() {
                     <button onClick={() => handleLoadDraft(d)} className="flex-1 text-left text-[12px] text-text2 truncate">
                       {d.text || 'Image draft'}
                     </button>
-                    <button onClick={() => deleteDraft(d.id)} className="ml-2 text-[10px] text-red-400 hover:text-red-300">Del</button>
+                    <button onClick={() => deleteDraft(d.id)} className="ml-2 text-[10px] text-brandred hover:text-brandred">Del</button>
                   </div>
                 ))}
               </div>
@@ -264,7 +264,7 @@ export default function CreatePage() {
         </div>
 
         <div className="flex justify-between items-center mt-2">
-          <span className={`text-[11px] ${text.length > MAX_TEXT ? 'text-red-500' : 'text-text3'}`}>
+          <span className={`text-[11px] ${text.length > MAX_TEXT ? 'text-brandred' : 'text-text3'}`}>
             {text.length}/{MAX_TEXT}
           </span>
           {lastSaved && (

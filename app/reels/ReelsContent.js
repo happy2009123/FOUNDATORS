@@ -331,7 +331,7 @@ export default function ReelsContent() {
                       >
                         <Heart
                           size={80}
-                          className="animate-[scaleUp_0.6s_ease-out_forwards] fill-red-500 text-red-500"
+                          className="animate-[scaleUp_0.6s_ease-out_forwards] fill-brandred text-brandred"
                         />
                       </div>
                     ))}
@@ -433,7 +433,7 @@ export default function ReelsContent() {
                       <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5" onClick={(e) => { e.stopPropagation(); setShowMore(null); }}>Report</button>
                       <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5" onClick={(e) => { e.stopPropagation(); setShowMore(null); }}>Not interested</button>
                       <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5" onClick={(e) => { e.stopPropagation(); setShowMore(null); }}>Copy link</button>
-                      <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-red hover:bg-white/5" onClick={(e) => { e.stopPropagation(); setShowMore(null); }}>Block {reelUser?.name}</button>
+                      <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-brandred hover:bg-white/5" onClick={(e) => { e.stopPropagation(); setShowMore(null); }}>Block {reelUser?.name}</button>
                     </div>
                   )}
 

@@ -68,7 +68,7 @@ export default function DraftsPage() {
                 <button onClick={() => useDraft(draft)} className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-gold py-2.5 text-[11px] font-bold text-[#1a1300]" aria-label="Use draft">
                   <Send size={12} /> Use draft
                 </button>
-                <button onClick={() => deleteDraft(draft.id)} className="flex h-10 w-10 items-center justify-center rounded-full border border-linesoft text-red" aria-label="Delete draft">
+                <button onClick={() => deleteDraft(draft.id)} className="flex h-10 w-10 items-center justify-center rounded-full border border-linesoft text-brandred" aria-label="Delete draft">
                   <Trash2 size={14} />
                 </button>
               </div>

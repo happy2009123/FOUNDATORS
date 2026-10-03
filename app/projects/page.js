@@ -18,6 +18,7 @@ export default function Projects() {
   const router = useRouter();
   const profile = useStore((s) => s.profile);
   const [real, setReal] = useState([]);
+  const [mineOnly, setMineOnly] = useState(false);
 
   useEffect(() => {
     let on = true;
@@ -56,6 +57,8 @@ export default function Projects() {
     })),
   ];
 
+  const visibleRows = mineOnly ? rows.filter((r) => r.mine) : rows;
+
   return (
     <MainScreenShell>
       <SubpageHeader title="Projects" />
@@ -73,9 +76,14 @@ export default function Projects() {
           >
             <Bot size={15} /> Copilot
           </button>
-          <button className="flex h-11 w-11 items-center justify-center rounded-xl border border-line text-gold">
-            <Filter size={16} />
-          </button>
+        <button
+          onClick={() => setMineOnly((v) => !v)}
+          aria-pressed={mineOnly}
+          aria-label="Filter: my projects only"
+          className={`flex h-11 w-11 items-center justify-center rounded-xl border transition-colors ${mineOnly ? 'border-gold bg-gold/15 text-gold' : 'border-line text-gold'}`}
+        >
+          <Filter size={16} />
+        </button>
         </div>
         <div className="mt-5 flex items-center justify-between">
           <div>
@@ -85,7 +93,12 @@ export default function Projects() {
           <FolderKanban size={18} className="text-gold" />
         </div>
         <div className="mt-3 space-y-3">
-          {rows.map((p) => (
+          {visibleRows.length === 0 && (
+            <p className="py-8 text-center text-[12px] text-text3">
+              {mineOnly ? 'You have no projects yet — create one and it will show up here.' : 'No projects to show.'}
+            </p>
+          )}
+          {visibleRows.map((p) => (
             <div
               key={`${p.real ? 'real' : 'demo'}-${p.name}`}
               className="gold-card cursor-pointer p-4"

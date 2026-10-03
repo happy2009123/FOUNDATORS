@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Shield, Download, Trash2, Key, AlertTriangle, Check, Lock, Smartphone, Copy } from 'lucide-react';
+import { ArrowLeft, Shield, Download, Trash2, Key, AlertTriangle, Check, Copy } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -170,18 +170,11 @@ export default function AccountSettingsPage() {
               </div>
               {twoFAEnabled && <Check size={16} className="text-brandgreen" />}
             </button>
-            <button className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+            <button onClick={() => router.push('/forgot-password')} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
               <Key size={16} className="text-gold" />
               <div className="flex-1">
                 <div className="text-[13px] font-bold">Change password</div>
-                <div className="text-[11px] text-text2">Last changed 30 days ago</div>
-              </div>
-            </button>
-            <button className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
-              <Smartphone size={16} className="text-gold" />
-              <div className="flex-1">
-                <div className="text-[13px] font-bold">Login activity</div>
-                <div className="text-[11px] text-text2">2 active sessions</div>
+                <div className="text-[11px] text-text2">Reset it securely via email</div>
               </div>
             </button>
           </div>
@@ -201,15 +194,15 @@ export default function AccountSettingsPage() {
         </section>
 
         <section>
-          <h2 className="text-[12px] font-bold uppercase tracking-wide text-red mb-3">Danger Zone</h2>
-          <div className="rounded-2xl border border-red/20 bg-red/5 divide-y divide-red/10">
+          <h2 className="text-[12px] font-bold uppercase tracking-wide text-brandred mb-3">Danger Zone</h2>
+          <div className="rounded-2xl border border-brandred/20 bg-brandred/5 divide-y divide-red/10">
             <button
               onClick={() => setShowDeleteConfirm(true)}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
-              <Trash2 size={16} className="text-red" />
+              <Trash2 size={16} className="text-brandred" />
               <div className="flex-1">
-                <div className="text-[13px] font-bold text-red">Delete account</div>
+                <div className="text-[13px] font-bold text-brandred">Delete account</div>
                 <div className="text-[11px] text-text2">Permanently delete your account and all data</div>
               </div>
             </button>
@@ -248,8 +241,8 @@ export default function AccountSettingsPage() {
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShowDeleteConfirm(false)}>
           <div className="w-full max-w-[300px] rounded-3xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red/10 mx-auto">
-              <AlertTriangle size={20} className="text-red" />
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brandred/10 mx-auto">
+              <AlertTriangle size={20} className="text-brandred" />
             </div>
             <h3 className="text-[16px] font-bold">Delete your account?</h3>
             <p className="mt-1 text-[12px] text-text2">This action is permanent. All your data will be deleted.</p>
@@ -260,7 +253,7 @@ export default function AccountSettingsPage() {
               <button
                 onClick={handleDeleteAccount}
                 disabled={deleting}
-                className="flex-1 rounded-full bg-red py-3 text-[12px] font-bold text-white disabled:opacity-50"
+                className="flex-1 rounded-full bg-brandred py-3 text-[12px] font-bold text-white disabled:opacity-50"
               >
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>

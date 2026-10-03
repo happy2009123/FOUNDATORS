@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Play, RotateCcw, Timer, Zap, Loader2 } from 'lucide-react';
 import { useStore } from '@/lib/store';
@@ -43,26 +43,58 @@ export default function CreateReelPage() {
   const [recordTime, setRecordTime] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [showSounds, setShowSounds] = useState(false);
+  const [timerIdx, setTimerIdx] = useState(0);
+  const [countdown, setCountdown] = useState(0);
   const fileInputRef = useRef(null);
   const recordInterval = useRef(null);
+  const countdownInterval = useRef(null);
+
+  // Never leave timers running if the user navigates away mid-recording.
+  useEffect(() => () => {
+    clearInterval(recordInterval.current);
+    clearInterval(countdownInterval.current);
+  }, []);
+
+  const TIMER_OPTIONS = [0, 3, 10];
 
   const startRecording = useCallback(() => {
-    vibrate('medium');
-    setIsRecording(true);
-    setRecordTime(0);
-    recordInterval.current = setInterval(() => {
-      setRecordTime((prev) => {
-        if (prev >= 60) {
-          clearInterval(recordInterval.current);
-          return 60;
+    const begin = () => {
+      vibrate('medium');
+      setIsRecording(true);
+      setRecordTime(0);
+      recordInterval.current = setInterval(() => {
+        setRecordTime((prev) => {
+          if (prev >= 60) {
+            clearInterval(recordInterval.current);
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    };
+    const delay = TIMER_OPTIONS[timerIdx];
+    if (delay > 0) {
+      setCountdown(delay);
+      let n = delay;
+      countdownInterval.current = setInterval(() => {
+        n -= 1;
+        if (n <= 0) {
+          clearInterval(countdownInterval.current);
+          setCountdown(0);
+          begin();
+        } else {
+          setCountdown(n);
         }
-        return prev + 1;
-      });
-    }, 1000);
-  }, [vibrate]);
+      }, 1000);
+    } else {
+      begin();
+    }
+  }, [vibrate, timerIdx]);
 
   const stopRecording = useCallback(() => {
     vibrate('light');
+    clearInterval(countdownInterval.current);
+    setCountdown(0);
     setIsRecording(false);
     clearInterval(recordInterval.current);
     if (recordTime > 0) setStep('edit');
@@ -151,7 +183,7 @@ export default function CreateReelPage() {
           <div className="relative w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden bg-zinc-900 border border-white/10 flex items-center justify-center">
             {isRecording && (
               <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-                <div className="h-2.5 w-2.5 rounded-full bg-red animate-pulse" />
+                <div className="h-2.5 w-2.5 rounded-full bg-brandred animate-pulse" />
                 <span className="text-[11px] font-bold text-white">{formatTime(recordTime)}</span>
               </div>
             )}
@@ -207,21 +239,31 @@ export default function CreateReelPage() {
           )}
 
           {/* Record / upload buttons */}
-          <div className="mt-6 flex items-center gap-6">
+          <div className="relative mt-6 flex items-center gap-6">
+            {countdown > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 -top-14 flex justify-center">
+                <span className="animate-pulse text-[56px] font-black text-gold-hi">{countdown}</span>
+              </div>
+            )}
             <button onClick={() => fileInputRef.current?.click()} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white" aria-label="Upload video">
               <Upload size={20} />
             </button>
             <button
-              onClick={isRecording ? stopRecording : startRecording}
+              onClick={isRecording || countdown > 0 ? stopRecording : startRecording}
               className={`flex h-[72px] w-[72px] items-center justify-center rounded-full border-4 transition-all ${
-                isRecording ? 'border-red bg-red/20 scale-110' : 'border-white bg-white/10'
+                isRecording ? 'border-brandred bg-brandred/20 scale-110' : 'border-white bg-white/10'
               }`}
-              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+              aria-label={countdown > 0 ? 'Cancel countdown' : isRecording ? 'Stop recording' : 'Start recording'}
             >
-              <div className={`rounded-full transition-all ${isRecording ? 'h-6 w-6 bg-red rounded-lg' : 'h-[52px] w-[52px] bg-red'}`} />
+              <div className={`rounded-full transition-all ${isRecording ? 'h-6 w-6 bg-brandred rounded-lg' : 'h-[52px] w-[52px] bg-brandred'}`} />
             </button>
-            <button className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white" aria-label="Timer">
-              <Timer size={20} />
+            <button
+              onClick={() => { vibrate('light'); setTimerIdx((i) => (i + 1) % TIMER_OPTIONS.length); }}
+              className={`flex h-12 w-12 flex-col items-center justify-center rounded-full ${timerIdx > 0 ? 'bg-gold/15 text-gold' : 'bg-white/10 text-white'}`}
+              aria-label={'Capture timer: ' + (TIMER_OPTIONS[timerIdx] === 0 ? 'off' : TIMER_OPTIONS[timerIdx] + ' seconds')}
+            >
+              <Timer size={17} />
+              <span className="mt-0.5 text-[9px] font-black leading-none">{TIMER_OPTIONS[timerIdx] === 0 ? 'OFF' : `${TIMER_OPTIONS[timerIdx]}s`}</span>
             </button>
           </div>
         </div>

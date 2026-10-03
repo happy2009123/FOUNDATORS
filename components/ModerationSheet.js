@@ -73,14 +73,14 @@ export default function ModerationSheet({ userKey, userName, onClose }) {
           </button>
 
           <button onClick={handleBlock} className="flex w-full items-center gap-4 rounded-2xl border border-linesoft p-4 text-left transition-colors hover:bg-white/5">
-            <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${isBlocked ? 'bg-red/10 text-red' : 'bg-white/5 text-text2'}`}>
+            <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${isBlocked ? 'bg-brandred/10 text-brandred' : 'bg-white/5 text-text2'}`}>
               <Ban size={20} />
             </div>
             <div className="flex-1">
               <div className="text-[14px] font-bold">{isBlocked ? 'Unblock' : 'Block'} {userName}</div>
               <div className="text-[12px] text-text2">{isBlocked ? 'They can see your profile again' : "They can't see your profile or contact you"}</div>
             </div>
-            <div className={`w-10 h-6 rounded-full transition-colors ${isBlocked ? 'bg-red' : 'bg-white/10'}`}>
+            <div className={`w-10 h-6 rounded-full transition-colors ${isBlocked ? 'bg-brandred' : 'bg-white/10'}`}>
               <div className={`h-5 w-5 rounded-full bg-white shadow transition-transform mt-0.5 ${isBlocked ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}`} />
             </div>
           </button>
