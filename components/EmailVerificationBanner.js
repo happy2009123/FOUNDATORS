@@ -6,6 +6,7 @@ import { Mail, X } from 'lucide-react';
 
 export default function EmailVerificationBanner() {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
+  const showToast = useStore((s) => s.showToast);
   const { sendEmailVerification, isEmailVerified } = useFirebaseAuth();
   const [verified, setVerified] = useState(true);
   const [sending, setSending] = useState(false);
@@ -14,20 +15,46 @@ export default function EmailVerificationBanner() {
   useEffect(() => {
     if (!isLoggedIn) return;
     const check = async () => {
-      const v = await isEmailVerified();
-      setVerified(v);
+      try {
+        const v = await isEmailVerified();
+        setVerified(v);
+      } catch (e) {
+        // keep last known state on transient failures
+      }
     };
     check();
     const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
+    // Recheck the moment the user comes back to this tab after clicking
+    // the verification link in their inbox - no need to wait for the interval.
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
   }, [isLoggedIn, isEmailVerified]);
 
   if (verified || dismissed || !isLoggedIn) return null;
 
   const handleSend = async () => {
     setSending(true);
-    await sendEmailVerification();
-    setSending(false);
+    try {
+      await sendEmailVerification();
+      showToast('Verification email sent — check your inbox');
+    } catch (err) {
+      const msg =
+        err?.code?.includes('too-many-requests') ||
+        /quota|rate/i.test(err?.message || '')
+          ? 'Too many requests — try again in a few minutes'
+          : 'Could not send the email — try again shortly';
+      showToast(msg);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (

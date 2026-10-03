@@ -32,6 +32,23 @@ export default function SignupPage() {
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Fire-and-forget branded welcome email via Resend (server route /api/email).
+  // Never blocks or fails the signup itself.
+  function sendWelcomeEmail() {
+    const user = auth.currentUser;
+    if (!user) return;
+    user
+      .getIdToken()
+      .then((idToken) =>
+        fetch('/api/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken, type: 'welcome' }),
+        })
+      )
+      .catch(() => {});
+  }
+
   async function handleSignup() {
     if (!name.trim() || !email.trim() || !password || !confirm) {
       showToast('Please fill in all fields');
@@ -55,6 +72,7 @@ export default function SignupPage() {
       await signUpWithEmail(email, password, name.trim());
       notification('success');
       showToast(`Welcome to Foundators, ${name.trim().split(' ')[0]}!`);
+      sendWelcomeEmail();
       router.push('/home');
     } catch (err) {
       const msg = err.message?.includes('already') ? 'An account with this email already exists' :
@@ -73,6 +91,7 @@ export default function SignupPage() {
       await signInWithGoogle();
       notification('success');
       showToast('Welcome to Foundators!');
+      sendWelcomeEmail();
       router.push('/home');
     } catch (err) {
       if (err.code !== 'auth/popup-closed-by-user') {
