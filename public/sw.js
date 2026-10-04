@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foundators-v6';
+const CACHE_NAME = 'foundators-v7';
 const PRECACHE = ['/', '/home', '/discover', '/messages', '/login', '/copilot', '/voice', '/icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -24,6 +24,17 @@ async function PrecacheSafely(c) {
   return results;
 }
 
+function offlinePage() {
+  return new Response(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title></head><body style="margin:0;background:#0a0a0c;color:#fff;font-family:system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px"><div><h1 style="font-size:20px;margin:0 0 8px">You are offline</h1><p style="color:#a1a1aa;font-size:14px;margin:0">Check your connection and try again.</p></div></body></html>',
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
+
+function assetError() {
+  return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+}
+
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
@@ -39,6 +50,8 @@ self.addEventListener('fetch', (e) => {
   // nav entries, broken deep links) — this guarantees new routes
   // like /voice work immediately after a push. The cache is only a
   // fallback when the device is genuinely offline.
+  // Every branch must resolve to a Response: responding with
+  // undefined/rejected promises crashes the SW fetch handler.
   if (request.mode === 'navigate') {
     e.respondWith(
       fetch(request)
@@ -49,9 +62,14 @@ self.addEventListener('fetch', (e) => {
           }
           return res;
         })
-        .catch(() =>
-          caches.match(request).then((cached) => cached || caches.match('/'))
-        )
+        .catch(async () => {
+          try {
+            const cached = (await caches.match(request)) || (await caches.match('/'));
+            return cached || offlinePage();
+          } catch (err) {
+            return offlinePage();
+          }
+        })
     );
     return;
   }
@@ -59,18 +77,21 @@ self.addEventListener('fetch', (e) => {
   // ── Static assets (JS/CSS/images): stale-while-revalidate ──
   // Hashed bundles never change, so cache-first is safe and fast.
   e.respondWith(
-    caches.match(request).then((cached) => {
-      const networkPromise = fetch(request)
-        .then((res) => {
-          if (res && res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((c) => c.put(request, clone)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => cached);
+    caches
+      .match(request)
+      .then((cached) => {
+        const networkPromise = fetch(request)
+          .then((res) => {
+            if (res && res.ok) {
+              const clone = res.clone();
+              caches.open(CACHE_NAME).then((c) => c.put(request, clone)).catch(() => {});
+            }
+            return res;
+          })
+          .catch(() => cached || assetError());
 
-      return cached || networkPromise;
-    })
+        return cached || networkPromise;
+      })
+      .catch(() => assetError())
   );
 });
