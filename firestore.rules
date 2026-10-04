@@ -53,6 +53,25 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/foundingMembers/$(number)).data.uid == userId;
     }
 
+    // A signed-in user may add or remove ONLY their own uid from a
+    // project's follower list — one element at a time, no bulk edits,
+    // no rewriting other people's follows.
+    function projectFollowToggled() {
+      return request.resource.data.followers is list
+        && request.resource.data.followers.toSet()
+             .difference(resource.data.get('followers', []).toSet()).size() <= 1
+        && resource.data.get('followers', []).toSet()
+             .difference(request.resource.data.followers.toSet()).size() <= 1
+        && (resource.data.get('followers', []).toSet()
+             .difference(request.resource.data.followers.toSet()).size() == 0
+            || resource.data.get('followers', []).toSet()
+             .difference(request.resource.data.followers.toSet()).hasOnly([uid()]))
+        && (request.resource.data.followers.toSet()
+             .difference(resource.data.get('followers', []).toSet()).size() == 0
+            || request.resource.data.followers.toSet()
+             .difference(resource.data.get('followers', []).toSet()).hasOnly([uid()]));
+    }
+
     // Validates that required string fields exist and are non-empty
     function isValidString(value, maxLength) {
       return value is string && value.size() > 0 && value.size() <= maxLength;
@@ -474,15 +493,101 @@ service cloud.firestore {
         && request.resource.data.tasksDone is int
         && request.resource.data.progress is int
         && isValidTimestamp(request.resource.data.createdAt)
-        && isValidTimestamp(request.resource.data.updatedAt);
+        && isValidTimestamp(request.resource.data.updatedAt)
+        && (!request.resource.data.keys().hasAny(['category'])
+            || (request.resource.data.category is string
+                && request.resource.data.category.size() <= 50))
+        && (!request.resource.data.keys().hasAny(['stage'])
+            || (request.resource.data.stage is string
+                && request.resource.data.stage.size() <= 30))
+        && (!request.resource.data.keys().hasAny(['skillsNeeded'])
+            || request.resource.data.skillsNeeded is list)
+        && (!request.resource.data.keys().hasAny(['goals'])
+            || (request.resource.data.goals is string
+                && request.resource.data.goals.size() <= 2000))
+        && (!request.resource.data.keys().hasAny(['teamRequirements'])
+            || (request.resource.data.teamRequirements is string
+                && request.resource.data.teamRequirements.size() <= 1000))
+        && (!request.resource.data.keys().hasAny(['followers'])
+            || request.resource.data.followers is list);
 
       // UPDATE: owner (progress, tasks, metadata) or admin (moderation)
       allow update: if isAdmin()
         || (isSignedIn() && resource.data.ownerUid == uid());
 
+      // FOLLOWERS: any signed-in user toggling only their own entry
+      // in the follower list (add/remove single uid, nothing else).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['followers'])
+        && projectFollowToggled();
+
       // DELETE: owner or admin
       allow delete: if isAdmin()
         || (isSignedIn() && resource.data.ownerUid == uid());
+
+      // ----------------------------------------------------------
+      // APPLICATIONS SUBCOLLECTION
+      // projects/{projectId}/applications/{applicationId}
+      // ----------------------------------------------------------
+      // Doc id = applicant uid (no duplicate applications). Created
+      // only by the applicant (never the owner), decided only by the
+      // project owner. Accepting updates project.members via the
+      // owner's project-update path above.
+      // ----------------------------------------------------------
+      match /applications/{applicationId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && applicationId == uid()
+          && request.resource.data.uid == uid()
+          && request.resource.data.keys()
+               .hasAll(['uid', 'name', 'message', 'status', 'createdAt'])
+          && isValidString(request.resource.data.uid, 128)
+          && isValidString(request.resource.data.name, 100)
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 1000
+          && request.resource.data.status == 'pending'
+          && isValidTimestamp(request.resource.data.createdAt)
+          && get(/databases/$(database)/documents/projects/$(projectId))
+               .data.ownerUid != uid();
+        allow update: if isSignedIn()
+          && get(/databases/$(database)/documents/projects/$(projectId))
+               .data.ownerUid == uid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'reviewedAt'])
+          && request.resource.data.status in ['accepted', 'declined']
+          && (!request.resource.data.keys().hasAny(['reviewedAt'])
+              || request.resource.data.reviewedAt is timestamp);
+        allow delete: if isAdmin()
+          || (isSignedIn()
+              && (resource.data.uid == uid()
+                  || get(/databases/$(database)/documents/projects/$(projectId))
+                       .data.ownerUid == uid()));
+      }
+
+      // ----------------------------------------------------------
+      // QUESTIONS SUBCOLLECTION
+      // projects/{projectId}/questions/{questionId}
+      // ----------------------------------------------------------
+      // Any signed-in user may ask; the asker or the project owner
+      // (or an admin) may remove a question.
+      // ----------------------------------------------------------
+      match /questions/{questionId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.authorKey == uid()
+          && request.resource.data.keys()
+               .hasAll(['text', 'authorKey', 'authorName', 'createdAt'])
+          && isValidString(request.resource.data.text, 1000)
+          && isValidString(request.resource.data.authorKey, 128)
+          && isValidString(request.resource.data.authorName, 100)
+          && isValidTimestamp(request.resource.data.createdAt);
+        allow delete: if isAdmin()
+          || (isSignedIn()
+              && (resource.data.authorKey == uid()
+                  || get(/databases/$(database)/documents/projects/$(projectId))
+                       .data.ownerUid == uid()));
+      }
 
       // ----------------------------------------------------------
       // PROJECT TASKS SUBCOLLECTION

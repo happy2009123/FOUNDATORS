@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Heart, MessageCircle, Users, UserPlus, TrendingUp, AtSign } from 'lucide-react';
+import {
+  Heart, MessageCircle, Users, UserPlus, TrendingUp, AtSign, Bell,
+  Mic, CheckCircle, LogIn, Mail,
+} from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
@@ -10,6 +13,7 @@ import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { timeAgo } from '@/lib/admin';
 
 const TYPE_META = {
   like: { icon: Heart, cls: 'bg-[rgba(224,52,76,0.15)] text-[#ff6b6b]' },
@@ -18,7 +22,15 @@ const TYPE_META = {
   collab: { icon: Users, cls: 'bg-[rgba(91,141,255,0.15)] text-brandblue' },
   update: { icon: TrendingUp, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
   mention: { icon: AtSign, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-hi' },
+  message: { icon: Mail, cls: 'bg-[rgba(91,141,255,0.15)] text-brandblue' },
+  voice_request: { icon: Mic, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
+  voice_approved: { icon: CheckCircle, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
+  voice_invite: { icon: LogIn, cls: 'bg-[rgba(91,141,255,0.15)] text-brandblue' },
+  voice_started: { icon: Mic, cls: 'bg-[rgba(224,52,76,0.15)] text-[#ff6b6b]' },
+  voice_live: { icon: Mic, cls: 'bg-[rgba(224,52,76,0.15)] text-[#ff6b6b]' },
 };
+
+const FALLBACK_META = { icon: Bell, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-hi' };
 
 async function fetchUser(key) {
   try {
@@ -57,9 +69,12 @@ export default function NotificationsPage() {
 
   function handleOpen(n) {
     if (n.linkType === 'post') router.push(`/post/${n.linkId}`);
-    else if (n.linkType === 'user') router.push(`/profile/${n.linkId}`);
+    else if (n.linkType === 'user' || n.linkType === 'profile') router.push(`/profile/${n.linkId}`);
     else if (n.linkType === 'startup') router.push(`/startup/${n.linkId}`);
     else if (n.linkType === 'discussion') router.push(`/discussion/${n.linkId}`);
+    else if (n.linkType === 'project') router.push(`/projects/${n.linkId}`);
+    else if (n.linkType === 'message') router.push(`/messages/${n.linkId}`);
+    else if (n.linkType === 'voice_room') router.push(`/voice/room/${n.linkId}`);
     else showToast('Opening...');
   }
 
@@ -94,9 +109,10 @@ function Section({ label, items, onOpen, actors }) {
       <div className="px-[18px] pb-2 pt-4 text-[11.5px] font-extrabold uppercase tracking-wide text-text3">{label}</div>
       <div className="flex flex-col gap-0.5 px-3 pb-2">
         {items.map((n) => {
-          const meta = TYPE_META[n.type];
+          const meta = TYPE_META[n.type] || FALLBACK_META;
           const Icon = meta.icon;
           const actor = n.actorKey ? actors[n.actorKey] : null;
+          const when = n.createdAt?.toDate ? timeAgo(n.createdAt) : (n.time || '');
           return (
             <button
               key={n.id}
@@ -116,7 +132,7 @@ function Section({ label, items, onOpen, actors }) {
                   {actor && <b className="font-extrabold text-white">{actor.name} </b>}
                   {n.text}
                 </div>
-                <div className="mt-0.5 text-[11px] text-text3">{n.time}</div>
+                <div className="mt-0.5 text-[11px] text-text3">{when}</div>
               </div>
             </button>
           );

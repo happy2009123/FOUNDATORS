@@ -452,7 +452,7 @@ export default function ProfileView({ userId = null }) {
             {tab === 'skills' && (
               <SkillsSection skills={skills} isOwn={isOwn} onEdit={() => router.push('/settings/edit-profile')} />
             )}
-        {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
+        {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/projects/new')} />}
         {tab === 'build' && <BuildWithMeSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
             {tab === 'voice' && <VoiceSection uid={uid} isOwn={isOwn} />}
             {tab === 'achievements' && <AchievementsSection uid={uid} isOwn={isOwn} />}
@@ -720,7 +720,7 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
         icon={Rocket}
         title="No projects yet"
         body="Projects you create will appear here. Share your current build to attract collaborators."
-        action="Share a project"
+        action="Create a project"
         onAction={onCreate}
       />
     );
@@ -731,7 +731,7 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
       {items.map((p) => (
         <button
           key={p.id}
-          onClick={() => router.push(`/copilot?project=${p.id}`)}
+          onClick={() => router.push(`/projects/${p.id}`)}
           className="gold-card w-full p-4 text-left"
         >
           <div className="flex items-center justify-between gap-2">
@@ -757,7 +757,7 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
           onClick={onCreate}
           className="w-full rounded-xl border border-line py-2.5 text-[11.5px] font-bold text-gold-hi"
         >
-          Share a project
+          Create a project
         </button>
       ) : null}
     </div>
