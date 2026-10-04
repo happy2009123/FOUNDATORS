@@ -24,15 +24,18 @@ import {
   MoreHorizontal,
   Shield,
   Mic,
+  Award,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import MainScreenShell from '@/components/MainScreenShell';
 import Avatar from '@/components/Avatar';
 import ModerationSheet from '@/components/ModerationSheet';
+import FoundingBadge from '@/components/FoundingBadge';
+import BuilderScoreCard from '@/components/BuilderScoreCard';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { auth, db } from '@/lib/firebase';
-import { collection, query, where, limit, onSnapshot, doc, getDocs } from 'firebase/firestore';
+import { collection, query, where, limit, orderBy, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { listMyProjects } from '@/lib/copilot';
 import { fetchHostRooms } from '@/lib/voice';
 import VoiceRoomCard from '@/components/voice/VoiceRoomCard';
@@ -43,6 +46,7 @@ const TABS = [
   { key: 'projects', label: 'Projects' },
   { key: 'build', label: 'Build With Me' },
   { key: 'voice', label: 'Voice' },
+  { key: 'achievements', label: 'Achievements' },
   { key: 'posts', label: 'Posts' },
 ];
 
@@ -280,13 +284,19 @@ export default function ProfileView({ userId = null }) {
 
           {/* ─── Name & handle ─── */}
           <div className="mt-3 text-center">
-            <div className="flex items-center justify-center gap-1.5">
+            <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
               <span className="text-[22px] font-extrabold leading-tight">
                 {p?.name || 'User'}
               </span>
               {p?.verified && (
                 <BadgeCheck size={19} className="text-gold" aria-label="Verified" />
               )}
+              {p?.foundingNumber ? (
+                <FoundingBadge
+                  number={p.foundingNumber}
+                  onClick={() => router.push('/founding-100')}
+                />
+              ) : null}
             </div>
             <div className="mt-1 text-[13px] font-bold text-gold-hi">
               {p?.handle || '@user'}
@@ -384,6 +394,9 @@ export default function ProfileView({ userId = null }) {
             />
           </div>
 
+          {/* ─── Builder Score (computed from real activity, never stored) ─── */}
+          {uid ? <BuilderScoreCard uid={uid} profile={p} /> : null}
+
           {/* ─── UID Card ─── */}
           <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
             <div className="mb-2 flex items-center justify-between">
@@ -441,7 +454,8 @@ export default function ProfileView({ userId = null }) {
             )}
         {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
         {tab === 'build' && <BuildWithMeSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
-        {tab === 'voice' && <VoiceSection uid={uid} isOwn={isOwn} />}
+            {tab === 'voice' && <VoiceSection uid={uid} isOwn={isOwn} />}
+            {tab === 'achievements' && <AchievementsSection uid={uid} isOwn={isOwn} />}
             {tab === 'posts' && (
               <div className="flex flex-col gap-4">
                 {loadingProfile && displayPosts.length === 0 ? (
@@ -661,9 +675,23 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
       return undefined;
     }
     let on = true;
-    listMyProjects(uid)
-      .then((list) => {
-        if (on) setItems(list);
+    Promise.all([
+      listMyProjects(uid).catch(() => []),
+      getDocs(
+        query(collection(db, 'projects'), where('members', 'array-contains', uid), limit(30))
+      ).catch(() => null),
+    ])
+      .then(([owned, memberSnap]) => {
+        if (!on) return;
+        const ownedList = (owned || []).map((p) => ({ ...p, _role: 'owner' }));
+        const ownedIds = new Set(ownedList.map((p) => p.id));
+        const joined =
+          memberSnap && memberSnap.docs
+            ? memberSnap.docs
+                .filter((d) => !ownedIds.has(d.id))
+                .map((d) => ({ id: d.id, ...d.data(), _role: 'team' }))
+            : [];
+        setItems([...ownedList, ...joined]);
       })
       .catch(() => {
         if (on) setItems([]);
@@ -709,7 +737,7 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-[14px] font-extrabold text-text1">{p.name}</span>
             <span className="shrink-0 rounded-full border border-line px-2 py-1 text-[9px] font-bold text-gold">
-              {p.stage || 'Building'}
+              {p._role === 'owner' ? 'Owner' : 'Team'} · {p.stage || 'Building'}
             </span>
           </div>
           {p.description ? <div className="mt-1 text-[11.5px] text-text2">{p.description}</div> : null}
@@ -882,6 +910,68 @@ function VoiceSection({ uid, isOwn }) {
           Start a voice room
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function AchievementsSection({ uid, isOwn }) {
+  const router = useRouter();
+  const [items, setItems] = useState(undefined);
+
+  useEffect(() => {
+    if (!uid) {
+      setItems([]);
+      return undefined;
+    }
+    let on = true;
+    getDocs(
+      query(
+        collection(db, 'users', uid, 'achievements'),
+        orderBy('earnedAt', 'desc'),
+        limit(50)
+      )
+    )
+      .then((snap) => {
+        if (on) setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      })
+      .catch(() => {
+        if (on) setItems([]);
+      });
+    return () => {
+      on = false;
+    };
+  }, [uid]);
+
+  if (items === undefined) {
+    return <div className="px-4 py-6 text-center text-[12px] text-text3">Loading achievements…</div>;
+  }
+
+  if (!items.length) {
+    return (
+      <TabEmpty
+        icon={Award}
+        title="No achievements yet"
+        body="Achievements are earned by completing Founder Challenges — real, permanent records of finished work, never self-assigned."
+        action={isOwn ? 'Browse challenges' : undefined}
+        onAction={isOwn ? () => router.push('/challenges') : undefined}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2.5 px-4 py-4">
+      {items.map((a) => (
+        <div
+          key={a.id}
+          className="flex items-center gap-3 rounded-2xl border border-gold/25 bg-gold/[0.04] px-4 py-3"
+        >
+          <Award size={18} className="flex-none text-gold" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13.5px] font-extrabold">{a.title}</div>
+            <div className="text-[11px] text-text3">{a.source || 'achievement'}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

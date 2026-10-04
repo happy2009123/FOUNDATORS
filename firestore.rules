@@ -40,6 +40,19 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // A Founding Member grant must reference a marker document in
+    // foundingMembers/{N} (admin-created in the same batch), which
+    // makes each of the 100 numbers physically unique — two admins
+    // racing for the same number cannot both win, because only one
+    // marker doc can ever exist per id.
+    function foundingNumberValid(userId, number) {
+      return number is int
+        && number >= 1
+        && number <= 100
+        && exists(/databases/$(database)/documents/foundingMembers/$(number))
+        && get(/databases/$(database)/documents/foundingMembers/$(number)).data.uid == userId;
+    }
+
     // Validates that required string fields exist and are non-empty
     function isValidString(value, maxLength) {
       return value is string && value.size() > 0 && value.size() <= maxLength;
@@ -53,6 +66,24 @@ service cloud.firestore {
     // Validates that a field is a non-empty array
     function isNonEmptyArray(value) {
       return value is list && value.size() > 0;
+    }
+
+    // ============================================================
+    // FOUNDING 100 — foundingMembers/{number}
+    // One marker doc per badge number (1–100), created only by an
+    // admin alongside the user's foundingNumber field. Users can
+    // never write here; the marker doubles as the public roster at
+    // /founding-100. No update path: grant = create, revoke = delete.
+    // ============================================================
+    match /foundingMembers/{memberNumber} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && memberNumber.matches('^(100|[1-9][0-9])$')
+        && request.resource.data.keys().hasAll(['uid', 'name', 'createdAt'])
+        && isValidString(request.resource.data.uid, 128)
+        && isValidString(request.resource.data.name, 100)
+        && isValidTimestamp(request.resource.data.createdAt);
+      allow delete: if isAdmin();
     }
 
     // ============================================================
@@ -72,8 +103,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
 
       // CREATE: Users can only create their own profile
-      // Ensures all required fields are present and valid
+      // Ensures all required fields are present and valid, and that
+      // admin-managed fields (status/verified/founding/organizer/
+      // builderScore) can never be smuggled in at signup time either.
       allow create: if isOwner(userId)
+        && !request.resource.data.keys().hasAny([
+             'status', 'verified', 'foundingNumber',
+             'foundingApprovedAt', 'organizer', 'builderScore'
+           ])
         && request.resource.data.keys().hasAll([
              'name', 'handle', 'bio', 'avatar', 'role',
              'location', 'updatedAt'
@@ -89,11 +126,15 @@ service cloud.firestore {
       // UPDATE: Users can only update their own profile.
       // `status` (moderation state) and `verified` are admin-managed —
       // an owner must never clear their own restriction or grant
-      // themselves a verification badge.
+      // themselves a verification badge. The same lockout covers the
+      // Founding 100 number, the organizer role and Builder Score:
+      // those can only ever be set by an admin (founding/organizer)
+      // or computed on read (Builder Score is never stored).
       // Validates changed fields if they are present
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys()
-             .hasAny(['status', 'verified'])
+             .hasAny(['status', 'verified', 'foundingNumber',
+                      'foundingApprovedAt', 'organizer', 'builderScore'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['name', 'handle', 'bio', 'avatar',
                        'role', 'location', 'updatedAt'])
@@ -105,16 +146,25 @@ service cloud.firestore {
                 && request.resource.data.location is string
                 && isValidTimestamp(request.resource.data.updatedAt)));
 
-      // ADMIN: may set the moderation status and verification badge on
-      // any user — nothing else on the profile can be touched.
+      // ADMIN: may set the moderation status, verification badge,
+      // Founding 100 membership or organizer role on any user —
+      // nothing else on the profile can be touched. A founding
+      // number is only accepted when its unique marker doc exists.
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['status', 'verified'])
+             .hasOnly(['status', 'verified', 'foundingNumber',
+                       'foundingApprovedAt', 'organizer'])
         && (request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['verified'])
+              .hasOnly(['verified', 'foundingNumber',
+                        'foundingApprovedAt', 'organizer'])
             || request.resource.data.status in ['active', 'restricted', 'suspended'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified'])
-            || request.resource.data.verified is bool);
+            || request.resource.data.verified is bool)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['foundingNumber'])
+            || (!request.resource.data.keys().hasAny(['foundingNumber'])
+                || foundingNumberValid(userId, request.resource.data.foundingNumber)))
+        && (!request.resource.data.keys().hasAny(['foundingApprovedAt'])
+            || request.resource.data.foundingApprovedAt is timestamp);
 
       // FOLLOW COUNTER: another signed-in user may bump this profile's
       // `followers` counter by exactly ±1 as part of the follow/unfollow
@@ -143,6 +193,50 @@ service cloud.firestore {
                          'linkType', 'linkId', 'createdAt'
                        ]);
         allow delete: if isOwner(userId);
+      }
+
+      // ----------------------------------------------------------
+      // ACHIEVEMENTS SUBCOLLECTION
+      // users/{userId}/achievements/{achievementId}
+      // ----------------------------------------------------------
+      // Earned by finishing Founder Challenges. Readable by any
+      // signed-in user (they appear on public profiles), created
+      // only by the owner through the challenge flow, permanent
+      // afterwards — no edits, no self-deletion of the record.
+      // ----------------------------------------------------------
+      match /achievements/{achievementId} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['title', 'source', 'earnedAt'])
+          && isValidString(request.resource.data.title, 80)
+          && request.resource.data.source is string
+          && request.resource.data.source.size() <= 50
+          && isValidTimestamp(request.resource.data.earnedAt);
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+
+      // ----------------------------------------------------------
+      // REFERRAL INVITES SUBCOLLECTION
+      // users/{inviterUid}/invites/{invitedUserId}
+      // ----------------------------------------------------------
+      // Lives under the INVITER but is created by the person who
+      // actually joined (doc id must equal the caller's uid), so a
+      // user can never fabricate invites for other people. The
+      // activation flag flips on only after the invitee performs a
+      // real meaningful action in the app.
+      // ----------------------------------------------------------
+      match /invites/{invitedUserId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && uid() == invitedUserId
+          && request.resource.data.keys().hasAll(['invitedUid', 'joinedAt'])
+          && request.resource.data.invitedUid == uid()
+          && isValidTimestamp(request.resource.data.joinedAt);
+        allow update: if isSignedIn() && uid() == invitedUserId
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['activated'])
+          && request.resource.data.activated is bool;
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       // ----------------------------------------------------------
