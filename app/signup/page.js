@@ -9,6 +9,7 @@ import { useHaptics } from '@/lib/useHaptics';
 import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { useHydration } from '@/lib/useHydration';
+import { rememberReferralFromUrl } from '@/lib/referrals';
 import { auth } from '@/lib/firebase';
 
 export default function SignupPage() {
@@ -19,6 +20,11 @@ export default function SignupPage() {
   const hydrated = useHydration();
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const authReady = useStore((s) => s.authReady);
+
+  // Capture ?ref= BEFORE any auth redirect so Google sign-up keeps it.
+  useEffect(() => {
+    rememberReferralFromUrl();
+  }, []);
 
   // Already signed in? Never show the signup form — go straight home.
   useEffect(() => {

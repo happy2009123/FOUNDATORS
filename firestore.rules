@@ -72,6 +72,26 @@ service cloud.firestore {
              .difference(resource.data.get('followers', []).toSet()).hasOnly([uid()]));
     }
 
+    // Generic "you may only add or remove YOUR OWN uid from this
+    // list field" guard — used for event attendees, challenge
+    // participants and idea upvotes. One element at a time, no
+    // touching other people's entries.
+    function selfToggled(field) {
+      return request.resource.data.get(field, []) is list
+        && request.resource.data.get(field, []).toSet()
+             .difference(resource.data.get(field, []).toSet()).size() <= 1
+        && resource.data.get(field, []).toSet()
+             .difference(request.resource.data.get(field, []).toSet()).size() <= 1
+        && (resource.data.get(field, []).toSet()
+             .difference(request.resource.data.get(field, []).toSet()).size() == 0
+            || resource.data.get(field, []).toSet()
+             .difference(request.resource.data.get(field, []).toSet()).hasOnly([uid()]))
+        && (request.resource.data.get(field, []).toSet()
+             .difference(resource.data.get(field, []).toSet()).size() == 0
+            || request.resource.data.get(field, []).toSet()
+             .difference(resource.data.get(field, []).toSet()).hasOnly([uid()]));
+    }
+
     // Validates that required string fields exist and are non-empty
     function isValidString(value, maxLength) {
       return value is string && value.size() > 0 && value.size() <= maxLength;
@@ -225,7 +245,9 @@ service cloud.firestore {
       // ----------------------------------------------------------
       match /achievements/{achievementId} {
         allow read: if isSignedIn();
-        allow create: if isOwner(userId)
+        // Owner earns it through the challenge flow; admins may
+        // also grant achievements (community awards, spotlights).
+        allow create: if (isOwner(userId) || isAdmin())
           && request.resource.data.keys().hasAll(['title', 'source', 'earnedAt'])
           && isValidString(request.resource.data.title, 80)
           && request.resource.data.source is string
@@ -269,7 +291,8 @@ service cloud.firestore {
       // pending request.
       // ----------------------------------------------------------
       match /collabRequests/{requesterUid} {
-        allow read: if isSignedIn() && (userId == uid() || requesterUid == uid());
+        allow read: if isAdmin()
+          || (isSignedIn() && (userId == uid() || requesterUid == uid()));
         allow create: if isSignedIn()
           && requesterUid == uid()
           && userId != uid()
@@ -780,7 +803,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.creatorKey == uid();
-      allow update: if isSignedIn();
+      // Owner edits everything; anyone else may only toggle their
+      // own uid in the attendee list (RSVP) — nothing else.
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.creatorKey == uid())
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['attendees'])
+            && selfToggled('attendees'));
       allow delete: if isSignedIn()
         && resource.data.creatorKey == uid();
     }
@@ -793,7 +823,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.creatorKey == uid();
-      allow update: if isSignedIn();
+      // Creator edits everything; anyone else may only toggle their
+      // own uid in the participant list (Join) — nothing else.
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.creatorKey == uid())
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['participants'])
+            && selfToggled('participants'));
       allow delete: if isSignedIn()
         && resource.data.creatorKey == uid();
     }
@@ -806,7 +843,23 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.authorKey == uid();
-      allow update: if isSignedIn();
+      // Author edits everything; others may only toggle their own
+      // upvote or APPEND a comment (never edit/delete someone
+      // else's comments).
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.authorKey == uid())
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['upvotedBy'])
+            && selfToggled('upvotedBy'))
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['comments'])
+            && request.resource.data.comments is list
+            && request.resource.data.comments.size()
+                 == resource.data.get('comments', []).size() + 1
+            && request.resource.data.comments[resource.data.get('comments', []).size()]
+                 .authorKey == uid());
       allow delete: if isSignedIn()
         && resource.data.authorKey == uid();
     }

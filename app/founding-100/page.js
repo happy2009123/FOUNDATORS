@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Award, ChevronLeft } from 'lucide-react';
+import { Award, ChevronLeft, Gift } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import Avatar from '@/components/Avatar';
 import { db } from '@/lib/firebase';
@@ -53,6 +53,12 @@ export default function Founding100Page() {
             <ChevronLeft size={18} />
           </button>
           <span className="text-[15px] font-extrabold">Founding 100</span>
+          <button
+            onClick={() => router.push('/invite')}
+            className="ml-auto flex items-center gap-1.5 rounded-full border border-gold/40 px-3 py-1.5 text-[11.5px] font-bold text-gold-hi"
+          >
+            <Gift size={13} /> Invite
+          </button>
         </div>
 
         {/* Hero */}

@@ -15,7 +15,7 @@ import {
   LayoutDashboard, Users, FileText, Flag, FolderKanban, Hammer, Globe,
   MessageCircle, BarChart3, ShieldCheck, Settings, Search, Bell, Plus,
   Menu, X, ChevronLeft, ChevronRight, LogOut, User, LogIn,
-  ArrowRight, Megaphone, Lightbulb, CalendarDays, Mic, Award,
+  ArrowRight, Megaphone, Lightbulb, CalendarDays, Mic, Award, TrendingUp,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { icon: FileText, label: 'Posts', path: '/admin/posts' },
   { icon: Flag, label: 'Reports', path: '/admin/reports' },
   { icon: Award, label: 'Founding 100', path: '/admin/founding' },
+  { icon: TrendingUp, label: 'Growth', path: '/admin/growth' },
   { icon: FolderKanban, label: 'Projects', path: '/admin/projects' },
   { icon: Hammer, label: 'Build With Me', path: '/admin/build-with-me' },
   { icon: Globe, label: 'Communities', path: '/admin/communities' },

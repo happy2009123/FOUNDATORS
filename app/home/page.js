@@ -67,16 +67,26 @@ export default function HomePage(){
    return () => { cancelled = true; };
  }, [profile?.id]);
 
- const radar = matches.length > 0
-   ? matches.map((u, i) => ({
-       score: `${90 - i * 3}%`,
-       title: 'Community member',
-       name: u.name || 'Unknown',
-       meta: u.role || u.bio?.slice(0, 40) || 'Founder',
-       icon: UserPlus,
-       href: `/profile/${u.id}`,
-     }))
-   : [];
+  const radar = matches.length > 0
+    ? matches
+        .map((u) => {
+          let s = 58 + Math.min(14, (u.skills || []).length * 3);
+          if (u.verified) s += 10;
+          if (u.bio && String(u.bio).length > 20) s += 6;
+          if (u.foundingNumber) s += 5;
+          return {
+            score: `${Math.min(99, s)}%`,
+            title: u.role || 'Community member',
+            name: u.name || 'Unknown',
+            meta: u.role || u.bio?.slice(0, 40) || 'Founder',
+            icon: UserPlus,
+            href: `/profile/${u.id}`,
+            _s: s,
+          };
+        })
+        .sort((a, b) => b._s - a._s)
+        .map(({ _s, ...rest }) => rest)
+    : [];
 
  const mission = userProjects.length > 0
    ? { title: userProjects[0].text.slice(0, 40), progress: 0 }

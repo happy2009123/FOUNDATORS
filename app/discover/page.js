@@ -71,14 +71,23 @@ export default function DiscoverPage(){
  }, []);
 
  const matches = useMemo(() => {
-   return Object.values(users).map((u, i) => ({
-     key: u.id,
-     score: Math.max(70, 95 - i * 3),
-     type: matchType(u),
-     reason: (u.skills || []).slice(0, 3).join(' + ') || 'General',
-     need: 'Open to connect',
-     location: u.location || 'Unknown',
-   }));
+   return Object.values(users)
+     .map((u) => {
+       let s = 58 + Math.min(14, (u.skills || []).length * 3);
+       if (u.verified) s += 10;
+       if (u.bio && String(u.bio).length > 20) s += 6;
+       if (u.foundingNumber) s += 5;
+       if (u.avatar) s += 3;
+       return {
+         key: u.id,
+         score: Math.min(99, s),
+         type: matchType(u),
+         reason: (u.skills || []).slice(0, 3).join(' + ') || (u.role ? String(u.role) : 'General'),
+         need: 'Open to connect',
+         location: u.location || 'Unknown',
+       };
+     })
+     .sort((a, b) => b.score - a.score);
  }, [users]);
 
  const list=useMemo(()=>matches.filter(m=>{

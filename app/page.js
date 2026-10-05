@@ -66,7 +66,17 @@ export default function LandingPage() {
           <Globe2 className="mx-auto mb-2 text-gold" size={25} />
           <div className="text-[18px] font-extrabold">One network. Infinite possibilities.</div>
           <p className="mt-2 text-[11.5px] leading-5 text-text2">Match → Build → Launch → Grow</p>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center"><Metric n="12K+" l="Builders" /><Metric n="3.4K" l="Projects" /><Metric n="48" l="Countries" /></div>
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <Metric n="100" l="Founding seats" />
+            <Metric n="4" l="Ways to build" />
+            <Metric n="Free" l="To join" />
+          </div>
+          <button
+            onClick={() => router.push('/founding-100')}
+            className="mt-4 inline-flex items-center gap-1.5 text-[11.5px] font-bold text-gold-hi"
+          >
+            See the Founding 100 roster <ArrowRight size={13} />
+          </button>
         </section>
 
         <button onClick={go} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-gold bg-[rgba(217,172,61,0.08)] py-4 text-[13px] font-extrabold text-gold-hi"><Zap size={16} /> Start building today</button>

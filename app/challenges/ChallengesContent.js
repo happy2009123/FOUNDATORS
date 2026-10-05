@@ -12,7 +12,7 @@ import { useHaptics } from '@/lib/useHaptics';
 import { db } from '@/lib/firebase';
 import {
   collection, getDocs, query, orderBy, limit,
-  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
+  doc, getDoc, setDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
 } from 'firebase/firestore';
 
 const CATEGORIES = [
@@ -84,7 +84,19 @@ export default function ChallengesContent() {
   const [creating, setCreating] = useState(false);
   const [newChallenge, setNewChallenge] = useState({ name: '', description: '', timeLimit: '10', points: '100', category: 'quick' });
   const [formErrors, setFormErrors] = useState({});
+  const [earned, setEarned] = useState([]);
   const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (!profile?.id) return undefined;
+    let on = true;
+    getDocs(query(collection(db, 'users', profile.id, 'achievements'), orderBy('earnedAt', 'desc'), limit(100)))
+      .then((snap) => {
+        if (on) setEarned(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [profile?.id]);
 
   useEffect(() => {
     async function fetchChallenges() {
@@ -103,16 +115,36 @@ export default function ChallengesContent() {
     fetchChallenges();
   }, []);
 
-  const completedCount = useMemo(() => challenges.filter((c) => challengeProgress[c.id]?.completed).length, [challenges, challengeProgress]);
-  const totalPointsEarned = useMemo(() => challenges.filter((c) => challengeProgress[c.id]?.completed).reduce((sum, c) => sum + (c.points || 0), 0), [challenges, challengeProgress]);
+  const earnedIds = useMemo(
+    () => new Set(earned.map((a) => a.challengeId).filter(Boolean)),
+    [earned]
+  );
+  const earnedPoints = useMemo(
+    () => earned.reduce((s, a) => s + (Number(a.points) || 0), 0),
+    [earned]
+  );
+  const joinedCount = useMemo(
+    () => challenges.filter((c) => (c.participants || []).includes(profile?.id)).length,
+    [challenges, profile?.id]
+  );
+  const createdCount = useMemo(
+    () => challenges.filter((c) => c.creatorKey === profile?.id).length,
+    [challenges, profile?.id]
+  );
+  const completedCount = useMemo(
+    () => challenges.filter((c) => earnedIds.has(c.id)).length,
+    [challenges, earnedIds]
+  );
+  const totalPointsEarned = earnedPoints;
 
   const getChallengeStatus = useCallback((id) => {
+    if (earnedIds.has(id)) return 'completed';
     const p = challengeProgress[id];
     if (!p) return 'idle';
     if (p.completed) return 'completed';
     if (p.started) return 'in-progress';
     return 'idle';
-  }, [challengeProgress]);
+  }, [challengeProgress, earnedIds]);
 
   const activeChallenge = activeId ? challenges.find((c) => c.id === activeId) : null;
   const activeProgress = activeId ? getChallengeStatus(activeId) : null;
@@ -140,16 +172,38 @@ export default function ChallengesContent() {
     return () => clearInterval(timerRef.current);
   }, [timerActive, activeId]);
 
-  const completeChallengeHandler = useCallback((id) => {
+  const completeChallengeHandler = useCallback(async (id) => {
     clearInterval(timerRef.current); setTimerActive(false);
     const ch = challenges.find((c) => c.id === id);
-    if (!ch || challengeProgress[id]?.completed) return;
+    if (!ch || earnedIds.has(id) || challengeProgress[id]?.completed) return;
     storeCompleteChallenge(id); notification(); vibrate();
     setActiveId(null); setTimer(0);
     setShowConfetti(true); setShowSuccess(true);
     setTimeout(() => { setShowConfetti(false); setShowSuccess(false); }, 2500);
     showToast(`+${ch.points || 0} points! Challenge complete.`);
-  }, [challenges, challengeProgress, storeCompleteChallenge, notification, vibrate, showToast]);
+    if (profile?.id) {
+      try {
+        const ref = doc(db, 'users', profile.id, 'achievements', `challenge_${id}`);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) {
+          await setDoc(ref, {
+            title: String(ch.name || 'Challenge').slice(0, 80),
+            source: 'challenges',
+            challengeId: id,
+            points: Number(ch.points) || 0,
+            earnedAt: serverTimestamp(),
+          });
+        }
+        setEarned((prev) =>
+          prev.some((a) => a.challengeId === id)
+            ? prev
+            : [{ id: `challenge_${id}`, challengeId: id, points: Number(ch.points) || 0 }, ...prev]
+        );
+      } catch (e) {
+        // achievement write is best-effort — local completion already recorded
+      }
+    }
+  }, [challenges, challengeProgress, earnedIds, profile?.id, storeCompleteChallenge, notification, vibrate, showToast]);
 
   const startChallenge = useCallback((id) => {
     const ch = challenges.find((c) => c.id === id);
@@ -355,10 +409,10 @@ export default function ChallengesContent() {
             )}
 
             <div className="mt-5 grid grid-cols-4 gap-2">
-              <Stat n={(2840 + totalPointsEarned).toLocaleString()} l="Points" icon={Medal} />
-              <Stat n="#18" l="Rank" icon={Trophy} />
-              <Stat n="9" l="Badges" icon={Award} />
-              <Stat n="7 days" l="Streak" icon={Flame} />
+              <Stat n={earnedPoints.toLocaleString()} l="Points" icon={Medal} />
+              <Stat n={String(earned.length)} l="Badges" icon={Award} />
+              <Stat n={String(joinedCount)} l="Joined" icon={Trophy} />
+              <Stat n={String(createdCount)} l="Created" icon={Flame} />
             </div>
 
             {activeId && activeChallenge && activeProgress === 'in-progress' && (
