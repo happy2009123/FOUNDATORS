@@ -42,6 +42,7 @@ export default function CopilotContext({
   onSelectProject,
   onTaskStatus,
   onGoProjects,
+  onOpenProject,
 }) {
   return (
     <div className="no-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
@@ -101,6 +102,12 @@ export default function CopilotContext({
             {selectedProject.name} — tasks
           </div>
           <div className="px-3 pb-4">
+            <button
+              onClick={onOpenProject}
+              className="mb-2 w-full rounded-xl border border-gold/40 bg-gold/[0.06] px-3 py-2 text-[11px] font-bold text-gold-hi active:bg-gold/15"
+            >
+              Open project page — apply, follow, questions
+            </button>
             {loadingTasks ? (
               <div className="flex items-center gap-2 px-1 py-2 text-[11.5px] text-text3">
                 <Loader2 size={13} className="animate-spin" /> Loading tasks…

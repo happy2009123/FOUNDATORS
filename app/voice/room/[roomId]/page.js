@@ -55,6 +55,7 @@ import {
   startVoiceRoom,
   endVoiceRoom,
   shareVoiceRoom,
+  voiceRoomUrl,
   reportVoiceRoom,
   canModerateRoom,
   isRoomSpeaker,
@@ -169,6 +170,7 @@ export default function VoiceRoomPage() {
 
   const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
+  const publishPost = useStore((s) => s.publishPost);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const blockUser = useStore((s) => s.blockUser);
   const reportItem = useStore((s) => s.reportItem);
@@ -500,6 +502,21 @@ export default function VoiceRoomPage() {
 
   const doShare = () => shareVoiceRoom(room, showToast);
 
+  const shareToFeed = async () => {
+    try {
+      const url = voiceRoomUrl(room.roomId);
+      const when = room.status === 'live' ? 'live now' : room.status === 'scheduled' ? 'starts soon' : 'happened';
+      await publishPost({
+        text: `🎙 "${room.title}" is ${when} on Foundators Voice — jump in: ${url}`,
+        tagType: 'voice',
+        imageUrl: '',
+      });
+      showToast('Shared to your feed');
+    } catch (e) {
+      showToast('Could not share to feed');
+    }
+  };
+
   const doReportRoom = async () => {
     setMenuOpen(false);
     try {
@@ -717,6 +734,7 @@ export default function VoiceRoomPage() {
           <div className="absolute right-0 top-11 z-[90] w-56 overflow-hidden rounded-2xl border border-line bg-[#0d0d0d] shadow-2xl">
             {[
               { label: 'Copy room link', icon: Link2, run: doShare },
+              { label: 'Share to feed', icon: Megaphone, run: shareToFeed },
               { label: 'View host profile', icon: Users, run: () => router.push(`/voice/founder/${room.hostId}`) },
               { label: 'Report room', icon: ShieldAlert, run: doReportRoom },
               {

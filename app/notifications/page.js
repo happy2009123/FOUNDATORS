@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Heart, MessageCircle, Users, UserPlus, TrendingUp, AtSign, Bell,
-  Mic, CheckCircle, LogIn, Mail,
+  Mic, CheckCircle, LogIn, Mail, Handshake,
 } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
@@ -22,6 +22,7 @@ const TYPE_META = {
   collab: { icon: Users, cls: 'bg-[rgba(91,141,255,0.15)] text-brandblue' },
   update: { icon: TrendingUp, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
   mention: { icon: AtSign, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-hi' },
+  collab_request: { icon: Handshake, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-hi' },
   message: { icon: Mail, cls: 'bg-[rgba(91,141,255,0.15)] text-brandblue' },
   voice_request: { icon: Mic, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
   voice_approved: { icon: CheckCircle, cls: 'bg-[rgba(46,204,113,0.15)] text-brandgreen' },
@@ -73,6 +74,7 @@ export default function NotificationsPage() {
     else if (n.linkType === 'startup') router.push(`/startup/${n.linkId}`);
     else if (n.linkType === 'discussion') router.push(`/discussion/${n.linkId}`);
     else if (n.linkType === 'project') router.push(`/projects/${n.linkId}`);
+    else if (n.linkType === 'request') router.push('/collab-requests');
     else if (n.linkType === 'message') router.push(`/messages/${n.linkId}`);
     else if (n.linkType === 'voice_room') router.push(`/voice/room/${n.linkId}`);
     else showToast('Opening...');

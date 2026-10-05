@@ -492,6 +492,7 @@ export default function CopilotPage() {
       onSelectProject={selectProject}
       onTaskStatus={onTaskStatus}
       onGoProjects={() => router.push('/projects')}
+      onOpenProject={() => selectedProject && router.push(`/projects/${selectedProject.id}`)}
     />
   );
 

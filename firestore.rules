@@ -259,6 +259,42 @@ service cloud.firestore {
       }
 
       // ----------------------------------------------------------
+      // COLLABORATION REQUESTS SUBCOLLECTION
+      // users/{recipientUid}/collabRequests/{requesterUid}
+      // ----------------------------------------------------------
+      // Created only by the requester (doc id = requester uid, so
+      // requests are idempotent and cannot be faked for others).
+      // Only the RECIPIENT may accept or decline — and only the
+      // status field may ever change. Either side may withdraw a
+      // pending request.
+      // ----------------------------------------------------------
+      match /collabRequests/{requesterUid} {
+        allow read: if isSignedIn() && (userId == uid() || requesterUid == uid());
+        allow create: if isSignedIn()
+          && requesterUid == uid()
+          && userId != uid()
+          && request.resource.data.keys()
+               .hasAll(['uid', 'name', 'message', 'status', 'createdAt'])
+          && request.resource.data.uid == uid()
+          && isValidString(request.resource.data.uid, 128)
+          && isValidString(request.resource.data.name, 100)
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 1000
+          && request.resource.data.status == 'pending'
+          && isValidTimestamp(request.resource.data.createdAt);
+        allow update: if isSignedIn()
+          && userId == uid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'reviewedAt'])
+          && request.resource.data.status in ['accepted', 'declined']
+          && (!request.resource.data.keys().hasAny(['reviewedAt'])
+              || request.resource.data.reviewedAt is timestamp);
+        allow delete: if isAdmin()
+          || (isSignedIn()
+              && (resource.data.uid == uid() || userId == uid()));
+      }
+
+      // ----------------------------------------------------------
       // FOLLOWERS SUBCOLLECTION
       // users/{userId}/followers/{followerId}
       // ----------------------------------------------------------
