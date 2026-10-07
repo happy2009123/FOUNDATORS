@@ -153,41 +153,9 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-linesoft" />
         </div>
 
-        <button
-          onClick={async () => {
-            setLoading(true);
-            try {
-              await signInWithEmail('demo@foundators.app', 'demo123');
-              notification('success');
-              showToast('Welcome to Foundators!');
-              router.push('/home');
-            } catch (err) {
-              showToast('Demo login failed');
-            } finally {
-              setLoading(false);
-            }
-          }}
-          className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/30 bg-gold/5 py-3.5 text-[14px] font-bold text-gold active:scale-[0.98]"
-        >
-          Quick Demo Login
-        </button>
-
         <div className="mb-[22px] flex justify-center gap-3.5">
           <SocialButton onClick={handleGoogleSignIn} aria-label="Sign in with Google">
             <span className="text-[15px] font-extrabold">G</span>
-          </SocialButton>
-          <SocialButton onClick={() => showToast('GitHub sign-in coming soon')} aria-label="Sign in with GitHub">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M12 .5C5.73.5.9 5.34.9 11.6c0 5.02 3.26 9.28 7.78 10.79.57.1.78-.25.78-.55v-2.1c-3.17.69-3.83-1.36-3.83-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.7.08-.69.08-.69 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.24 3.33.95.1-.74.4-1.24.72-1.53-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.5-1.45.11-3.02 0 0 .96-.31 3.15 1.17a10.9 10.9 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.61 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.66 5.33-5.2 5.62.41.36.77 1.08.77 2.17v3.22c0 .3.21.66.79.55A11.6 11.6 0 0 0 23.1 11.6C23.1 5.34 18.27.5 12 .5Z" />
-            </svg>
-          </SocialButton>
-          <SocialButton onClick={() => showToast('LinkedIn sign-in coming soon')} aria-label="Sign in with LinkedIn">
-            <span className="text-[15px] font-extrabold text-brandblue">in</span>
-          </SocialButton>
-          <SocialButton onClick={() => showToast('Apple sign-in coming soon')} aria-label="Sign in with Apple">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M16.4 1.4c.1 1.1-.3 2.1-1 2.9-.7.8-1.8 1.5-2.9 1.4-.1-1.1.4-2.2 1-2.9.8-.9 2-1.5 2.9-1.4Zm3.7 16.9c-.3.7-.6 1.3-1 1.9-.6 1-1.3 2.2-2.3 2.2-.9 0-1.2-.6-2.3-.6s-1.4.6-2.3.6c-1 0-1.7-1.1-2.4-2.1-1.6-2.3-2.8-6.6-1.1-9.5.8-1.4 2.2-2.3 3.7-2.3 1.1 0 2 .7 2.7.7.6 0 1.8-.9 3.1-.8.5 0 2 .2 3 1.5-.1.1-1.8 1-1.8 3.1 0 2.5 2.1 3.4 2.2 3.4-.1.3-.3 1-.9 1.9Z" />
-            </svg>
           </SocialButton>
         </div>
 

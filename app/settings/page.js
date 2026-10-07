@@ -2,11 +2,13 @@
 
 import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import SubpageHeader from '@/components/SubpageHeader';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
+import { auth } from '@/lib/firebase';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const NOTIF_ROWS = [
@@ -32,6 +34,24 @@ export default function SettingsPage() {
     await signOutFully();
     showToast('Logged out');
     router.push('/login');
+  }
+
+  // Real Firebase password reset. The old control only showed a success
+  // toast without sending anything.
+  async function handlePasswordReset() {
+    const email = auth?.currentUser?.email;
+    if (!email) {
+      showToast('No signed-in email account');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showToast('Password reset link sent to your email');
+    } catch (e) {
+      showToast(e?.code === 'auth/too-many-requests'
+        ? 'Too many requests. Try again shortly.'
+        : 'Could not send the reset link. Try again.');
+    }
   }
 
   return (
@@ -64,7 +84,7 @@ export default function SettingsPage() {
           <SettingRow key={r.key} label={r.label} on={settings[r.key]} onToggle={() => toggleSetting(r.key)} />
         ))}
         <button
-          onClick={() => showToast('Blocked users list coming soon')}
+          onClick={() => router.push('/settings/blocked')}
           className="flex w-full items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold"
         >
           <span>Blocked users</span>
@@ -79,7 +99,7 @@ export default function SettingsPage() {
 
         <SectionLabel>Account</SectionLabel>
         <button
-          onClick={() => showToast('Password reset link sent to your email')}
+          onClick={handlePasswordReset}
           className="w-full py-3.5 text-left text-[13.5px] font-semibold text-text2"
         >
           Change password

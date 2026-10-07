@@ -5,17 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Flame, UserPlus, ArrowRight, MapPin, AtSign } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import { db, auth } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { useStore } from '@/lib/store';
-
-const FALLBACK_TAGS = [
-  { tag: 'AI', posts: 1240 },
-  { tag: 'StartupLife', posts: 890 },
-  { tag: 'ReactNative', posts: 567 },
-  { tag: 'Funding', posts: 423 },
-  { tag: 'Design', posts: 312 },
-  { tag: 'OpenSource', posts: 289 },
-];
 
 const QUICK_LINKS = [
   '/opportunities',
@@ -31,13 +22,17 @@ export default function DesktopRightPanel() {
   const followedUsers = useStore((s) => s.followedUsers);
   const myId = useStore((s) => s.profile?.id);
   const [users, setUsers] = useState({});
+  const [trendingTags, setTrendingTags] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchUsers() {
+    async function fetchData() {
       try {
         const userId = auth?.currentUser?.uid;
-        const snap = await getDocs(collection(db, 'users'));
+        const [usersSnap, tagsSnap] = await Promise.all([
+          getDocs(collection(db, 'users')),
+          getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(500)))
+        ]);
         let blockedIds = new Set();
         if (userId) {
           const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
@@ -45,14 +40,26 @@ export default function DesktopRightPanel() {
         }
         if (!cancelled) {
           const map = {};
-          snap.docs.filter((d) => !blockedIds.has(d.id)).forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+          usersSnap.docs.filter((d) => !blockedIds.has(d.id)).forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
           setUsers(map);
+
+          // Derive trending tags from recent posts
+          const tagCounts = {};
+          tagsSnap.docs.forEach((d) => {
+            const tag = d.data().tagType;
+            if (tag) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+          });
+          const sortedTags = Object.entries(tagCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([tag, posts]) => ({ tag, posts }));
+          setTrendingTags(sortedTags);
         }
       } catch {
         // silently fail
       }
     }
-    fetchUsers();
+    fetchData();
     return () => { cancelled = true; };
   }, []);
 
@@ -74,16 +81,20 @@ export default function DesktopRightPanel() {
           <Flame size={13} /> Trending
         </div>
         <div className="mt-3 space-y-2">
-          {FALLBACK_TAGS.map((t) => (
-            <button
-              key={t.tag}
-              onClick={() => router.push(`/explore?q=${encodeURIComponent(t.tag)}`)}
-              className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/[0.04]"
-            >
-              <span className="text-[13px] font-bold">#{t.tag}</span>
-              <span className="text-[10.5px] text-text3">{t.posts.toLocaleString()} posts</span>
-            </button>
-          ))}
+          {trendingTags.length > 0 ? (
+            trendingTags.map((t) => (
+              <button
+                key={t.tag}
+                onClick={() => router.push(`/explore?q=${encodeURIComponent(t.tag)}`)}
+                className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/[0.04]"
+              >
+                <span className="text-[13px] font-bold">#{t.tag}</span>
+                <span className="text-[10.5px] text-text3">{t.posts.toLocaleString()} posts</span>
+              </button>
+            ))
+          ) : (
+            <div className="py-3 text-center text-[11.5px] text-text3">No trending topics yet</div>
+          )}
         </div>
       </section>
 

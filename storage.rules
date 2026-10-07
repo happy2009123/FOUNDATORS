@@ -38,10 +38,22 @@ service firebase.storage {
         && underLimit(5 * 1024 * 1024);
     }
 
-    // Post images: uploaded as "posts/<postId>/<name>" BEFORE the Firestore
-    // post document exists (see app/create/page.js), so ownership cannot be
-    // verified against Firestore at upload time. Signed-in + type + size only.
-    match /posts/{postId}/{fileName} {
+    // Post images: uploaded as "posts/<uid>/<postId>/<name>" so the
+    // owner can be verified against the authenticated user. The post
+    // document may not exist yet at upload time, but the uid segment
+    // proves the uploader owns the file.
+    match /posts/{userId}/{postId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && isImage()
+        && underLimit(10 * 1024 * 1024);
+    }
+
+    // Voice room covers: "voice/covers/<name>" — any signed-in user,
+    // image only. Filenames are timestamp-based so collisions across
+    // users are effectively impossible.
+    match /voice/covers/{fileName} {
       allow read: if true;
       allow write: if isSignedIn()
         && isImage()

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { useStore } from '@/lib/store';
+import { signOutFully } from '@/lib/authActions';
 import {
   Card, PageHeader, SectionTitle, Badge, ConfirmDialog, ErrorState,
 } from '@/components/admin/ui';
@@ -29,7 +30,6 @@ const DEFAULT_PREFS = { compactTables: false, defaultPeriod: '7D' };
 export default function AdminSettingsPage() {
   const router = useRouter();
   const profile = useStore((s) => s.profile);
-  const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
 
   const [prefs, setPrefs] = useState(null);
@@ -253,7 +253,7 @@ export default function AdminSettingsPage() {
         body="End this admin session on this device?"
         confirmLabel="Sign out"
         danger
-        onConfirm={() => { setSignOutOpen(false); logout?.(); router.replace('/login'); }}
+        onConfirm={async () => { setSignOutOpen(false); await signOutFully(); router.replace('/login'); }}
         onCancel={() => setSignOutOpen(false)}
       />
     </div>

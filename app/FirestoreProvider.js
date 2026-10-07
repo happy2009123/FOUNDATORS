@@ -20,6 +20,10 @@ export default function FirestoreProvider({ children }) {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const set = useStore.setState;
   const unsubRef = useRef([]);
+  // Post-feed listeners live in their own list: the follow snapshot re-fires
+  // and rebuilds them, so they must be swapped out without touching the
+  // profile/notifications/chats listeners that belong to this mount.
+  const postUnsubsRef = useRef([]);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !isLoggedIn) return;
@@ -73,11 +77,12 @@ export default function FirestoreProvider({ children }) {
       followSnap.docs.forEach((d) => { followedMap[d.id] = true; });
       set({ followedUsers: followedMap });
 
-      // Clean up old post listener
-      const oldPostUnsub = unsubRef.current._posts;
-      if (oldPostUnsub) {
-        try { oldPostUnsub(); } catch (e) {}
-      }
+      // Clean up the previous batch of post listeners ONLY. The old code
+      // stored an object here and then invoked it, so the TypeError was
+      // swallowed and every follow change leaked another full set of
+      // posts onSnapshot listeners for the life of the session.
+      postUnsubsRef.current.forEach((u) => { try { u(); } catch (e) {} });
+      postUnsubsRef.current = [];
 
       // Always include own posts + followed users' posts
       const allAuthorIds = [userId, ...followedIds];
@@ -127,9 +132,8 @@ export default function FirestoreProvider({ children }) {
           set((s) => ({ likedPosts: { ...s.likedPosts, ...likedMap } }));
         });
         unsubs.push(unsubPosts);
+        postUnsubsRef.current.push(unsubPosts);
       });
-
-      unsubRef.current._posts = { unsubscribe: () => unsubs.forEach((u) => { try { u(); } catch (e) {} }) };
     });
     unsubs.push(unsubFollows);
 
@@ -203,6 +207,8 @@ export default function FirestoreProvider({ children }) {
     unsubRef.current = unsubs;
     return () => {
       stopPresenceHeartbeat();
+      postUnsubsRef.current.forEach((u) => { try { u(); } catch (e) {} });
+      postUnsubsRef.current = [];
       unsubs.forEach((u) => {
         try { u(); } catch (e) {}
       });

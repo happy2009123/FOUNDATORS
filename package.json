@@ -9,8 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
     "generate-icons": "node scripts/generate-icons.js",
+    "test:rules": "npx --yes firebase-tools emulators:exec --only firestore,storage --project demo-rules-test \"node --test tests/rules.test.js\"",
     "build:android": "next build && npx cap sync android",
     "open:android": "npx cap open android"
   },
@@ -34,6 +34,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "sharp": "^0.35.4",

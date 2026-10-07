@@ -12,7 +12,8 @@ export default function CookieBanner() {
   useEffect(() => {
     const consent = localStorage.getItem('cookie-consent');
     if (!consent) {
-      setTimeout(() => setShow(true), 1000);
+      const timer = setTimeout(() => setShow(true), 1000);
+      return () => clearTimeout(timer);
     }
   }, []);
 

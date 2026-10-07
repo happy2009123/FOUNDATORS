@@ -3,9 +3,51 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
+async function verifyIdToken(idToken) {
+  const key =
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+    process.env.FIREBASE_WEB_API_KEY ||
+    process.env.FIREBASE_API_KEY ||
+    (await import('@/lib/firebaseConfig')).firebaseConfig.apiKey;
+  if (!key) return { error: 'missing-key' };
+  if (!idToken) return { error: 'missing-token' };
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const errJson = await res.json();
+        detail = (errJson.error && errJson.error.message) || '';
+      } catch (e) {
+        detail = '';
+      }
+      return { error: `lookup-${res.status}${detail ? `:${detail}` : ''}` };
+    }
+    const json = await res.json();
+    const user = json && json.users && json.users[0];
+    if (!user || !user.localId) return { error: 'no-user' };
+    return { user: { uid: user.localId, email: user.email || '' } };
+  } catch (err) {
+    return { error: `network:${err.message}` };
+  }
+}
+
 export async function POST(req) {
   try {
-    const { resourceType = 'auto', folder = '', publicId = '' } = await req.json();
+    const body = await req.json();
+    const { resourceType = 'auto', folder = '', publicId = '', idToken } = body;
+
+    const auth = await verifyIdToken(idToken);
+    if (auth.error) {
+      return NextResponse.json({ error: `Unauthorized: ${auth.error}` }, { status: 401 });
+    }
 
     // Client-side config uses the NEXT_PUBLIC_ var — accept either name so a
     // deploy that only sets one of them still signs uploads correctly.

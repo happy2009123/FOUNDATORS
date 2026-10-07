@@ -173,7 +173,8 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['status', 'verified', 'foundingNumber',
-                      'foundingApprovedAt', 'organizer', 'builderScore'])
+                      'foundingApprovedAt', 'organizer', 'builderScore',
+                      'followers', 'following'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['name', 'handle', 'bio', 'avatar',
                        'role', 'location', 'updatedAt'])
@@ -207,12 +208,40 @@ service cloud.firestore {
 
       // FOLLOW COUNTER: another signed-in user may bump this profile's
       // `followers` counter by exactly ±1 as part of the follow/unfollow
-      // transaction (no other field may change).
+      // transaction (no other field may change). The change must agree
+      // with the follow record in the SAME batch: a +1 only when this
+      // batch creates my followers/{uid} doc, a -1 only when it deletes
+      // it — so nobody can inflate or drain counts without moving the
+      // actual follow graph (existsAfter sees the post-batch state).
       allow update: if isSignedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers'])
         && request.resource.data.followers is int
-        && (request.resource.data.followers == resource.data.get('followers', 0) + 1
-            || request.resource.data.followers == resource.data.get('followers', 0) - 1);
+        && request.resource.data.followers >= 0
+        && ((request.resource.data.followers
+              == resource.data.get('followers', 0) + 1
+             && !exists(/databases/$(database)/documents/users/$(userId)/followers/$(uid()))
+             && existsAfter(/databases/$(database)/documents/users/$(userId)/followers/$(uid())))
+            || (request.resource.data.followers
+              == resource.data.get('followers', 0) - 1
+             && exists(/databases/$(database)/documents/users/$(userId)/followers/$(uid()))
+             && !existsAfter(/databases/$(database)/documents/users/$(userId)/followers/$(uid()))));
+
+      // FOLLOWING COUNTER: only the owner may bump their own `following`
+      // counter, by exactly ±1 and never negative. The matching
+      // subcollection record is keyed by the TARGET user (whose id the
+      // rules cannot derive from this write), so unlike `followers` it
+      // cannot be anchored to existsAfter — the trade-off is that an
+      // owner can nudge their own following number, which is cosmetic
+      // only: the real follow graph lives in the subcollections and all
+      // social features read that, never this counter.
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['following'])
+        && request.resource.data.following is int
+        && request.resource.data.following >= 0
+        && (request.resource.data.following
+              == resource.data.get('following', 0) + 1
+            || request.resource.data.following
+              == resource.data.get('following', 0) - 1);
 
       // DELETE: owner (account removal) or admin (moderation removal,
       // always behind an explicit confirmation workflow in the UI)
@@ -227,10 +256,31 @@ service cloud.firestore {
       // ----------------------------------------------------------
       match /notifications/{notificationId} {
         allow read, update: if isOwner(userId);
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll([
-                         'type', 'actorKey', 'text', 'read',
-                         'linkType', 'linkId', 'createdAt'
-                       ]);
+        // Previously ANY signed-in user could write into ANY user's
+        // notification feed with any actorKey — i.e. perfect spoofing
+        // plus arbitrary spam. Now the writer must be the actor they
+        // claim to be, the recipient themselves (self reminders), or
+        // an admin.
+        allow create: if isSignedIn()
+          && request.resource.data.keys().hasAll([
+               'type', 'actorKey', 'text', 'read',
+               'linkType', 'linkId', 'createdAt'
+             ])
+          && (request.resource.data.actorKey == uid()
+              || uid() == userId
+              || isAdmin())
+          && isValidString(request.resource.data.type, 60)
+          && isValidString(request.resource.data.actorKey, 128)
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.read is bool
+          && (!request.resource.data.keys().hasAny(['actorName'])
+              || request.resource.data.actorName is string)
+          && (request.resource.data.linkType == null
+              || request.resource.data.linkType is string)
+          && (request.resource.data.linkId == null
+              || request.resource.data.linkId is string)
+          && isValidTimestamp(request.resource.data.createdAt);
         allow delete: if isOwner(userId);
       }
 
@@ -266,13 +316,19 @@ service cloud.firestore {
       // user can never fabricate invites for other people. The
       // activation flag flips on only after the invitee performs a
       // real meaningful action in the app.
+      // The invite must reference the inviter (invitedUid == userId)
+      // AND the invitee's user doc must already have invitedBy == userId.
       // ----------------------------------------------------------
       match /invites/{invitedUserId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && uid() == invitedUserId
           && request.resource.data.keys().hasAll(['invitedUid', 'joinedAt'])
-          && request.resource.data.invitedUid == uid()
-          && isValidTimestamp(request.resource.data.joinedAt);
+          && request.resource.data.invitedUid == userId
+          && isValidTimestamp(request.resource.data.joinedAt)
+          // getAfter (not get) so a client that batches the invitedBy
+          // write with the invite create in one transaction also passes;
+          // for sequential writes the two are equivalent.
+          && getAfter(/databases/$(database)/documents/users/$(uid())).data.invitedBy == userId;
         allow update: if isSignedIn() && uid() == invitedUserId
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['activated'])
@@ -450,16 +506,38 @@ service cloud.firestore {
         && isValidTimestamp(request.resource.data.createdAt);
 
       // UPDATE: Two allowed paths —
-      //  1. Anyone (signed in) can toggle likes/bookmarks and bump the
-      //     comment counter when commenting
-      //  2. Only the author can edit post content
+      //  1. Anyone signed in may toggle their OWN like/bookmark entry
+      //     and bump the comment counter, but only within a strict
+      //     field allowlist: `likes` must move exactly with `likedBy`,
+      //     `bookmarkedBy` may only gain/lose the caller, and
+      //     `commentsCount` may move by at most 1 and never below 0.
+      //     (Before this, any account could rewrite any post's
+      //     likedBy/likes/commentsCount wholesale.)
+      //  2. Only the author can edit post content, and only content
+      //     fields — engagement state is off-limits to the author too.
       allow update: if isSignedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
              'likedBy', 'bookmarkedBy', 'likes', 'commentsCount'
-           ]);
+           ])
+        && selfToggled('likedBy')
+        && selfToggled('bookmarkedBy')
+        && request.resource.data.get('likes', 0) is int
+        && request.resource.data.get('likes', 0) >= 0
+        && request.resource.data.get('likes', 0)
+             == resource.data.get('likes', 0)
+                + (request.resource.data.get('likedBy', []).size()
+                   - resource.data.get('likedBy', []).size())
+        && request.resource.data.get('commentsCount', 0) is int
+        && request.resource.data.get('commentsCount', 0) >= 0
+        && request.resource.data.get('commentsCount', 0)
+             <= resource.data.get('commentsCount', 0) + 1
+        && request.resource.data.get('commentsCount', 0)
+             >= resource.data.get('commentsCount', 0) - 1;
       allow update: if isSignedIn()
         && resource.data.authorKey == uid()
-        && request.resource.data.authorKey == resource.data.authorKey;
+        && request.resource.data.authorKey == resource.data.authorKey
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['text', 'tagType', 'imageUrl', 'updatedAt']);
 
       // DELETE: Only the author can delete their own post; admins can
       // remove posts as part of moderation (logged via adminActions)
@@ -496,15 +574,25 @@ service cloud.firestore {
           && isValidTimestamp(request.resource.data.createdAt)
           && request.resource.data.edited is bool;
 
-        // UPDATE: Anyone can toggle a comment like; only the comment
-        // author can edit the comment text
+        // UPDATE: Anyone can toggle their OWN like on a comment, and
+        // `likes` must move exactly with `likedBy`; only the comment
+        // author can edit the comment text (content fields only).
         allow update: if isSignedIn()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                'likedBy', 'likes'
-             ]);
+             ])
+          && selfToggled('likedBy')
+          && request.resource.data.get('likes', 0) is int
+          && request.resource.data.get('likes', 0) >= 0
+          && request.resource.data.get('likes', 0)
+               == resource.data.get('likes', 0)
+                  + (request.resource.data.get('likedBy', []).size()
+                     - resource.data.get('likedBy', []).size());
         allow update: if isSignedIn()
           && resource.data.authorKey == uid()
-          && request.resource.data.authorKey == resource.data.authorKey;
+          && request.resource.data.authorKey == resource.data.authorKey
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['text', 'edited', 'updatedAt']);
 
         // DELETE: comment author, admin, or the author of the post the
         // comment lives on. deletePost() batch-clears all comments when a
@@ -676,7 +764,10 @@ service cloud.firestore {
     // ============================================================
     // Only participants in a chat can read, write, or manage it.
     // Any signed-in user can create a chat but must include
-    // themselves in the participants array.
+    // themselves in the participants array. Chat IDs for DMs are
+    // deterministic (sorted join with '__'); for groups we require
+    // a group-sized ID pattern so a group chat can never squat a
+    // pair ID.
     // ============================================================
     match /chats/{chatId} {
 
@@ -690,17 +781,46 @@ service cloud.firestore {
             || !exists(/databases/$(database)/documents/chats/$(chatId))
             || uid() in resource.data.participants);
 
-      // CREATE: Any authenticated user can create a chat, but they
-      // must be listed in the participants array
+      // CREATE: Tight binding between the doc ID and the participants
+      // list. For 1:1 chats the ID must be either participant ordering.
+      // For groups (3+ participants) the ID must contain at least two
+      // '__' separators so it can never match a pair ID. The creator
+      // must be in participants, participants must be unique, and the
+      // isGroup flag must match the size.
       allow create: if isSignedIn()
         && uid() in request.resource.data.participants
-        && isNonEmptyArray(request.resource.data.participants);
+        && isNonEmptyArray(request.resource.data.participants)
+        && request.resource.data.participants.size() >= 2
+        && request.resource.data.participants.size() <= 50
+        && request.resource.data.participants.toSet().size()
+             == request.resource.data.participants.size()
+        && request.resource.data.isGroup is bool
+        && ((request.resource.data.participants.size() == 2
+             && request.resource.data.isGroup == false
+             && (chatId == request.resource.data.participants[0] + '__' + request.resource.data.participants[1]
+                 || chatId == request.resource.data.participants[1] + '__' + request.resource.data.participants[0]))
+            || (request.resource.data.participants.size() >= 3
+                && request.resource.data.isGroup == true
+                && chatId.matches('^.*__.*__.*$')));
 
-      // UPDATE: Only participants can update (e.g., lastMessage)
+      // UPDATE: Participants may only update chat metadata fields.
+      // participants, isGroup, and createdAt are immutable. .get() is
+      // used for the flags so legacy chats created before those fields
+      // existed can still receive lastMessage/unread updates.
       allow update: if isSignedIn()
-        && uid() in resource.data.participants;
+        && uid() in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.get('isGroup', false)
+             == resource.data.get('isGroup', false)
+        && request.resource.data.get('createdAt', null)
+             == resource.data.get('createdAt', null)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'participantNames', 'participantAvatars', 'groupName',
+             'lastMessage', 'lastMessageAt', 'unreadBy', 'typing'
+           ]);
 
-      // DELETE: Only participants can delete a chat
+      // DELETE: Any participant may delete the chat (cascades to
+      // messages via the client-side batch).
       allow delete: if isSignedIn()
         && uid() in resource.data.participants;
 
@@ -789,10 +909,73 @@ service cloud.firestore {
     match /reels/{reelId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.resource.data.authorKey == uid();
-      allow update: if isSignedIn();
+        && request.resource.data.authorKey == uid()
+        && request.resource.data.keys().hasAll([
+             'authorKey', 'authorName', 'authorAvatar', 'videoUrl',
+             'text', 'likes', 'comments', 'shares', 'createdAt'
+           ])
+        && isValidString(request.resource.data.authorKey, 128)
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.likes is int
+        && request.resource.data.likes >= 0
+        && request.resource.data.comments is int
+        && request.resource.data.comments >= 0
+        && request.resource.data.shares is int
+        && request.resource.data.createdAt is timestamp;
+      // Previously `allow update: if isSignedIn();` — ANY account could
+      // rewrite ANY reel (including authorKey, which then unlocked the
+      // delete rule below). Now: only the author may edit their own
+      // reel's content fields. Engagement counters (likes/comments/
+      // shares) are intentionally NOT writable from the client — the
+      // reel UI keeps engagement local, and no client code writes them.
+      allow update: if isSignedIn()
+        && resource.data.authorKey == uid()
+        && request.resource.data.authorKey == resource.data.authorKey
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['text', 'effect', 'sound', 'videoUrl']);
       allow delete: if isSignedIn()
         && resource.data.authorKey == uid();
+
+      // Reel comments — this subcollection had NO rule at all, so every
+      // read/write fell through to the catch-all deny and comments on
+      // reels silently failed.
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.authorKey == uid()
+          && request.resource.data.keys()
+               .hasAll(['text', 'authorKey', 'authorName', 'authorAvatar',
+                        'likes', 'likedBy', 'createdAt'])
+          && isValidString(request.resource.data.text, 2000)
+          && isValidString(request.resource.data.authorKey, 128)
+          && request.resource.data.likedBy is list
+          && request.resource.data.likes is int
+          && request.resource.data.createdAt is timestamp;
+        // Likes are a self-toggle; a reply may only be appended to or
+        // removed from the replies list one element at a time.
+        allow update: if isSignedIn()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['replies', 'likes', 'likedBy'])
+          && selfToggled('likedBy')
+          && request.resource.data.get('likes', 0) is int
+          && request.resource.data.get('likes', 0) >= 0
+          && request.resource.data.get('likes', 0)
+               <= resource.data.get('likes', 0) + 1
+          && request.resource.data.get('likes', 0)
+               >= resource.data.get('likes', 0) - 1
+          && request.resource.data.get('replies', []) is list
+          && resource.data.get('replies', []) is list
+          && request.resource.data.get('replies', []).size()
+               <= resource.data.get('replies', []).size() + 1
+          && request.resource.data.get('replies', []).size()
+               >= resource.data.get('replies', []).size() - 1;
+        allow delete: if isAdmin()
+          || (isSignedIn() && resource.data.authorKey == uid())
+          || (isSignedIn()
+              && get(/databases/$(database)/documents/reels/$(reelId))
+                   .data.authorKey == uid());
+      }
     }
 
     // ============================================================
@@ -914,10 +1097,16 @@ service cloud.firestore {
             && (resource.data.get('authorKey', '') == uid()
                 || resource.data.get('userId', '') == uid()
                 || resource.data.get('followerId', '') == uid()));
+      // Previously ANY signed-in user could create events with
+      // arbitrary actor fields — e.g. fake analytics for other users.
+      // Now the caller must be the actor they claim to be.
       allow create: if isSignedIn()
         && request.resource.data.keys().hasAll(['eventType', 'createdAt'])
         && isValidString(request.resource.data.eventType, 100)
-        && isValidTimestamp(request.resource.data.createdAt);
+        && isValidTimestamp(request.resource.data.createdAt)
+        && (request.resource.data.authorKey == uid()
+            || request.resource.data.userId == uid()
+            || request.resource.data.followerId == uid());
       allow update, delete: if false;
     }
 
@@ -1056,7 +1245,7 @@ service cloud.firestore {
               && request.resource.data.status in ['joined', 'left']
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'isMuted', 'raisedHand', 'lastActiveAt', 'status', 'role',
-                'name', 'avatar', 'verified', 'invited'
+                'name', 'avatar', 'invited'
               ])
               && (request.resource.data.role == resource.data.role
                   || (request.resource.data.role == 'listener'
@@ -1176,6 +1365,56 @@ service cloud.firestore {
     match /users/{userId}/voiceReminders/{voiceReminderId} {
       allow read, write: if isOwner(userId);
     }
+
+    // ============================================================
+    // OPPORTUNITIES COLLECTION
+    // opportunities/{opportunityId}
+    // ============================================================
+    // Curated jobs/funding/projects. Readable by any signed-in user;
+    // writes only by admins (seeded via console/Cloud Functions).
+    // ============================================================
+    match /opportunities/{opportunityId} {
+      allow read: if isSignedIn();
+      // Note: request.resource.data is null on delete, so validation
+      // is attached to create/update only and delete is admin-only.
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasAll(['title', 'createdAt'])
+        && isValidString(request.resource.data.title, 200)
+        && isValidTimestamp(request.resource.data.createdAt);
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // PENDING NOTIFICATIONS COLLECTION
+    // pending-notifications/{notificationId}
+    // ============================================================
+    // Stores push notification payloads for external processing
+    // (Cloud Function picks these up and sends via FCM Admin SDK).
+    // Client may enqueue a notification for ANY user (targetUserId)
+    // but must include a valid recipient and bounded payload.
+    // ============================================================
+    match /pending-notifications/{notificationId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+             'targetUserId', 'title', 'body', 'data', 'sent', 'createdAt'
+           ])
+        && isValidString(request.resource.data.targetUserId, 128)
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.targetUserId))
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 500
+        && request.resource.data.data is map
+        && request.resource.data.sent == false
+        && isValidTimestamp(request.resource.data.createdAt);
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sent']);
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -87,31 +87,44 @@ function RemoteAudio({ stream }) {
 // instead of staying silent forever.
 const pendingPlays = new Set();
 let unlockListenerBound = false;
+let onGestureRef = null;
+
+function attachUnlockListener() {
+  if (unlockListenerBound) return;
+  unlockListenerBound = true;
+  onGestureRef = () => {
+    pendingPlays.forEach((target) => {
+      const retry = target.play();
+      if (retry && typeof retry.then === 'function') {
+        retry.then(() => pendingPlays.delete(target)).catch(() => {});
+      } else {
+        pendingPlays.delete(target);
+      }
+    });
+    if (pendingPlays.size === 0) {
+      detachUnlockListener();
+    }
+  };
+  document.addEventListener('pointerdown', onGestureRef, { passive: true });
+  document.addEventListener('touchstart', onGestureRef, { passive: true });
+}
+
+function detachUnlockListener() {
+  if (onGestureRef) {
+    document.removeEventListener('pointerdown', onGestureRef);
+    document.removeEventListener('touchstart', onGestureRef);
+    onGestureRef = null;
+    unlockListenerBound = false;
+    pendingPlays.clear();
+  }
+}
 
 function attemptPlay(el) {
   const p = el.play();
   if (!p || typeof p.catch !== 'function') return;
   p.catch(() => {
     pendingPlays.add(el);
-    if (unlockListenerBound) return;
-    unlockListenerBound = true;
-    const onGesture = () => {
-      pendingPlays.forEach((target) => {
-        const retry = target.play();
-        if (retry && typeof retry.then === 'function') {
-          retry.then(() => pendingPlays.delete(target)).catch(() => {});
-        } else {
-          pendingPlays.delete(target);
-        }
-      });
-      if (pendingPlays.size === 0) {
-        document.removeEventListener('pointerdown', onGesture);
-        document.removeEventListener('touchstart', onGesture);
-        unlockListenerBound = false;
-      }
-    };
-    document.addEventListener('pointerdown', onGesture, { passive: true });
-    document.addEventListener('touchstart', onGesture, { passive: true });
+    attachUnlockListener();
   });
 }
 
@@ -226,6 +239,13 @@ export default function VoiceRoomPage() {
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Clean up audio unlock listeners on unmount
+  useEffect(() => {
+    return () => {
+      detachUnlockListener();
+    };
   }, []);
 
   useEffect(() => {
@@ -569,8 +589,8 @@ export default function VoiceRoomPage() {
       await startVoiceRoom(roomId);
       await notifyUser(room.hostId, {
         type: 'voice_started',
-        actorKey: room.hostId,
-        actorName: room.hostName,
+        actorKey: uid,
+        actorName: (profile && profile.name) || room.hostName,
         text: `Your room “${room.title}” is starting now.`,
         linkType: 'voice_room',
         linkId: roomId,

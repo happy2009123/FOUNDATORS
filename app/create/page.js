@@ -144,10 +144,19 @@ export default function CreatePage() {
     setIsPublishing(true);
     try {
       let finalImageUrl = imagePreview;
-      if (selectedImage) {
-        const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const compressed = await compressImage(selectedImage);
-        const result = await uploadImage(compressed, `posts/${postId}/${compressed.name}`);
+if (selectedImage) {
+          const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          const compressed = await compressImage(selectedImage);
+          // The storage path MUST include the uid — the rules verify the
+          // owner from that segment, and a uid-less path is denied.
+          const uid = profile?.id;
+          if (!uid) {
+            showToast('Your profile is still loading — try again in a moment');
+            setIsPublishing(false);
+            return;
+          }
+          const path = `posts/${uid}/${postId}/${compressed.name}`;
+          const result = await uploadImage(compressed, path);
         if (result.success) {
           finalImageUrl = result.data;
         } else {

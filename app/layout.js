@@ -18,6 +18,7 @@ const inter = Inter({
 });
 
 export const metadata = {
+  metadataBase: new URL('https://foundators.app'),
   title: {
     default: 'Foundators — Social Network for Founders',
     template: '%s | Foundators',
@@ -46,7 +47,6 @@ export const metadata = {
     follow: true,
   },
   manifest: '/manifest.json',
-  themeColor: '#d9ac3d',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -65,7 +65,7 @@ export const viewport = {
   // Let the keyboard resize the layout viewport (Android Chrome) so the chat
   // screen's 100dvh frame shrinks and the composer stays above the keyboard.
   interactiveWidget: 'resizes-content',
-  themeColor: '#020202',
+  themeColor: '#d9ac3d',
 };
 
 export default function RootLayout({ children }) {

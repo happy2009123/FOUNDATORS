@@ -51,9 +51,9 @@ export default function Opportunities() {
       <SubpageHeader title="Opportunities" />
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-[18px] pb-6">
         <div className="gold-card mt-3 p-4">
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.15em] text-gold"><Sparkles size={13} /> Personalized for you</div>
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.15em] text-gold"><Sparkles size={13} /> Explore opportunities</div>
           <div className="mt-2 text-[19px] font-black">{items.length > 0 ? `${items.length} live opportunities` : 'No opportunities yet'}</div>
-          <div className="mt-1 text-[10.5px] text-text2">{items.length > 0 ? 'Matched to your skills, mission and location.' : 'Check back soon — new opportunities appear regularly.'}</div>
+          <div className="mt-1 text-[10.5px] text-text2">{items.length > 0 ? 'Browse jobs, funding, and projects.' : 'Check back soon — new opportunities appear regularly.'}</div>
         </div>
 
         <div className="mt-3 flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-3.5 py-3">

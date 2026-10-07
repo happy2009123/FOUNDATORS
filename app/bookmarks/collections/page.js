@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Bookmark, MoreHorizontal, Trash2, Edit3 } from 'lucide-react';
 import { useStore } from '@/lib/store';
@@ -8,11 +8,11 @@ import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 
-const DEFAULT_COLLECTIONS = [
-  { id: 'all', name: 'All Saved', count: 12, icon: '📌' },
-  { id: 'inspiration', name: 'Inspiration', count: 5, icon: '💡' },
-  { id: 'tutorials', name: 'Tutorials', count: 3, icon: '📚' },
-  { id: 'tools', name: 'Tools & Resources', count: 4, icon: '🛠️' },
+const SYSTEM_COLLECTIONS = [
+  { id: 'all', name: 'All Saved', icon: '📌' },
+  { id: 'inspiration', name: 'Inspiration', icon: '💡' },
+  { id: 'tutorials', name: 'Tutorials', icon: '📚' },
+  { id: 'tools', name: 'Tools & Resources', icon: '🛠️' },
 ];
 
 export default function SavedCollectionsPage() {
@@ -20,16 +20,25 @@ export default function SavedCollectionsPage() {
   const router = useRouter();
   const { vibrate } = useHaptics();
   const showToast = useStore((s) => s.showToast);
-  const [collections, setCollections] = useState(DEFAULT_COLLECTIONS);
+  const bookmarks = useStore((s) => s.bookmarks);
+  const [collections, setCollections] = useState([]);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
 
   if (!ready) return <AuthSkeleton />;
 
+  // Derive counts from actual bookmarks
+  const collectionsWithCounts = useMemo(() => {
+    return collections.map((c) => ({
+      ...c,
+      count: bookmarks.filter((b) => b.collections?.includes(c.id)).length,
+    }));
+  }, [collections, bookmarks]);
+
   const createCollection = () => {
     if (!newName.trim()) return;
     vibrate('light');
-    setCollections((prev) => [...prev, { id: `c_${Date.now()}`, name: newName.trim(), count: 0, icon: '📁' }]);
+    setCollections((prev) => [...prev, { id: `c_${Date.now()}`, name: newName.trim(), icon: '📁' }]);
     setNewName('');
     setShowNew(false);
     showToast('Collection created');
@@ -75,7 +84,28 @@ export default function SavedCollectionsPage() {
 
       {/* Collections */}
       <div className="p-4 space-y-3">
-        {collections.map((col) => (
+        {/* System collections (always present) */}
+        {SYSTEM_COLLECTIONS.map((sys) => {
+          const count = sys.id === 'all'
+            ? bookmarks.length
+            : bookmarks.filter((b) => b.collections?.includes(sys.id)).length;
+          return (
+            <div
+              key={sys.id}
+              className="flex items-center gap-4 rounded-2xl border border-linesoft bg-card p-4 active:bg-white/5 transition-colors cursor-pointer"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-2xl">
+                {sys.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-bold">{sys.name}</div>
+                <div className="text-[11px] text-text2">{count} saved posts</div>
+              </div>
+            </div>
+          );
+        })}
+        {/* User-created collections */}
+        {collectionsWithCounts.map((col) => (
           <div
             key={col.id}
             className="flex items-center gap-4 rounded-2xl border border-linesoft bg-card p-4 active:bg-white/5 transition-colors cursor-pointer"

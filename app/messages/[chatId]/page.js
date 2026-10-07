@@ -545,6 +545,15 @@ export default function ChatPage() {
     setRecordingTime(0);
   }, [vibrate]);
 
+  // Clean up recording interval on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingInterval.current) {
+        clearInterval(recordingInterval.current);
+      }
+    };
+  }, []);
+
   const handleImageSelect = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
