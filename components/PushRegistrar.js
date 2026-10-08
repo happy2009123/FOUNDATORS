@@ -54,11 +54,12 @@ export default function PushRegistrar() {
         });
 
         if (token) {
-          // Store FCM token in Firestore
+          // Store the FCM token in the owner-only private subcollection
+          // (the public profile doc is readable by every signed-in user)
           const { db } = await import('@/lib/firebase');
           const { doc, setDoc, arrayUnion, serverTimestamp } = await import('firebase/firestore');
-          await setDoc(doc(db, 'users', profile.id), {
-            fcmTokens: arrayUnion(token),
+          await setDoc(doc(db, 'users', profile.id, 'private', 'fcmTokens'), {
+            tokens: arrayUnion(token),
             lastTokenUpdate: serverTimestamp(),
           }, { merge: true });
         }
@@ -103,8 +104,8 @@ export default function PushRegistrar() {
           if (token.value) {
             const { db } = await import('@/lib/firebase');
             const { doc, setDoc, arrayUnion, serverTimestamp } = await import('firebase/firestore');
-            await setDoc(doc(db, 'users', profile.id), {
-              fcmTokens: arrayUnion(token.value),
+            await setDoc(doc(db, 'users', profile.id, 'private', 'fcmTokens'), {
+              tokens: arrayUnion(token.value),
               lastTokenUpdate: serverTimestamp(),
             }, { merge: true });
           }

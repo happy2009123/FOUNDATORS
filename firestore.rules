@@ -145,10 +145,16 @@ service cloud.firestore {
       // Ensures all required fields are present and valid, and that
       // admin-managed fields (status/verified/founding/organizer/
       // builderScore) can never be smuggled in at signup time either.
+      // `email`, `fcmTokens` and `lastTokenUpdate` are account-private
+      // and must NEVER land on the public profile document: the email
+      // lives in Firebase Auth (and the owner's session), push tokens
+      // live in users/{userId}/private/fcmTokens. Existing documents
+      // are stripped by scripts/migrate-user-privacy.js.
       allow create: if isOwner(userId)
         && !request.resource.data.keys().hasAny([
              'status', 'verified', 'foundingNumber',
-             'foundingApprovedAt', 'organizer', 'builderScore'
+             'foundingApprovedAt', 'organizer', 'builderScore',
+             'email', 'fcmTokens', 'lastTokenUpdate'
            ])
         && request.resource.data.keys().hasAll([
              'name', 'handle', 'bio', 'avatar', 'role',
@@ -174,7 +180,8 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['status', 'verified', 'foundingNumber',
                       'foundingApprovedAt', 'organizer', 'builderScore',
-                      'followers', 'following'])
+                      'followers', 'following',
+                      'email', 'fcmTokens', 'lastTokenUpdate'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
              .hasAny(['name', 'handle', 'bio', 'avatar',
                        'role', 'location', 'updatedAt'])
@@ -246,6 +253,19 @@ service cloud.firestore {
       // DELETE: owner (account removal) or admin (moderation removal,
       // always behind an explicit confirmation workflow in the UI)
       allow delete: if isOwner(userId) || isAdmin();
+
+      // ----------------------------------------------------------
+      // ACCOUNT-PRIVATE SUBCOLLECTION
+      // users/{userId}/private/{docId}
+      // ----------------------------------------------------------
+      // Push tokens and other secrets live here instead of on the
+      // public profile document (which every signed-in user can read
+      // for the public directory). Nobody but the owner — or an admin
+      // operating the moderation console — may touch this data.
+      // ----------------------------------------------------------
+      match /private/{docId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
 
       // ----------------------------------------------------------
       // NOTIFICATIONS SUBCOLLECTION
@@ -807,6 +827,39 @@ service cloud.firestore {
       // participants, isGroup, and createdAt are immutable. .get() is
       // used for the flags so legacy chats created before those fields
       // existed can still receive lastMessage/unread updates.
+      // Beyond the field allowlist the VALUES are shaped too, so a
+      // participant cannot rewrite someone else's unread badge or
+      // fake another person's typing indicator. The rules language
+      // has no per-element iteration, so the maps are validated with
+      // Map.diff().affectedKeys() instead:
+      //  - unreadBy: keys must be participants. I may only reset MY
+      //    badge to 0 (mark-as-read). Any other participant's badge
+      //    may only change when this write also advances
+      //    lastMessageAt — the sendMessage shape, which must touch
+      //    EVERY other participant at once — and for 1:1 chats the
+      //    bump is verified to be exactly +1 (full protection: a
+      //    partner's counter can never be cleared or inflated).
+      //    Groups keep the shape check (a group-wide rewrite still
+      //    requires a message-preview update).
+      //  - typing: only my own key may change, to a number (or be
+      //    removed); faking someone else's indicator is denied.
+      //  - lastMessage / groupName: bounded strings; lastMessageAt
+      //    timestamp-or-null; participant maps keyed by participants
+      //    (per-value type checks are not expressible in rules).
+      function docChanged() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+      function unreadChanged() {
+        return request.resource.data.get('unreadBy', {}).diff(
+                 resource.data.get('unreadBy', {})).affectedKeys();
+      }
+      function oldUnread() { return resource.data.get('unreadBy', {}); }
+      function newUnread() { return request.resource.data.get('unreadBy', {}); }
+      function typingChanged() {
+        return request.resource.data.get('typing', {}).diff(
+                 resource.data.get('typing', {})).affectedKeys();
+      }
+
       allow update: if isSignedIn()
         && uid() in resource.data.participants
         && request.resource.data.participants == resource.data.participants
@@ -814,10 +867,60 @@ service cloud.firestore {
              == resource.data.get('isGroup', false)
         && request.resource.data.get('createdAt', null)
              == resource.data.get('createdAt', null)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        && docChanged().hasOnly([
              'participantNames', 'participantAvatars', 'groupName',
              'lastMessage', 'lastMessageAt', 'unreadBy', 'typing'
-           ]);
+           ])
+        && (!docChanged().hasAny(['lastMessage'])
+            || (request.resource.data.lastMessage is string
+                && request.resource.data.lastMessage.size() <= 4000))
+        && (!docChanged().hasAny(['lastMessageAt'])
+            || request.resource.data.lastMessageAt == null
+            || request.resource.data.lastMessageAt is timestamp)
+        && (!docChanged().hasAny(['groupName'])
+            || (request.resource.data.groupName is string
+                && request.resource.data.groupName.size() <= 120))
+        && (!docChanged().hasAny(['participantNames'])
+            || (request.resource.data.participantNames is map
+                && request.resource.data.participantNames.keys()
+                     .hasOnly(resource.data.participants)))
+        && (!docChanged().hasAny(['participantAvatars'])
+            || (request.resource.data.participantAvatars is map
+                && request.resource.data.participantAvatars.keys()
+                     .hasOnly(resource.data.participants)))
+        && (!docChanged().hasAny(['unreadBy'])
+            || (request.resource.data.unreadBy is map
+                && request.resource.data.unreadBy.keys()
+                     .hasOnly(resource.data.participants)
+                && ((unreadChanged().hasOnly([uid()])
+                     && newUnread().get(uid(), 0) == 0)
+                    || (!unreadChanged().hasAny([uid()])
+                        && unreadChanged().hasOnly(resource.data.participants)
+                        && unreadChanged().size()
+                             == resource.data.participants.size() - 1
+                        && request.resource.data.get('lastMessageAt', null)
+                             is timestamp
+                        && request.resource.data.get('lastMessageAt', null)
+                             != resource.data.get('lastMessageAt', null)
+                         && (resource.data.participants.size() > 2
+                             || (resource.data.participants[0] == uid()
+                                 && newUnread().get(
+                                      resource.data.participants[1], 0)
+                                      == oldUnread().get(
+                                           resource.data.participants[1], 0) + 1)
+                             || (resource.data.participants[1] == uid()
+                                 && newUnread().get(
+                                      resource.data.participants[0], 0)
+                                      == oldUnread().get(
+                                           resource.data.participants[0], 0) + 1))))))
+        && (!docChanged().hasAny(['typing'])
+            || (request.resource.data.typing is map
+                && request.resource.data.typing.keys()
+                     .hasOnly(resource.data.participants)
+                && typingChanged().hasOnly([uid()])
+                && (request.resource.data.typing.get(uid(), null) == null
+                    || request.resource.data.typing.get(uid(), null)
+                         is number)));
 
       // DELETE: Any participant may delete the chat (cascades to
       // messages via the client-side batch).
@@ -1408,6 +1511,12 @@ service cloud.firestore {
         && request.resource.data.body.size() > 0
         && request.resource.data.body.size() <= 500
         && request.resource.data.data is map
+        // The claimed sender identity rides inside `data.userId` so the
+        // Cloud Function can apply a per-actor hourly quota on top of
+        // the per-recipient quota (spam is dropped, not delivered).
+        && request.resource.data.data.userId is string
+        && request.resource.data.data.userId.size() > 0
+        && request.resource.data.data.userId.size() <= 128
         && request.resource.data.sent == false
         && isValidTimestamp(request.resource.data.createdAt);
       allow update: if isAdmin()

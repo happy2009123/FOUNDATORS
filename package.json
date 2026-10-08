@@ -11,6 +11,9 @@
     "start": "next start",
     "generate-icons": "node scripts/generate-icons.js",
     "test:rules": "npx --yes firebase-tools emulators:exec --only firestore,storage --project demo-rules-test \"node --test tests/rules.test.js\"",
+ "migrate:privacy": "node scripts/migrate-user-privacy.js",
+ "deploy:rules": "npx --yes firebase-tools deploy --only firestore:rules,storage --project foundators-66eb7",
+ "deploy:functions": "npx --yes firebase-tools deploy --only functions --project foundators-66eb7",
     "build:android": "next build && npx cap sync android",
     "open:android": "npx cap open android"
   },

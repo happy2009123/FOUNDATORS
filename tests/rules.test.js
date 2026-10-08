@@ -335,6 +335,60 @@ test('firestore rules', async (t) => {
     await assertFails(updateDoc(doc(db(root), 'users/dave'), { arbitrary: 'field' }));
   });
 
+  await t.test('profile: email / fcmTokens never touch the public doc', async () => {
+    const fresh = env.authenticatedContext('newuser');
+    const signup = (extra) => ({
+      uid: 'newuser',
+      name: 'New Founder',
+      handle: '@newfounder',
+      avatar: '',
+      bio: '',
+      role: '',
+      location: '',
+      website: '',
+      skills: [],
+      profileCompleted: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      ...extra,
+    });
+    // a signup payload carrying the account email is rejected...
+    await assertFails(
+      setDoc(doc(db(fresh), 'users/newuser'), signup({ email: 'new@example.com' }))
+    );
+    // ...and so is one smuggling push tokens onto the profile
+    await assertFails(
+      setDoc(doc(db(fresh), 'users/newuser'), signup({ fcmTokens: ['tok'] }))
+    );
+    // the same signup without private fields goes through
+    await assertSucceeds(setDoc(doc(db(fresh), 'users/newuser'), signup({})));
+    // the owner can never write secrets onto their own profile later
+    await assertFails(updateDoc(doc(db(alice), 'users/alice'), { email: 'a@b.c' }));
+    await assertFails(updateDoc(doc(db(alice), 'users/alice'), { fcmTokens: ['x'] }));
+    await assertFails(
+      updateDoc(doc(db(alice), 'users/alice'), { lastTokenUpdate: serverTimestamp() })
+    );
+  });
+
+  await t.test('privacy: users/{id}/private is owner-only (two-account isolation)', async () => {
+    const secret = { tokens: ['tok-1'], lastTokenUpdate: serverTimestamp() };
+    // owner stores and reads their own push tokens
+    await assertSucceeds(setDoc(doc(db(alice), 'users/alice/private/fcmTokens'), secret, { merge: true }));
+    await assertSucceeds(getDoc(doc(db(alice), 'users/alice/private/fcmTokens')));
+    // the public profile itself stays readable (that is the directory)
+    await assertSucceeds(getDoc(doc(db(bob), 'users/alice')));
+    // but another signed-in account can neither read nor write the private data
+    await assertFails(getDoc(doc(db(bob), 'users/alice/private/fcmTokens')));
+    await assertFails(
+      updateDoc(doc(db(bob), 'users/alice/private/fcmTokens'), { tokens: ['stolen'] })
+    );
+    await assertFails(
+      setDoc(doc(db(bob), 'users/alice/private/other'), { x: 1 }, { merge: true })
+    );
+    // and an anonymous visitor gets nothing at all
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'users/alice/private/fcmTokens')));
+  });
+
   await t.test('chats: deterministic DM create succeeds', async () => {
     await assertSucceeds(
       setDoc(doc(db(alice), 'chats/alice__carol'), {
@@ -415,6 +469,72 @@ test('firestore rules', async (t) => {
       updateDoc(doc(db(alice), 'chats/alice__bob'), { createdAt: new Date() })
     );
     await assertFails(updateDoc(doc(db(alice), 'chats/alice__bob'), { isGroup: true }));
+  });
+
+  await t.test('chats: unreadBy may reset mine or grow others by +1 only', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(db(ctx), 'chats/alice__bob'), {
+        unreadBy: { alice: 2, bob: 3 },
+        typing: {},
+      }, { merge: true });
+    });
+    // a real sendMessage bumps the recipient by exactly +1 while it
+    // advances the message preview in the same write
+    await assertSucceeds(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), {
+        lastMessage: 'hi bob',
+        lastMessageAt: serverTimestamp(),
+        unreadBy: { alice: 2, bob: 4 },
+      })
+    );
+    // the recipient inflating the badge without a message update fails
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { unreadBy: { alice: 2, bob: 99 } })
+    );
+    // I mark my own badge read
+    await assertSucceeds(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { unreadBy: { alice: 0, bob: 4 } })
+    );
+    // I can never clear someone else's badge...
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { unreadBy: { alice: 0, bob: 0 } })
+    );
+    // ...nor inflate my own
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { unreadBy: { alice: 99, bob: 4 } })
+    );
+    // ...nor drain my partner under the cover of a message update
+    // (the 1:1 +1 check verifies the exact delta)
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), {
+        lastMessage: 'spoof',
+        lastMessageAt: serverTimestamp(),
+        unreadBy: { alice: 2, bob: 0 },
+      })
+    );
+    // a non-participant cannot touch the chat at all
+    await assertFails(
+      updateDoc(doc(db(carol), 'chats/alice__bob'), { unreadBy: { alice: 0, bob: 0 } })
+    );
+  });
+
+  await t.test('chats: only my own typing indicator may change', async () => {
+    await assertSucceeds(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { typing: { alice: 1712345678901 } })
+    );
+    // faking the other person as typing is denied
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), {
+        typing: { alice: 1712345678901, bob: 1712345678901 },
+      })
+    );
+    // bounded message previews
+    await assertFails(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { lastMessage: 'x'.repeat(4001) })
+    );
+    await assertSucceeds(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { lastMessage: 'x'.repeat(4000) })
+    );
   });
 
   await t.test('notifications: honest actor succeeds, spoofed actor fails', async () => {
@@ -580,7 +700,7 @@ test('firestore rules', async (t) => {
       targetUserId: 'bob',
       title: 'Foundators',
       body: 'You have a new follower',
-      data: { type: 'follow' },
+      data: { type: 'follow', userId: 'alice' },
       sent: false,
       createdAt: serverTimestamp(),
     };
@@ -595,6 +715,19 @@ test('firestore rules', async (t) => {
     );
     await assertFails(
       addDoc(collection(db(alice), 'pending-notifications'), { ...payload, title: '' })
+    );
+    // the claimed sender identity is mandatory (drives the CF quota)
+    await assertFails(
+      addDoc(collection(db(alice), 'pending-notifications'), {
+        ...payload,
+        data: { type: 'follow' },
+      })
+    );
+    await assertFails(
+      addDoc(collection(db(alice), 'pending-notifications'), {
+        ...payload,
+        data: { type: 'follow', userId: '' },
+      })
     );
   });
 
