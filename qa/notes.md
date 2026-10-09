@@ -95,3 +95,66 @@ Fix suggestions: (a) rules: prefix update rule with `resource != null &&` guard 
   whose center is a dead zone) â€” this was the S15b failure cause, NOT an app bug.
   Coordinate click on real row navigates fine (debug-row.js proof: /messages/<convId>/).
 - S07/S08/S30 assertions must use ?tab=posts (default tab is 'about'; post exists = "1 POSTS" badge).
+
+## Round: stability / completion evidence
+
+- Firestore emulator OOM (java.lang.OutOfMemoryError, heap space) at 14:47 during
+  responsive R05 — after ~1.5h of continuous suites. Symptom: skeleton loaders
+  (data fetches hang) then auth refresh fails -> session dies -> login pages;
+  responsive run collapsed 3/10 (infra artifact, not a responsive regression).
+  FIX/OPS: restart emulators (kill node firebase + java, relaunch
+  %TEMP%\opencode\qa-start-emu.cmd) before long runs. Fresh emulators confirmed
+  up 9099/8080/9199; re-ran responsive after restart.
+- P3-A duplicate-key warning: not reproduced in 24 targeted probes (2 viewports
+  x logged-out + onboarding + logged-in routes, with scroll) via
+  qa/debug-keys.js; responsive rerun carries per-route attribution + component
+  stacks (console.error override) to pin it if it fires.
+- P2-A fully mapped: discussions store always {} (no collection/loader/creator),
+  /list/discussions orphaned, detail pages always "not found", notifications
+  linkType=discussion dead-ends. Report section rewritten.
+
+## Round: completion pass (final verification)
+
+- Responsive: attributed re-run 10/10 PASS (per-route @url on console errors +
+  per-route key-warning stacks). Key warnings: none over 10 viewports.
+- Rules: 50 tests -> 48 pass / 0 fail / 2 skipped (clean emulators:exec run;
+  requires JAVA_HOME=JRE21 in this environment). New: voiceRooms GET pass,
+  chat typing ownership pass (bob changing alice's typing value denied; own key
+  allowed), + 2 SKIPPED desired-behavior tests for P1-C (missing-doc clean
+  denial) and P2-B (admin list). NOTE: the first typing assertion was a no-op
+  (identical-value write is legal) - fixed to a real value change.
+- Rules harness ops: npm run test:rules uses emulators:exec -> STOP persistent
+  emulators first (ports 8080/9199), restart after.
+- E2E with S22-S25 feature smokes (bookmark persist, /explore, /reels,
+  /notifications): 33 pass / 1 fail (S07b intended). One intermediate run had
+  an S26 search flake alongside Firestore WebChannel 400s right after emulator
+  restart -> cleared on re-run (infra, not app).
+- P3-A reproduced ONCE in e2e context A (duplicate-key warning); e2e.js now
+  installs a console.error stack-capture init script and drains per step
+  (keyWarnings with step id + url + component stack land in e2e.json).
+
+- P3-A attribution: e2e run captured 3 warnings all at step=S05 url=/home
+  (right after onboarding completion). Stack shows warnOnInvalidKey via
+  app console override (useSecurityAudit.detectConsoleOverride) -> React
+  internals; widened capture (60 frames + actual key value args[1]) in a
+  follow-up run. qa/debug-keys2.js standalone onboarding replica could not
+  advance the wizard (controlled-input fill not registering; button stays
+  disabled) - use the e2e S05 flow as the repro vehicle instead.
+
+- P3-A CLOSED: root cause app/home/page.js:114 radar.map(key={r.name}) where
+  radar = people matches keyed by DISPLAY NAME (page.js:70-89 name:u.name).
+  Duplicate when >=2 matches share a name (QA has many "Bob QA" from reruns).
+  Captured live in e2e keyWarnings: key values "Bob QA"/"Key Probe Five" on
+  /home at S04/S05. Secondary: components/copilot/Cards.js:201 key={f.name}.
+  Fix: carry u.id into radar, key={r.id}. S26 also hardened with waitForText
+  (fixed 3s wait flaked 2/4 runs on debounced search).
+
+- S26 closed: false-positive/flake root cause = combined selector
+  "input[aria-label=Search], input[placeholder*=Search]".first() hit
+  components/DesktopHeader.js:32 header form input (DOM-first, visible
+  lg+); that input only navigates on Enter (handleSearch onSubmit), so the
+  /search query state never changed — S26 passed only when "Alice" appeared
+  elsewhere (PEOPLE TO FOLLOW). qa/debug-search.js probe: 5/5 fail with old
+  selector, 5/5 pass with strict input[aria-label="Search"] (page input,
+  app/search/page.js:128). Test defect, not an app bug. Final confirmation
+  run launched.

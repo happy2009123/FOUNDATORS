@@ -94,11 +94,27 @@ async function measure(page) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
+  // P3-A: capture React duplicate-key warnings WITH component stacks
+  // (dev build is unminified). Collected per route in the loop below.
+  await page.addInitScript(() => {
+    window.__keyWarnings = [];
+    const orig = console.error;
+    console.error = function (...args) {
+      try {
+        const msg = String(args[0] === undefined ? '' : args[0]);
+        if (/same key|duplicate/i.test(msg)) {
+          window.__keyWarnings.push({ msg: msg.slice(0, 180), stack: new Error('keywarn').stack });
+        }
+      } catch (e) { /* ignore */ }
+      return orig.apply(console, args);
+    };
+  });
+  const keyWarnings = [];
   const consoleErrors = [];
   page.on('console', (m) => {
     if (m.type() === 'error') {
       const t = m.text();
-      if (!/401|Failed to load resource/.test(t)) consoleErrors.push(t.slice(0, 200));
+      if (!/401|Failed to load resource/.test(t)) consoleErrors.push(`@${page.url()} ${t}`.slice(0, 260));
     }
   });
 
@@ -141,6 +157,11 @@ async function measure(page) {
       const isAuthRoute = AUTH_ROUTES.some(([l]) => l === label);
       await page.goto(BASE + route, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1700);
+      const kws = await page.evaluate(() => (window.__keyWarnings || []).map((w) => ({
+        msg: w.msg,
+        frames: String(w.stack || '').split('\n').filter((l) => l.includes('(') || l.includes('at ')).slice(1, 26),
+      })));
+      kws.forEach((w) => keyWarnings.push({ vp: vp.label, route, ...w }));
       await dismissCookies(page);
       const m = await measure(page);
       const shot = path.join(SHOT_DIR, `${vp.w}x${vp.h}-${label}.png`);
@@ -172,6 +193,7 @@ async function measure(page) {
     viewports: VIEWPORTS.map((v) => v.label),
     results: RESULTS,
     consoleErrors: [...new Set(consoleErrors)],
+    keyWarnings,
   };
   fs.writeFileSync(path.join(__dirname, 'results', 'responsive.json'), JSON.stringify(out, null, 2));
   const fails = RESULTS.filter((r) => r.status === 'FAIL');
@@ -179,6 +201,15 @@ async function measure(page) {
   fails.forEach((f) => console.log(`  FAIL ${f.id} ${f.name}: ${f.detail}`));
   if (consoleErrors.length) {
     console.log('  console errors: ' + [...new Set(consoleErrors)].join(' || ').slice(0, 400));
+  }
+  if (keyWarnings.length) {
+    console.log(`\n== P3-A KEY WARNINGS (${keyWarnings.length}) ==`);
+    keyWarnings.forEach((w, i) => {
+      console.log(` [${i}] vp=${w.vp} route=${w.route} :: ${w.msg}`);
+      (w.frames || []).forEach((f) => console.log('     ' + f.trim().slice(0, 220)));
+    });
+  } else {
+    console.log('  key warnings: none');
   }
   await browser.close();
   process.exit(fails.length > 0 ? 1 : 0);

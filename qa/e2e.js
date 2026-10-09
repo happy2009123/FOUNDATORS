@@ -9,6 +9,42 @@ const BASE = process.env.QA_BASE || 'http://localhost:3100';
 const K = 'AIzaSyB2hONQjrQRjKlXGTarAW-_brYMZlXXyrE';
 const IDB = 'http://localhost:9099/identitytoolkit.googleapis.com/v1';
 const RESULTS = [];
+const KEY_WARNINGS = [];
+
+// P3-A capture: React duplicate-key warnings with component stacks (dev build
+// is unminified). Drained after every step and tagged with the step id.
+const KEY_WARN_INIT = () => {
+  window.__keyWarnings = [];
+  const orig = console.error;
+  console.error = function (...args) {
+    try {
+      const msg = String(args[0] === undefined ? '' : args[0]);
+      if (/same key|duplicate/i.test(msg)) {
+        window.__keyWarnings.push({
+          msg: msg.slice(0, 150),
+          key: args.length > 1 ? String(args[1]).slice(0, 120) : null,
+          allArgs: args.slice(0, 5).map((a) => String(a).slice(0, 100)),
+          stack: new Error('keywarn').stack,
+        });
+      }
+    } catch (e) { /* ignore */ }
+    return orig.apply(console, args);
+  };
+};
+
+async function drainKeyWarnings(stepId) {
+  if (!global.__keyPages) return;
+  for (const p of global.__keyPages) {
+    try {
+      const warns = await p.evaluate(() => {
+        const w = window.__keyWarnings || [];
+        window.__keyWarnings = [];
+        return w.map((x) => ({ msg: x.msg, key: x.key, allArgs: x.allArgs, stack: x.stack, url: location.href }));
+      });
+      warns.forEach((w) => KEY_WARNINGS.push({ step: stepId, ...w }));
+    } catch (e) { /* page may be mid-nav */ }
+  }
+}
 const SHOTS = path.join(__dirname, 'screenshots');
 fs.mkdirSync(path.join(__dirname, 'results'), { recursive: true });
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -179,6 +215,7 @@ async function step(id, name, fn) {
     process.stdout.write(`  ${id} FAIL ${name} — ${rec.detail}\n`);
     try { await global.__lastPage?.screenshot({ path: path.join(SHOTS, id + '.png') }); } catch {}
   }
+  await drainKeyWarnings(id);
   RESULTS.push(rec);
   return rec.status === 'PASS';
 }
@@ -210,6 +247,9 @@ async function login(page, user) {
   const ctxB = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pA = await ctxA.newPage();
   const pB = await ctxB.newPage();
+  await ctxA.addInitScript(KEY_WARN_INIT);
+  await ctxB.addInitScript(KEY_WARN_INIT);
+  global.__keyPages = [pA, pB];
   watch(pA, 'A');
   watch(pB, 'B');
 
@@ -608,13 +648,57 @@ async function login(page, user) {
   });
 
   console.log('== feature smokes ==');
+  await step('S22', 'bookmark a post persists after reload', async () => {
+    global.__lastPage = pB;
+    await nav(pB, `/profile/${aliceUid}?tab=posts`, 2600);
+    await waitForText(pB, 'E2E QA post', 10000);
+    const bm = pB.locator('button[aria-label="Bookmark post"]').first();
+    await bm.waitFor({ timeout: 8000 });
+    await bm.click();
+    await pB.waitForTimeout(1800);
+    await nav(pB, '/bookmarks', 2600);
+    const txt = await waitForText(pB, 'E2E QA post', 8000);
+    if (!txt.includes('E2E QA post')) throw new Error('post not on /bookmarks after bookmarking');
+    await pB.reload({ waitUntil: 'domcontentloaded' });
+    await pB.waitForTimeout(2400);
+    const txt2 = await pageText(pB);
+    if (!txt2.includes('E2E QA post')) throw new Error('bookmark lost after reload');
+    return 'bookmarked + persisted';
+  });
+  await step('S23', '/explore loads', async () => {
+    await nav(pB, '/explore', 2600);
+    const txt = await pageText(pB);
+    if (/page not found/i.test(txt)) throw new Error('404');
+    if (/application error/i.test(txt)) throw new Error('app error');
+    if (txt.length < 500) throw new Error('near-empty page (' + txt.length + ' chars)');
+    return 'loaded';
+  });
+  await step('S24', '/reels loads', async () => {
+    await nav(pB, '/reels', 2600);
+    const txt = await pageText(pB);
+    if (/page not found/i.test(txt)) throw new Error('404');
+    if (/application error/i.test(txt)) throw new Error('app error');
+    if (txt.length < 300) throw new Error('near-empty page (' + txt.length + ' chars)');
+    return 'loaded';
+  });
+  await step('S25', '/notifications loads', async () => {
+    await nav(pB, '/notifications', 2600);
+    const txt = await pageText(pB);
+    if (/page not found/i.test(txt)) throw new Error('404');
+    if (/application error/i.test(txt)) throw new Error('app error');
+    if (txt.length < 300) throw new Error('near-empty page (' + txt.length + ' chars)');
+    return 'loaded';
+  });
   await step('S26', 'search finds Alice from Bob', async () => {
     await nav(pB, '/search', 2400);
-    const inp = pB.locator('input[aria-label="Search"], input[placeholder*="Search"]').first();
+    // NB: do NOT use placeholder*="Search" here — DesktopHeader.js:32 has a DOM-first
+    // form input that only navigates on Enter (S26 used to fill it and pass only
+    // when "Alice" happened to appear in suggestions).
+    const inp = pB.locator('input[aria-label="Search"]');
     await inp.fill('Alice');
-    await pB.waitForTimeout(3000);
-    const txt = await pageText(pB);
-    if (!/Alice/.test(txt)) throw new Error('no Alice in search results');
+    // poll: search debounces + queries Firestore; a fixed wait flaked (2/4 runs)
+    const txt = await waitForText(pB, 'Alice', 12000);
+    if (!/Alice/.test(txt)) throw new Error(`no Alice in search results snippet=${txt.slice(0, 160)}`);
     return 'found';
   });
   await step('S27', 'project create + persists', async () => {
@@ -659,11 +743,14 @@ async function login(page, user) {
     return 'post + bio intact';
   });
 
+  await drainKeyWarnings('post-S30');
+
   const summary = {
     when: new Date().toISOString(),
     accounts: { alice: aliceUid, bob: bobUid },
     results: RESULTS,
     consoleErrors: [...new Set(consoleErrors)],
+    keyWarnings: KEY_WARNINGS,
     counts: {
       pass: RESULTS.filter((r) => r.status === 'PASS').length,
       fail: RESULTS.filter((r) => r.status === 'FAIL').length,
@@ -672,6 +759,16 @@ async function login(page, user) {
   fs.writeFileSync(path.join(__dirname, 'results', 'e2e.json'), JSON.stringify(summary, null, 2));
   console.log(`\n== E2E DONE: ${summary.counts.pass} pass, ${summary.counts.fail} fail, ${summary.consoleErrors.length} unique console errors`);
   for (const r of RESULTS.filter((x) => x.status === 'FAIL')) console.log('  FAIL', r.id, r.name, '—', r.detail.slice(0, 170));
+  if (KEY_WARNINGS.length) {
+    console.log(`\n== P3-A KEY WARNINGS captured: ${KEY_WARNINGS.length} ==`);
+    KEY_WARNINGS.forEach((w, i) => {
+      console.log(` [${i}] step=${w.step} url=${w.url} key=${JSON.stringify(w.key)} :: ${w.msg}`);
+      if (w.allArgs && w.allArgs.length > 1) console.log('   allArgs: ' + JSON.stringify(w.allArgs));
+      String(w.stack || '').split('\n').slice(1, 60).forEach((f) => console.log('     ' + f.trim().slice(0, 230)));
+    });
+  } else {
+    console.log('  key warnings: none');
+  }
   await browser.close();
   process.exit(0);
 })().catch((e) => {

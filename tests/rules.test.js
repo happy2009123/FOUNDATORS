@@ -19,6 +19,7 @@ const {
   collection,
   addDoc,
   getDoc,
+  getDocs,
   increment,
   arrayUnion,
   serverTimestamp,
@@ -741,6 +742,49 @@ test('firestore rules', async (t) => {
     await assertFails(
       setDoc(doc(db(alice), 'opportunities/x'), { nope: true, createdAt: serverTimestamp() })
     );
+  });
+
+  // ---- coverage gaps documented by the QA audit ----
+  // See FOUNDATORS_QA_REPORT.md P1-C and P2-B. The skipped tests assert the
+  // DESIRED behavior and are enabled once the corresponding bug is fixed.
+
+  await t.test('voiceRooms: GET of a public room succeeds (list bug is list-only)', async () => {
+    await assertSucceeds(getDoc(doc(db(alice), 'voiceRooms/room1')));
+  });
+
+  await t.test('voiceRooms: admin can list rooms', {
+    skip: 'P2-B: firestore.rules:1281 derefs resource.data (null on list ops) before || isAdmin(), so even admins are denied — FOUNDATORS_QA_REPORT.md P2-B; enable after fix',
+  }, async () => {
+    await assertSucceeds(getDocs(collection(db(root), 'voiceRooms')));
+  });
+
+  await t.test('chats: participant flips own typing key; cannot fake partner key', async () => {
+    await assertSucceeds(
+      updateDoc(doc(db(alice), 'chats/alice__bob'), { typing: { alice: 1 } })
+    );
+    // Bob changes ALICE's indicator value — typingChanged()=[alice] must not
+    // pass typingChanged().hasOnly([bob]). (Writing the identical value is a
+    // no-op and would succeed, so the fake must be a real change.)
+    await assertFails(
+      updateDoc(doc(db(bob), 'chats/alice__bob'), { typing: { alice: 2 } })
+    );
+    // Bob may add his OWN key alongside alice's untouched entry.
+    await assertSucceeds(
+      updateDoc(doc(db(bob), 'chats/alice__bob'), { typing: { alice: 1, bob: 1 } })
+    );
+  });
+
+  await t.test('chats: update on a MISSING doc fails cleanly (no evaluation error)', {
+    skip: 'P1-C: firestore.rules:863-870 deref resource.data on a missing doc; the resulting evaluation error poisons batched writes — FOUNDATORS_QA_REPORT.md P1-C; enable after fix',
+  }, async () => {
+    let err = null;
+    try {
+      await updateDoc(doc(db(alice), 'chats/no-such-chat'), { typing: { alice: 1 } });
+    } catch (e) { err = e; }
+    if (!err) throw new Error('expected denial, but write succeeded');
+    if (/evaluation error/i.test(String(err && err.message))) {
+      throw new Error('evaluation error (crash) instead of clean denial: ' + err);
+    }
   });
 });
 
