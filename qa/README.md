@@ -31,6 +31,8 @@ Firebase emulators.
 | `debug-keys.js` | P3-A duplicate-key hunt: `console.error` stack capture across 2 viewports × logged-out/onboarding/logged-in routes |
 | `debug-signup.js` | signup → `users/{uid}` profile-doc chain probe (used when diagnosing onboarding-gate failures) |
 | `debug-search.js` / `debug-search2.js` | S26 false-positive: combined input selector hit `DesktopHeader`'s form input (navigates only on Enter); strict `input[aria-label="Search"]` = 5/5 pass |
+| `debug-hooks.js` | P2-C hooks-order crash on `/bookmarks/collections` (deterministic, 4 errors captured) |
+| `debug-nested.js` | P3-C nested `<button>` on `/gestures/community` (hydration error + 3 DOM `button button` pairs) |
 | `debug-msg.js` / `debug-msg2.js` | earlier P1-C reproductions |
 
 `notes.md` — working evidence log feeding the QA report.

@@ -174,3 +174,13 @@ Fix suggestions: (a) rules: prefix update rule with `resource != null &&` guard 
   /settings/edit-profile; zero <a href> sitewide (nav is 100% button+push).
   Ops: first routes run failed at signup - auth emulator (9099) had died;
   restarted via qa-start-emu.cmd, ports 9099/8080/9199 confirmed before rerun.
+
+- Dedicated repros written & confirmed:
+  * qa/debug-hooks.js -> P2-C REPRO OK, 4 hooks-order errors on
+    /bookmarks/collections load (Rendered more hooks than previous render;
+    updateMemo/updateWorkInProgressHook stacks).
+  * qa/debug-nested.js -> P3-C REPRO OK, 2 hydration errors + 3 live
+    document.querySelectorAll("button button") pairs on /gestures/community
+    (outer card button wraps star/favorite button). Outer-text samples:
+    "31 12", "24 8", "18 5" (star counters).
+  Report evidence lines updated to cite these probes.

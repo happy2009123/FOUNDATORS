@@ -147,8 +147,8 @@ Opening `/bookmarks/collections` logs a React **Rules of Hooks** violation:
   corrupt (console error + unstable remount).
 - **Suggested fix:** move the `useMemo` (and any other hooks) above the
   early return — early returns must never precede hook calls.
-- **Evidence:** `qa/routes.js` run (`qa/results/routes.json`,
-  `/bookmarks/collections` row).
+- **Evidence:** `qa/debug-hooks.js` (deterministic repro, 4 hooks-order errors
+  captured on load); also `qa/routes.js` (`qa/results/routes.json`).
 
 ### P3-C — Nested `<button>` on `/gestures/community`
 Hydration error: `In HTML, <button> cannot be a descendant of <button>`.
@@ -158,6 +158,8 @@ Hydration error: `In HTML, <button> cannot be a descendant of <button>`.
   keyboard focus are unreliable.
 - **Suggested fix:** make the card a `<div role="link">`/`<a>` (or
   `div + onClick`) and keep the inner star button, stopping propagation.
+- **Evidence:** `qa/debug-nested.js` (hydration error + 3 live `button button`
+  DOM pairs).
 
 ### P3-D — Accessibility gaps (sitewide patterns, found by `qa/routes.js`)
 - **Nameless back button on every subpage:** `components/SubpageHeader.js:17`
