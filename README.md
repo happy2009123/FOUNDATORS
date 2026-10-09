@@ -1,124 +1,94 @@
 # Foundators
 
-A social network for founders — built with Next.js 14 (App Router), Tailwind CSS, and Zustand.
+A social network for founders — **Next.js 16 (App Router), React 19, Tailwind
+CSS, Zustand, and Firebase** (Auth, Firestore, Storage, Cloud Functions) with
+an optional Capacitor Android wrapper.
 
-This is a real, deployable web app converted from the original prototype. All state
-(auth session, follows, bookmarks, published posts, comments, chats) lives in the
-browser via `localStorage`, so there's no backend/database to set up — it works out
-of the box.
+Posts, comments, follows, chats, notifications, voice rooms, admin tools and
+the Founders Match system all run against Firestore with security rules as the
+authorization layer. Email verification goes through Resend; uploads through
+Cloudinary; the AI Copilot page through an OpenAI-compatible API.
 
-## What's in here
-
-Beyond the original social-feed prototype, this includes a first pass at the
-**Foundators Match** system:
-
-- **"What are you building today?"** launcher (`/match`) — pick an intent
-  (find a co-founder, find a job, find funding, learn a skill, etc.)
-- **Live match scoring** — people are ranked by *real, computed* overlap
-  between their skills and what you're looking for, not random numbers
-- **Idea → Team generator** — describe what you want to build, get a
-  suggested team of roles based on keywords in your description
-- **Opportunity feed** — jobs, freelance gigs, funding, projects, mentorship,
-  grants, and events, filtered by intent
-- **Near Me / Global toggle** — local-first discovery of founders and startups
-- **Builder Score** — a reputation card on every profile (projects, 
-  collaborations, verified skills, referrals, community contribution)
-
-**Honest scope note:** the match scores, team suggestions, and Builder Score
-numbers are computed by transparent heuristics against seed data, not a real
-ML model or verified activity history — building those "for real" needs an
-actual backend, a real database of activity, and (for smarter matching) an
-LLM API integration. The UI, routing, and data flow here are real and
-production-shaped; swapping the heuristics for real backend calls later is a
-`lib/store.js` change, not a UI rewrite.
-
-**Not yet built** (flagged, not silently skipped): daily challenges &
-gamification points, a dedicated programmer-marketplace detail view, and a
-per-project "Foundators AI" assistant (this one specifically needs a real AI
-API key and backend — happy to wire it up to the Claude API if you want that
-next).
-
-## Run it locally
-
-You'll need [Node.js 18+](https://nodejs.org) installed.
+## Quick start
 
 ```bash
 npm install
+npx playwright install chromium     # only for the test suites
+npm run dev                          # http://localhost:3000
+```
+
+For **local development against the Firebase emulators** (recommended — keeps
+production data untouched):
+
+```bash
+npx firebase emulators:start --only auth,firestore,storage --project foundators-66eb7
+set NEXT_PUBLIC_USE_EMULATORS=1      # macOS/Linux: export NEXT_PUBLIC_USE_EMULATORS=1
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Full instructions, modes, and troubleshooting → **[SETUP.md](SETUP.md)**.
 
-## Deploy it
+## Documentation map
 
-### Option A — Vercel (recommended, made by the Next.js team)
+| Doc | What's in it |
+|---|---|
+| [SETUP.md](SETUP.md) | prerequisites, install, emulator vs production data mode, troubleshooting |
+| [ENVIRONMENT.md](ENVIRONMENT.md) | every env var, which side reads it, secret handling (`.env.example`) |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | web host deploys, Firebase rules/functions deploys, pre/post-checklists, rollback |
+| [TESTING.md](TESTING.md) | how to run rules/E2E/security/responsive/perf suites and what green looks like |
+| [FOUNDATORS_QA_REPORT.md](FOUNDATORS_QA_REPORT.md) | full QA audit: confirmed bugs (P1–P3), suite results, launch checklist |
+| [BETA_TEST_PLAN.md](BETA_TEST_PLAN.md) | 20–50 tester program and the rollout timeline to Jan 1, 2027 |
+| [READINESS_REPORT.md](READINESS_REPORT.md) | security-hardening report + founder Firebase action items |
+| [SECURITY.md](SECURITY.md) | threat model and rules conventions |
+| [FIREBASE-STRUCTURE.md](FIREBASE-STRUCTURE.md) | collections/subcollections layout |
+| [APP-STORE-LISTING.md](APP-STORE-LISTING.md) | Android store copy |
 
-**Fastest path — no GitHub required:**
-
-```bash
-npm install -g vercel
-vercel login
-vercel --prod
-```
-
-Follow the prompts (accept the defaults — it auto-detects Next.js). You'll get a live
-URL in about a minute.
-
-**Or via GitHub:**
-
-1. Push this folder to a new GitHub repo.
-2. Go to [vercel.com/new](https://vercel.com/new), import the repo.
-3. Leave all settings on their defaults and click **Deploy**.
-
-### Option B — Netlify
+## Scripts
 
 ```bash
-npm install -g netlify-cli
-netlify deploy --build --prod
+npm run dev                 # dev server
+npm run build && npm start   # production server (PORT env var, default 3000)
+npm run test:rules          # 46-test Firestore/Storage rules suite (own emulators)
+npm run deploy:rules        # deploy firestore.rules + storage.rules
+npm run deploy:functions    # deploy cloud functions
+npm run migrate:privacy     # one-off privacy backfill (scripts/)
+npm run generate-icons      # PWA icons
+npm run build:android       # next build && cap sync android
 ```
 
-### Option C — any Node host (Railway, Render, Fly.io, a VPS, etc.)
-
-```bash
-npm install
-npm run build
-npm run start
-```
-
-This starts a production server on port 3000 (set the `PORT` env var to change it).
+QA suites (`node qa/e2e.js`, `qa/security-sdk.js`, `qa/responsive.js`,
+`qa/perf.js`) are documented in [TESTING.md](TESTING.md).
 
 ## Project structure
 
 ```
-app/
-  page.js                    Splash screen
-  login/, signup/            Auth screens
-  (main)/                    Shared layout + bottom nav for the 4 main tabs
-    home/  discover/  messages/  profile/
-  messages/[chatId]/         Individual chat thread
-  profile/[userId]/          Another founder's profile
-  startup/[startupId]/       Startup profile
-  post/[postId]/             Comment thread on a post
-  discussion/[discussionId]/ Discussion thread
-  list/[mode]/                "View all" — people / startups / discussions
-  create/                    New post composer
-  notifications/  settings/  help/
-components/                  Shared UI (PostCard, PersonCard, Drawer, TopBar, ...)
+app/                    Next.js App Router routes
+  login/ signup/ onboarding/
+  home/ explore/ create/ search/ messages/[chatId]/
+  profile/[userId]/ post/[postId]/ discussion/[discussionId]/
+  notifications/ settings/ admin/ voice/ reels/ projects/ ...
+  api/                  route handlers (email, copilot, cloudinary/sign)
+components/             UI (PostCard, PersonCard, BottomNav, DesktopSidebar, ...)
 lib/
-  data.js                    Seed content (users, startups, posts, discussions)
-  store.js                   Zustand store — all app state and actions live here
-  useHydration.js            Client-side localStorage rehydration
-  useRequireAuth.js          Route guard — redirects to /login if signed out
+  firebase.js           SDK init + env-gated emulator wiring
+  firebaseConfig.js     web Firebase config (public by design)
+  firestore.js          typed Firestore read/write helpers
+  store.js              Zustand store (session, feed, contacts, collections)
+  rules helpers live in firestore.rules (the authorization layer)
+firestore.rules         authorization rules (46-test suite in tests/)
+storage.rules           upload rules (covered by the same suite)
+functions/              cloud functions (notifications, quotas, email)
+qa/                     QA harness: E2E, security, responsive, perf, evidence
+tests/                  rules regression tests (node --test)
 ```
 
 ## Notes
 
-- **State/data is per-browser.** Since there's no backend, what you see is stored in
-  your own browser's `localStorage`. Clearing site data resets the app to its seed
-  content (2 sample founders' posts, 3 sample startups, etc.).
-- **Images** are placeholder avatars from `i.pravatar.cc` — swap `lib/data.js` with
-  your own image URLs (or wire up file uploads) when you're ready to go further.
-- **To add a real backend later**, the natural next step is to replace the Zustand
-  store's local state with API calls (e.g. to a Postgres + Prisma backend, or
-  Supabase/Firebase), keeping the same action names (`toggleFollowUser`,
-  `publishPost`, `sendMessage`, etc.) so the UI components don't need to change.
+- **Authorization is server-enforced.** The client never decides permissions —
+  `firestore.rules` / `storage.rules` do; the 46-test suite is the contract.
+- **Local dev by default touches real Firebase.** Use
+  `NEXT_PUBLIC_USE_EMULATORS=1` (Setup.md Mode A) unless you intend to write
+  to production.
+- **Known open bugs** are tracked with reproductions in
+  [FOUNDATORS_QA_REPORT.md](FOUNDATORS_QA_REPORT.md) — check it before
+  launching or handing the app to testers.
