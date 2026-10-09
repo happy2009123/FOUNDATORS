@@ -8,7 +8,7 @@ const {
 } = require('firebase/auth');
 const {
   getFirestore, connectFirestoreEmulator, doc, setDoc, updateDoc, deleteDoc,
-  getDoc, getDocs, collection, query, where, serverTimestamp, addDoc,
+  getDoc, getDocs, collection, query, where, serverTimestamp, addDoc, Timestamp,
 } = require('firebase/firestore');
 
 const firebaseConfig = {
@@ -179,6 +179,75 @@ const deny = (code) => ({ denied: true, code });
   });
   await probe('X22', "write A's admin status field via update", 'denied', async () => {
     await updateDoc(doc(db, 'users', uidA), { organizer: true });
+    return { denied: false };
+  });
+
+  console.log('== deep isolation (cross-entity spoofing) ==');
+  // X23: a third user (C) must not be able to create a chat between A and B.
+  const C = { email: `secc.${stamp}@qa.test`, pass: 'Test1234!' };
+  const cc = await createUserWithEmailAndPassword(auth, C.email, C.pass);
+  const uidC = cc.user.uid;
+  await probe('X23', 'outsider C creates a chat between A and B', 'denied', async () => {
+    await setDoc(doc(db, 'chats', `${uidA}__${uidB}`), {
+      participants: [uidA, uidB], isGroup: false, groupName: '',
+      lastMessage: 'hijack', lastMessageAt: serverTimestamp(), createdAt: serverTimestamp(),
+    });
+    return { denied: false };
+  });
+
+  await signInWithEmailAndPassword(auth, B.email, B.pass);
+  // setup: legitimate chat so the message-create probe is meaningful
+  let chatOk = true;
+  try {
+    await setDoc(doc(db, 'chats', `${uidB}__${uidA}`), {
+      participants: [uidB, uidA], isGroup: false, groupName: '',
+      lastMessage: 'setup', lastMessageAt: serverTimestamp(), createdAt: serverTimestamp(),
+    });
+  } catch (e) { chatOk = false; console.log('  (setup chat create failed: ' + (e.code || e.message) + ')'); }
+  await probe('X24', 'participant spoofs senderKey as the OTHER user', 'denied', async () => {
+    if (!chatOk) return { denied: false, note: 'setup chat missing' };
+    await addDoc(collection(db, 'chats', `${uidB}__${uidA}`, 'messages'), {
+      text: 'spoofed', senderKey: uidA, senderName: 'Sec Alice',
+      senderAvatar: '', read: false, createdAt: serverTimestamp(),
+    });
+    return { denied: false };
+  });
+  await probe('X25', "write A's notification settings subcollection", 'denied', async () => {
+    await setDoc(doc(db, 'users', uidA, 'settings', 'notifications'), { email: true });
+    return { denied: false };
+  });
+
+  // setup: a valid story authored by B, so A's delete attempt is the probe
+  let storyOk = true;
+  try {
+    await setDoc(doc(db, 'stories', `qa_story_${stamp}`), {
+      authorKey: uidB, authorName: 'Sec Bob', authorAvatar: '',
+      imageUrl: '', text: 'qa story', bg: '#000', font: 'sans', fontSize: 16,
+      mode: 'text', createdAt: serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 60 * 60 * 1000),
+    });
+  } catch (e) { storyOk = false; console.log('  (setup story create failed: ' + (e.code || e.message) + ')'); }
+  await signInWithEmailAndPassword(auth, A.email, A.pass);
+  await probe('X26', "delete B's story as A", 'denied', async () => {
+    if (!storyOk) return { denied: false, note: 'setup story missing' };
+    await deleteDoc(doc(db, 'stories', `qa_story_${stamp}`));
+    return { denied: false };
+  });
+
+  await signInWithEmailAndPassword(auth, B.email, B.pass);
+  // setup: B sends A a collaboration request (documented create shape)
+  let collabOk = true;
+  try {
+    await setDoc(doc(db, 'users', uidA, 'collabRequests', uidB), {
+      uid: uidB, name: 'Sec Bob', message: 'qa probe', status: 'pending',
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) { collabOk = false; console.log('  (setup collabRequest create failed: ' + (e.code || e.message) + ')'); }
+  await probe('X27', 'requester self-accepts their own collab request', 'denied', async () => {
+    if (!collabOk) return { denied: false, note: 'setup request missing' };
+    await updateDoc(doc(db, 'users', uidA, 'collabRequests', uidB), {
+      status: 'accepted', reviewedAt: serverTimestamp(),
+    });
     return { denied: false };
   });
 

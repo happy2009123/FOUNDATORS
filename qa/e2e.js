@@ -54,6 +54,18 @@ async function toast(page) {
 async function pageText(page) {
   return page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
 }
+// Poll until `text` appears (Firestore write/tab-render can lag fixed waits).
+// Returns the last body text so failures can include a snippet.
+async function waitForText(page, text, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = '';
+  while (Date.now() < deadline) {
+    last = await pageText(page);
+    if (last.includes(text)) return last;
+    await page.waitForTimeout(500);
+  }
+  return last;
+}
 async function fillByLabel(page, label, value) {
   await page.locator(`input[aria-label="${label}"], input[placeholder="${label}"], textarea[aria-label="${label}"], textarea[placeholder="${label}"]`).first().fill(value);
 }
@@ -301,10 +313,11 @@ async function login(page, user) {
     if (disabled !== null)
       throw new Error('Post button still disabled after SPA nav (emailVerified gate)');
     await postBtn.click();
-    await pA.waitForTimeout(3000);
+    await pA.waitForTimeout(2500);
     await nav(pA, `/profile/${aliceUid}?tab=posts`, 2800);
-    const txt = await pageText(pA);
-    if (!txt.includes('E2E QA post')) throw new Error('post not on profile (Posts tab)');
+    const txt = await waitForText(pA, 'E2E QA post', 12000);
+    if (!txt.includes('E2E QA post'))
+      throw new Error(`post not on profile (Posts tab) url=${new URL(pA.url()).pathname} snippet=${txt.slice(0, 220)}`);
     const href = await pA.evaluate(() => {
       const a = [...document.querySelectorAll('a[href*="/post/"]')];
       return a.length ? a[0].getAttribute('href') : null;
@@ -337,7 +350,7 @@ async function login(page, user) {
   await step('S08', 'post persists after reload', async () => {
     // full page load (S07b left us on /create, so navigate fresh)
     await nav(pA, `/profile/${aliceUid}?tab=posts`, 2800);
-    const txt = await pageText(pA);
+    const txt = await waitForText(pA, 'E2E QA post', 12000);
     if (!txt.includes('E2E QA post')) throw new Error('post missing after reload');
     return 'persisted';
   });
@@ -640,8 +653,9 @@ async function login(page, user) {
     const txt = await pageText(pA);
     if (!/E2E QA bio/.test(txt)) throw new Error("Alice's bio missing");
     await nav(pA, `/profile/${aliceUid}?tab=posts`, 2600);
-    const txt2 = await pageText(pA);
-    if (!/E2E QA post/.test(txt2)) throw new Error("Alice's post missing");
+    const txt2 = await waitForText(pA, 'E2E QA post', 12000);
+    if (!/E2E QA post/.test(txt2))
+      throw new Error(`Alice's post missing url=${new URL(pA.url()).pathname} snippet=${txt2.slice(0, 220)}`);
     return 'post + bio intact';
   });
 
