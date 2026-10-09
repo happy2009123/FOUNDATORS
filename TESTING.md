@@ -103,6 +103,20 @@ screenshots.
 **Green:** `10 pass, 0 fail`. Artifacts: `qa/results/responsive.json`,
 `qa/screenshots/responsive/` (gitignored).
 
+## 4b. Route sweep + accessibility (`qa/routes.js`)
+
+```
+node qa/routes.js
+```
+
+Visits 70 routes (anon pass over 8 public routes + signed-in pass over the
+full static/dynamic route set, incl. seeded `post/{id}`, `profile/{uid}`,
+`list/{mode}`, `voice/room/{id}`). Per route it records HTTP status, final
+URL, 404 marker, body length, console/page errors, and accessibility signals
+(accessible names, `alt`, duplicate ids, link harvest). Green = only the
+known P2-A `/discussion` + missing `/startup` index 404; other console
+classes map to P2-B/P2-C/P3-C. Artifacts: `qa/results/routes.json`.
+
 ## 5. Performance
 
 ```bash

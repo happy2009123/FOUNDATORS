@@ -20,6 +20,7 @@
 | Responsive (`qa/responsive.js`, 10 viewports × 10 routes) | **10 / 10 pass** | No horizontal overflow anywhere; sidebar ↔ bottom-nav switches correctly at `lg` (1024px); re-run carries per-route attribution + component-stack capture for React key warnings (none fired) |
 | Performance (`qa/perf.js` + `next build`) | **9 routes measured** | Dev TTFB 71–321 ms, FCP 272–852 ms; prod bundle 3.3 MB static / 2.8 MB JS (§8) |
 | Static recon (`qa/recon.js`) | done | 34 routes catalogued; 2 dead/broken routes found (P2) |
+| Route sweep + a11y (`qa/routes.js`, 70 routes, anon + signed-in) | **68/70 healthy** | Broken: `/discussion` (P2-A), `/startup` (no index page); console-error classes: P2-C hooks crash, P2-B voice rules, P3-C nested buttons; a11y gaps → P3-D |
 
 **Launch blockers (must fix before Jan 1, 2027):** P1-A, P1-B, P1-C. **Should fix:** P2-A, P2-B. Nice-to-fix: P3s.
 
@@ -79,6 +80,9 @@ This is a three-part chain, all confirmed:
   `tests/rules.test.js` gained a passing GET test (proves the bug is list-only)
   and a **skipped** `voiceRooms: admin can list rooms` test that asserts the
   desired behavior — it flips green when L1281 is guarded.
+- **Extended evidence (route sweep):** `/voice/room/{id}` additionally throws
+  permission-denied listener errors at **L1313** and **L1403** — the same
+  unguarded list rules for room subcollections.
 
 ### P2-A — Discussion feature is a shell: dead index, orphaned list, no data
 Evidence (full source map of every `discussion` reference):
@@ -101,6 +105,10 @@ Evidence (full source map of every `discussion` reference):
 - **Suggested fix:** either wire it (Firestore collection + loader + create flow +
   entry links from home/nav) or remove the routes, `DiscussionCard`, the store slice
   and the `linkType === 'discussion'` branch.
+- **Route-sweep confirmation (`qa/routes.js`):** `/discussion` and
+  `/discussion/{id}` both render the 404 state; a related hygiene gap —
+  `/startup` has **no index page** (only `/startup/{id}` exists; nothing in
+  the sidebar links the index, but notifications/rows push into `/startup/{id}`).
 
 ### P3-A — Duplicate React children keys in the /home Opportunity Radar (located)
 `Encountered two children with the same key` fires on **`/home`** right after
@@ -128,6 +136,45 @@ people data loads. Captured live via the E2E stack/key instrumentation
 
 ### P3-B — Signup hydration race (cosmetic)
 Intermittent first-render flash during signup/onboarding hydration (observed as `/home` vs `/onboarding` landing differences across runs). No data impact.
+
+### P2-C — Hooks-order crash on `/bookmarks/collections`
+Opening `/bookmarks/collections` logs a React **Rules of Hooks** violation:
+`Rendered more hooks than during the previous render`.
+- **Root cause:** `app/bookmarks/collections/page.js:28` —
+  `if (!ready) return <AuthSkeleton />;` sits **above** the `useMemo` at
+  L31–36. First paint (auth not ready) runs 6 hooks; once `ready` flips
+  true the same component runs a 7th hook → React treats the tree as
+  corrupt (console error + unstable remount).
+- **Suggested fix:** move the `useMemo` (and any other hooks) above the
+  early return — early returns must never precede hook calls.
+- **Evidence:** `qa/routes.js` run (`qa/results/routes.json`,
+  `/bookmarks/collections` row).
+
+### P3-C — Nested `<button>` on `/gestures/community`
+Hydration error: `In HTML, <button> cannot be a descendant of <button>`.
+- **Root cause:** `app/gestures/community/page.js:208` — the trend **card
+  itself** is a `<button onClick={push detail}>` and L230 renders the
+  star/favorite `<button>` **inside** it. Invalid HTML; click handling and
+  keyboard focus are unreliable.
+- **Suggested fix:** make the card a `<div role="link">`/`<a>` (or
+  `div + onClick`) and keep the inner star button, stopping propagation.
+
+### P3-D — Accessibility gaps (sitewide patterns, found by `qa/routes.js`)
+- **Nameless back button on every subpage:** `components/SubpageHeader.js:17`
+  — icon-only `<button>` with `ChevronLeft` and no `aria-label` (the single
+  recurring nameless button on ~30 routes).
+- **Settings toggles have no accessible name:** the shared `Toggle` in
+  `app/settings/notifications/page.js:63-72` (and the privacy page ×6) sets
+  `role="switch"`/`aria-checked` but no `aria-label`/`aria-labelledby` —
+  screen readers announce an unnamed switch (11 on notifications, 6 on
+  privacy).
+- **Unlabeled file inputs:** `app/create` and `app/settings/edit-profile`
+  render `input[type=file]` with no label/aria-label.
+- **Zero `<a href>` elements sitewide:** navigation is entirely
+  `button + router.push` (sidebar, header, cards). Not crawlable by search
+  engines or link-checkers, no middle-click/new-tab, worse keyboard
+  semantics. Recommend real `<a href>`/`next/link` for every route change
+  (also fixes P2-A-class dead-link discovery).
 
 ### Informational (accepted by design, X-probes)
 - **X16** — owner can write the cosmetic `uid` field on their own profile doc (path-independent; no privilege gained).
@@ -201,7 +248,8 @@ Production `next build` (Next.js 16.3.5 Turbopack): **compiles clean** (101/101 
 - `qa/e2e.js` (34 steps incl. S03b/S07b/S15b + S22–S25, per-step P3-A
   key-warning stack capture), `qa/admin.js` (A01–A05, 15 admin routes),
   `qa/security-sdk.js` (X01–X27), `qa/responsive.js` (10 vp, per-route
-  console/key attribution), `qa/perf.js`, `qa/recon.js`.
+  console/key attribution), `qa/routes.js` (70-route health + a11y sweep,
+  anon + signed-in), `qa/perf.js`, `qa/recon.js`.
 - Evidence scripts: `debug-save`, `debug-verified{,2,3}`, `debug-msg{,2}`, `debug-chatrules`,
   `debug-seq`, `debug-batch`, `debug-row`, `debug-dup`, `debug-voice`, `debug-rest-chat`,
   `debug-keys`/`debug-keys2` (P3-A hunt), `debug-signup` (signup→profile-doc probe) …
@@ -222,6 +270,8 @@ Production `next build` (Next.js 16.3.5 Turbopack): **compiles clean** (101/101 
 | 3 | Fix P1-C messaging rules crash / message loss | **BLOCKER** |
 | 4 | Fix discussion feature (no data/no entry links, dead index — P2-A), repair `/voice` rules helpers (P2-B) | Should-fix |
 | 4b | Fix P3-A `key={r.name}` in `app/home/page.js:114` (duplicate-name radar cards) | Nice-to-fix |
+| 4c | Fix P2-C hooks-order crash (`app/bookmarks/collections/page.js:28` early return above `useMemo`) | Should-fix |
+| 4d | P3-D a11y: label `SubpageHeader` back button + settings toggles + file inputs; prefer real `<a href>` nav | Nice-to-fix |
 | 5 | Re-run `qa/e2e.js` (expect 33/34 with S07b flipped to pass), `test:rules` 48/0/2 → 50/0/0 once P1-C/P2-B skips are enabled | After fixes |
 | 6 | Staging deploy + `next start` perf re-measure (§7) | Pre-launch |
 | 7 | Founder Firebase credential checklist (`READINESS_REPORT.md`) | Open |

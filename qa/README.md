@@ -14,6 +14,7 @@ Firebase emulators.
 | `admin.js` | admin console lifecycle: deny → seed `admins/{uid}` (emulator owner REST) → 15 route smokes → revoke | 5/5 |
 | `security-sdk.js` | X01–X27 expected-deny probes via the real SDK | 24 pass / 0 fail / 3 info |
 | `responsive.js` | 10 viewports × 10 routes: overflow, nav mode, screenshots | 10/10 |
+| `routes.js` | 70-route health + accessibility sweep (anon + signed-in), link harvest; also surfaces auth-emulator-outage as blanket signup failure | 68/70 healthy (2 known 404s) |
 | `perf.js` | dev-mode perf, 9 routes × 3 cold loads → `results/perf.json` | completes, thresholds printed |
 | `recon.js` | static route/asset inventory → `results/recon.json` | informational |
 

@@ -158,3 +158,19 @@ Fix suggestions: (a) rules: prefix update rule with `resource != null &&` guard 
   selector, 5/5 pass with strict input[aria-label="Search"] (page input,
   app/search/page.js:128). Test defect, not an app bug. Final confirmation
   run launched.
+
+- Route sweep (qa/routes.js, 70 routes, anon + signed-in): 68/70 healthy.
+  404s: /discussion (P2-A, known) + /startup (hygiene - only /startup/{id}
+  exists; nothing links the index). Console-error classes pinned:
+  P2-C hooks-order crash on /bookmarks/collections (app/bookmarks/collections/
+  page.js:28 early return sits above the useMemo at L31 - 6 hooks on first
+  paint, 7 once ready flips true); P3-C nested <button> on /gestures/community
+  (card L208 wraps star button L230); P2-B voice-room listener errors at
+  L1313/L1403 (unguarded subcollection list rules, same class as L1281).
+  A11y (P3-D): SubpageHeader.js:17 back button has no aria-label (the single
+  recurring nameless button across ~30 routes); settings Toggle
+  (app/settings/notifications/page.js:63-72 + privacy) sets role=switch but
+  no accessible name (11 + 6); unlabeled file inputs on /create and
+  /settings/edit-profile; zero <a href> sitewide (nav is 100% button+push).
+  Ops: first routes run failed at signup - auth emulator (9099) had died;
+  restarted via qa-start-emu.cmd, ports 9099/8080/9199 confirmed before rerun.
