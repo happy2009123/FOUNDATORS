@@ -27,3 +27,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# qa harness artifacts
+/qa/screenshots/
+/qa/results/
