@@ -308,13 +308,18 @@ function BwmDraftCard({ card, onAction, busy }) {
   );
 }
 
+// Older messages stored the mode key (analyze/validate) instead of the card
+// type; map them so previously-saved conversations still render their cards.
+const LEGACY_CARD_TYPE = { analyze: 'analysis', validate: 'validation' };
+
 export default function CardView({ cardType, card, source, busy, onAction, hasProject }) {
   if (!card) return null;
+  const type = LEGACY_CARD_TYPE[cardType] || cardType;
   const payload = { ...card, source: card.source || source };
-  if (cardType === 'analysis') return <AnalysisCard card={payload} onAction={onAction} busy={busy} />;
-  if (cardType === 'validation') return <ValidationCard card={payload} onAction={onAction} busy={busy} />;
-  if (cardType === 'mvp') return <MvpCard card={payload} onAction={onAction} busy={busy} hasProject={hasProject} />;
-  if (cardType === 'launch') return <LaunchCard card={payload} onAction={onAction} busy={busy} />;
-  if (cardType === 'bwm_draft') return <BwmDraftCard card={payload} onAction={onAction} busy={busy} />;
+  if (type === 'analysis') return <AnalysisCard card={payload} onAction={onAction} busy={busy} />;
+  if (type === 'validation') return <ValidationCard card={payload} onAction={onAction} busy={busy} />;
+  if (type === 'mvp') return <MvpCard card={payload} onAction={onAction} busy={busy} hasProject={hasProject} />;
+  if (type === 'launch') return <LaunchCard card={payload} onAction={onAction} busy={busy} />;
+  if (type === 'bwm_draft') return <BwmDraftCard card={payload} onAction={onAction} busy={busy} />;
   return null;
 }

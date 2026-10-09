@@ -21,21 +21,25 @@ const STEPS = [
   { n: '4', label: 'Launch', hint: 'Go live + recruit' },
 ];
 
-export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
+export default function CopilotHome({ conversations, busy, onStart, onOpen, mode, onPickMode }) {
   const router = useRouter();
-  const [mode, setMode] = useState('analyze');
+  // Controlled when the parent supplies `mode`/`onPickMode` so the sidebar and
+  // this screen share one mode; otherwise fall back to local state.
+  const [localMode, setLocalMode] = useState('analyze');
   const [text, setText] = useState('');
   const inputRef = useRef(null);
-  const active = MODES.find((m) => m.key === mode) || MODES[0];
+  const activeKey = mode ?? localMode;
+  const active = MODES.find((m) => m.key === activeKey) || MODES[0];
 
   const pickMode = (key) => {
-    setMode(key);
+    if (onPickMode) onPickMode(key);
+    else setLocalMode(key);
     inputRef.current?.focus();
   };
 
   const start = () => {
     if (!text.trim() || busy) return;
-    onStart(mode, text.trim());
+    onStart(activeKey, text.trim());
   };
 
   return (
@@ -55,7 +59,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
         <div className="mt-5 flex flex-wrap justify-center gap-1.5">
           {MODES.map((m) => {
             const Icon = MODE_ICONS[m.key];
-            const on = m.key === mode;
+            const on = m.key === activeKey;
             return (
               <button
                 key={m.key}
@@ -87,7 +91,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
           />
           <div className="mt-2 flex items-center justify-between gap-3 border-t border-line pt-2.5">
             <span className="text-[10.5px] text-text3">
-              {mode === 'chat' ? 'Free-form advice' : `${active.blurb}`} · ⌘↵ to start
+              {activeKey === 'chat' ? 'Free-form advice' : `${active.blurb}`} · ⌘↵ to start
             </span>
             <button
               onClick={start}
@@ -103,7 +107,7 @@ export default function CopilotHome({ conversations, busy, onStart, onOpen }) {
         <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {MODES.map((m) => {
             const Icon = MODE_ICONS[m.key];
-            const on = m.key === mode;
+            const on = m.key === activeKey;
             return (
               <button
                 key={m.key}

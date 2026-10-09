@@ -15,23 +15,38 @@ function clip(value, max) {
   return String(value == null ? '' : value).slice(0, max).trim();
 }
 
+// Under the local Auth emulator the SDK mints emulator-signed ID tokens that the
+// production identitytoolkit endpoint rejects (400 INVALID_ID_TOKEN). Detect the
+// emulator the same way lib/firebase.js does and verify against the loopback
+// emulator instead. The host is pinned to loopback and only used when the env
+// explicitly opts in, so this can never weaken production verification.
+const authEmulatorHost = (() => {
+  const raw =
+    process.env.FIREBASE_AUTH_EMULATOR_HOST ||
+    (process.env.NEXT_PUBLIC_USE_EMULATORS === '1' ? 'http://localhost:9099' : '');
+  if (!raw) return null;
+  const host = String(raw).replace(/\/+$/, '');
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) ? host : null;
+})();
+
 async function verifyIdToken(idToken) {
+  if (!idToken) return { error: 'missing-token' };
   const key =
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
     process.env.FIREBASE_WEB_API_KEY ||
     process.env.FIREBASE_API_KEY ||
     firebaseConfig.apiKey;
-  if (!key) return { error: 'missing-key' };
-  if (!idToken) return { error: 'missing-token' };
+  if (!authEmulatorHost && !key) return { error: 'missing-key' };
+  const base = authEmulatorHost
+    ? `${authEmulatorHost}/identitytoolkit.googleapis.com/v1`
+    : 'https://identitytoolkit.googleapis.com/v1';
+  const lookupKey = authEmulatorHost ? 'demo' : key;
   try {
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      }
-    );
+    const res = await fetch(`${base}/accounts:lookup?key=${lookupKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
     if (!res.ok) {
       let detail = '';
       try {
@@ -328,6 +343,16 @@ const TEMPLATES = {
   chat: templateChat,
 };
 
+// mode key -> response/card type produced by the prompts and templates above.
+// Mirrors MODES[].card in lib/copilot.js.
+const RESPONSE_TYPES = {
+  analyze: 'analysis',
+  validate: 'validation',
+  mvp: 'mvp',
+  launch: 'launch',
+  draft: 'bwm_draft',
+};
+
 function systemPrompt(mode, p) {
   const rules =
     'Rules: answer only with valid JSON (no markdown fences, no commentary). Never invent statistics, percentages, funding figures or user counts — qualitative reasoning only. Be concrete and practical, not motivational.';
@@ -455,6 +480,7 @@ export async function POST(req) {
 
   let source = 'template';
   let data = null;
+  let aiFailure = null;
 
   try {
     const aiText = await callAI(mode, payload, body && body.history);
@@ -463,17 +489,38 @@ export async function POST(req) {
       data = clip(aiText, 8000);
     } else {
       const parsed = extractJSON(aiText);
-      const expected = mode === 'draft' ? 'bwm_draft' : mode;
-      if (parsed && parsed.type === expected) {
+      // The system prompts ask for type "analysis"/"validation", while the modes
+      // are keyed "analyze"/"validate". Compare against the canonical card type
+      // (mirrors MODES[].card in lib/copilot.js) or AI replies never match and
+      // silently degrade to the template.
+      const expected = RESPONSE_TYPES[mode];
+      if (parsed && expected && parsed.type === expected) {
         source = 'ai';
         data = parsed;
+      } else {
+        aiFailure = 'unusable-response';
       }
     }
   } catch (err) {
-    source = 'template';
+    aiFailure = String(err && err.message ? err.message : err);
   }
 
   if (!data) {
+    // No key configured = expected offline/template mode (E2E S28 relies on this).
+    // Key configured but the provider failed or returned junk = surface it, so a
+    // misconfigured model/credit/network issue is visible instead of a silent template.
+    if (process.env.AI_API_KEY) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            aiFailure === 'unusable-response'
+              ? 'AI provider returned an unusable response'
+              : `AI provider error: ${aiFailure}`,
+        },
+        { status: 502 }
+      );
+    }
     data = TEMPLATES[mode](payload);
     source = 'template';
   }

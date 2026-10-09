@@ -173,11 +173,15 @@ export default function CopilotPage() {
         history: historyFrom([...priorMessages, userMsg]),
       });
       const structured = json.data && typeof json.data === 'object';
+      // CardView dispatches on the canonical card type (analysis/validation/...),
+      // not the mode key (analyze/validate) — modeKey produced an unhandled type
+      // so analyze/validate replies rendered as an empty bubble.
+      const cardType = structured ? modeMeta(modeKey).card : null;
       const assistantMsg = {
         id: localId('a'),
         role: 'assistant',
         text: structured ? '' : String(json.data || ''),
-        cardType: structured ? (modeKey === 'draft' ? 'bwm_draft' : modeKey) : null,
+        cardType,
         card: structured ? json.data : null,
         source: json.source,
       };
@@ -271,6 +275,7 @@ export default function CopilotPage() {
     setMessages([]);
     setInput('');
     setMobileContext(false);
+    setMode('analyze');
   }
 
   async function selectProject(project) {
@@ -621,6 +626,8 @@ export default function CopilotPage() {
               <CopilotHome
                 conversations={conversations}
                 busy={busy}
+                mode={mode}
+                onPickMode={switchMode}
                 onStart={startConversation}
                 onOpen={openConversation}
               />
