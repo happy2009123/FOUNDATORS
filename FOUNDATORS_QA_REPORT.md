@@ -9,15 +9,15 @@
 
 ## 1. Executive summary
 
-**Verdict: NOT launch-ready.** All planned suites ran to completion; every expected-deny security probe passed, the rules regression suite is intact (46/46), and responsive QA is clean at all 10 viewports — but **three P1 functional bugs** are confirmed with deterministic reproductions, two of them data-affecting (a lost first chat message; a profile edit form that silently refuses to save after a cold reload).
+**Verdict: NOT launch-ready.** All planned suites ran to completion; every expected-deny security probe passed, the rules regression suite is intact (48 pass + 2 documented skips), and responsive QA is clean at all 10 viewports — but **three P1 functional bugs** are confirmed with deterministic reproductions, two of them data-affecting (a lost first chat message; a profile edit form that silently refuses to save after a cold reload).
 
 | Suite | Result | Notes |
 |---|---|---|
-| E2E (two isolated accounts, `qa/e2e.js`) | **29 pass / 1 fail** | The 1 failure (S07b) is *intended bug evidence* for P1-B, not a suite defect |
+| E2E (two isolated accounts, `qa/e2e.js`) | **33 pass / 1 fail** | The 1 failure (S07b) is *intended bug evidence* for P1-B, not a suite defect; includes S22–S25 feature smokes (bookmark persistence, `/explore`, `/reels`, `/notifications`) |
 | Admin console E2E (`qa/admin.js`, 15 routes) | **5 / 5 pass** | deny → seed `admins/{uid}` → live guard flip → route smokes → revoke |
 | Security probes (`qa/security-sdk.js`, X01–X27) | **24 pass / 0 fail / 3 info** | Every privileged probe denied; 3 informational writes are cosmetic by design |
-| Rules regression (`node --test tests/rules.test.js`) | **46 / 46 pass** | Baseline intact |
-| Responsive (`qa/responsive.js`, 10 viewports × 10 routes) | **10 / 10 pass** | No horizontal overflow anywhere; sidebar ↔ bottom-nav switches correctly at `lg` (1024px) |
+| Rules regression (`npm run test:rules`) | **48 pass / 0 fail / 2 skipped** | Baseline 46 intact + 2 new passing tests (voice GET, chat typing ownership); the 2 skips assert the desired behavior for the open P1-C/P2-B rules bugs and flip green when those are fixed |
+| Responsive (`qa/responsive.js`, 10 viewports × 10 routes) | **10 / 10 pass** | No horizontal overflow anywhere; sidebar ↔ bottom-nav switches correctly at `lg` (1024px); re-run carries per-route attribution + component-stack capture for React key warnings (none fired) |
 | Performance (`qa/perf.js` + `next build`) | **9 routes measured** | Dev TTFB 71–321 ms, FCP 272–852 ms; prod bundle 3.3 MB static / 2.8 MB JS (§8) |
 | Static recon (`qa/recon.js`) | done | 34 routes catalogued; 2 dead/broken routes found (P2) |
 
@@ -57,7 +57,7 @@ This is a three-part chain, all confirmed:
 
    In E2E the failure is timing-dependent: intermittent `[B] Send failed` console errors; sends sometimes succeed (S14/S15 pass), sometimes users must resend.
 
-- **Suggested fix:** (a) rules — prefix the chat update rule with `resource != null &&` so it denies cleanly instead of crashing; (b) client — skip `markRead`'s `updateDoc` when the chat document does not exist (or check existence first), and surface a real retry on send failure.
+- **Suggested fix:** (a) rules — prefix the chat update rule with `resource != null &&` so it denies cleanly instead of crashing; (b) client — skip `markRead`'s `updateDoc` when the chat document does not exist (or check existence first), and surface a real retry on send failure. (c) Coverage: `tests/rules.test.js` already carries a **skipped** `chats: update on a MISSING doc fails cleanly (no evaluation error)` test plus a passing typing-ownership test — the skipped one enables when (a) lands.
 
 ### P2-B — `/voice`: room-list listeners crash on every load (deterministic)
 - **Symptom:** opening `/voice` throws, twice per load:
@@ -75,16 +75,56 @@ This is a three-part chain, all confirmed:
   (`lib/voice.js:104+`) writes the `roomId/hostId/type/status` fields the
   create rule (L1285–1292) demands — so creation is fine; **reads/lists** are broken.
 - **Suggested fix:** `allow read: if (resource != null && voiceRoomReadable(resource.data, roomId)) || isAdmin();`
-  (plus a null-safe helper for `participants` reads) — and **add a LIST test to
-  `tests/rules.test.js`** (the 46/46 suite passes today because no test lists `voiceRooms`).
+  (plus a null-safe helper for `participants` reads). **Coverage gap now closed:**
+  `tests/rules.test.js` gained a passing GET test (proves the bug is list-only)
+  and a **skipped** `voiceRooms: admin can list rooms` test that asserts the
+  desired behavior — it flips green when L1281 is guarded.
 
-### P2-A — `/discussion` is a dead route
-`app/discussion/[discussionId]/{page,layout,loading}.js` exist, but there is **no**
-`app/discussion/page.js` → `/discussion` 404s. Either add an index (list) page or
-remove inbound links to it.
+### P2-A — Discussion feature is a shell: dead index, orphaned list, no data
+Evidence (full source map of every `discussion` reference):
+- `app/discussion/page.js` missing → bare `/discussion` **404s** (index).
+- Detail pages `app/discussion/[discussionId]/{page,layout,loading}.js` exist, but
+  `page.js:26` reads `useStore(s => s.discussions[id])` and `lib/store.js` **never
+  populates `discussions`**: init `{}` at L69/L433, and the only mutator
+  (`addDiscussionComment`, L437) no-ops on missing IDs (`if (!s.discussions[discId])
+  return {}`). There is **no `discussions` Firestore collection, loader, or create
+  flow anywhere** → the detail page always renders its "not found" branch (L37).
+- The real list route `app/list/[mode]` handles `mode === 'discussions'` ("Trending
+  Discussions", L18/L67) but **nothing links to `/list/*`** → orphaned.
+- The only inbound links point at the logically-dead detail view:
+  `components/DiscussionCard.js:13` (rendered only from the orphaned list) and
+  `app/notifications/page.js:75` (`linkType === 'discussion'` → lands on "not found").
+- Legacy smell: `app/discussion/[discussionId]/layout.js:8-9` generateStaticParams
+  seeds fake IDs (`saas`, `users100`) — localStorage-era leftover.
+- **Impact:** entire feature is UI scaffolding with zero data plumbing; users can
+  never see a discussion, and discussion notifications dead-end.
+- **Suggested fix:** either wire it (Firestore collection + loader + create flow +
+  entry links from home/nav) or remove the routes, `DiscussionCard`, the store slice
+  and the `linkType === 'discussion'` branch.
 
-### P3-A — Duplicate React children keys (console warning)
-`Encountered two children with the same key` on `/home` (E2E + responsive runs). Non-unique keys can silently drop/reorder list rows — worth locating in the home feed/story sections.
+### P3-A — Duplicate React children keys in the /home Opportunity Radar (located)
+`Encountered two children with the same key` fires on **`/home`** right after
+people data loads. Captured live via the E2E stack/key instrumentation
+(`keyWarnings` in `qa/results/e2e.json`): the duplicate key values were
+**user display names** (`"Bob QA"`, `"Key Probe Five"`).
+- **Root cause:** `app/home/page.js:114` renders the Opportunity-Radar cards as
+  `radar.map((r) => <button key={r.name} …)` where `radar` is built from
+  Firestore **people matches** (L70–89, `name: u.name || 'Unknown'`). Display
+  names are not unique — any two matches with the same name (very common once
+  the user base grows; already reproducible in QA because repeated E2E runs
+  create several `"Bob QA"`/`"Alice QA"` docs) produce duplicate keys, which
+  React can use to silently drop/reorder radar cards.
+- **Secondary:** `components/copilot/Cards.js:201` keys AI-generated feature
+  chips by `f.name` — same class of bug if the model emits two features with
+  identical names.
+- **Suggested fix:** carry the id into the radar objects (`id: u.id`) and use
+  `key={r.id}` (fallback `href`); for copilot chips key by an index/id, not
+  the label.
+- **Why it looked intermittent:** it needs ≥2 same-name people in `matches`,
+  and it only fires once the matches listener has data — hence one capture in
+  the original responsive run, none in empty-data probes, and 3 captures in
+  E2E once same-named users had accumulated. `qa/e2e.js` now records the step,
+  URL, key value and stack automatically when it fires.
 
 ### P3-B — Signup hydration race (cosmetic)
 Intermittent first-render flash during signup/onboarding hydration (observed as `/home` vs `/onboarding` landing differences across runs). No data impact.
@@ -125,7 +165,7 @@ The admin surface was previously tested only for *denial*; this suite proves the
 
 ## 4. Security QA
 
-**Expected-deny probes: all denied (24/24).** Cross-account: profile edit/delete, post edit/delete, private subcollection read/write, admin grant — **denied**. Self-escalation: verified/status, foundingNumber, builderScore, follower inflation, email/fcmTokens smuggling, admin field — **denied**. Admin-only reads (`reports`, `pending-notifications`) — **denied**. Notification creation without recipient — **denied**. Deep isolation (X23–X27): an outsider creating a chat *between* two other users, a participant spoofing `senderKey` as their partner, writing another user's notification-settings subcollection, deleting someone else's story, and a requester self-accepting their own collaboration request — **all denied**. Combined with `tests/rules.test.js` **46/46** and storage-rules coverage inside that suite, the rules posture is good; the P1/P2 issues are availability/correctness bugs, not authorization holes.
+**Expected-deny probes: all denied (24/24).** Cross-account: profile edit/delete, post edit/delete, private subcollection read/write, admin grant — **denied**. Self-escalation: verified/status, foundingNumber, builderScore, follower inflation, email/fcmTokens smuggling, admin field — **denied**. Admin-only reads (`reports`, `pending-notifications`) — **denied**. Notification creation without recipient — **denied**. Deep isolation (X23–X27): an outsider creating a chat *between* two other users, a participant spoofing `senderKey` as their partner, writing another user's notification-settings subcollection, deleting someone else's story, and a requester self-accepting their own collaboration request — **all denied**. Combined with `tests/rules.test.js` **48 pass / 0 fail / 2 documented skips** and storage-rules coverage inside that suite, the rules posture is good; the P1/P2 issues are availability/correctness bugs, not authorization holes.
 
 ## 5. Responsive QA (`qa/responsive.js`)
 
@@ -158,12 +198,16 @@ Production `next build` (Next.js 16.3.5 Turbopack): **compiles clean** (101/101 
 
 ## 10. Artifacts & QA harness (all mine, `qa/`)
 
-- `qa/e2e.js` (30 steps + S03b/S07b/S15b), `qa/admin.js` (A01–A05, 15 admin routes),
-  `qa/security-sdk.js` (X01–X22), `qa/responsive.js` (10 vp), `qa/perf.js`, `qa/recon.js`.
+- `qa/e2e.js` (34 steps incl. S03b/S07b/S15b + S22–S25, per-step P3-A
+  key-warning stack capture), `qa/admin.js` (A01–A05, 15 admin routes),
+  `qa/security-sdk.js` (X01–X27), `qa/responsive.js` (10 vp, per-route
+  console/key attribution), `qa/perf.js`, `qa/recon.js`.
 - Evidence scripts: `debug-save`, `debug-verified{,2,3}`, `debug-msg{,2}`, `debug-chatrules`,
-  `debug-seq`, `debug-batch`, `debug-row`, `debug-dup`, `debug-voice`, `debug-rest-chat`, …
+  `debug-seq`, `debug-batch`, `debug-row`, `debug-dup`, `debug-voice`, `debug-rest-chat`,
+  `debug-keys`/`debug-keys2` (P3-A hunt), `debug-signup` (signup→profile-doc probe) …
   + `qa/notes.md` (working evidence log).
-- Results: `qa/results/{e2e,security-sdk,responsive,perf,recon}.json`; screenshots: `qa/screenshots/` (gitignored).
+- Results: `qa/results/{e2e,security-sdk,responsive,perf,recon,admin,key-warnings*}.json`;
+  screenshots: `qa/screenshots/` (gitignored).
 - Harness wiring (also uncommitted until the QA commit): `firebase.json` → emulator ports; `lib/firebase.js` → env-gated `connect*Emulator()` calls; `package.json` → `playwright` devDependency.
 - **No application code, rules, or functions were modified by QA.**
 
@@ -176,8 +220,9 @@ Production `next build` (Next.js 16.3.5 Turbopack): **compiles clean** (101/101 
 | 1 | Fix P1-A edit-profile cold-load | **BLOCKER** |
 | 2 | Fix P1-B /create emailVerified race | **BLOCKER** |
 | 3 | Fix P1-C messaging rules crash / message loss | **BLOCKER** |
-| 4 | Fix or unlink `/discussion`, repair `/voice` rules helpers | Should-fix |
-| 5 | Re-run `qa/e2e.js` (expect 30/30 with S07b flipped to pass), `test:rules` 46/46 | After fixes |
+| 4 | Fix discussion feature (no data/no entry links, dead index — P2-A), repair `/voice` rules helpers (P2-B) | Should-fix |
+| 4b | Fix P3-A `key={r.name}` in `app/home/page.js:114` (duplicate-name radar cards) | Nice-to-fix |
+| 5 | Re-run `qa/e2e.js` (expect 33/34 with S07b flipped to pass), `test:rules` 48/0/2 → 50/0/0 once P1-C/P2-B skips are enabled | After fixes |
 | 6 | Staging deploy + `next start` perf re-measure (§7) | Pre-launch |
 | 7 | Founder Firebase credential checklist (`READINESS_REPORT.md`) | Open |
 | 8 | Beta program kick-off (`BETA_TEST_PLAN.md`) | Target Dec 2026 |

@@ -28,10 +28,17 @@ npm run test:rules
 ```
 
 Starts its own ephemeral emulators (`emulators:exec`) and runs
-`tests/rules.test.js` via `node --test`.
+`tests/rules.test.js` via `node --test`. Requires JDK/JRE **21+** (if
+`firebase-tools` complains about the Java version, set `JAVA_HOME` to a 21+
+runtime first). Stop any long-running persistent emulators before invoking it
+so its ports are free.
 
-**Green:** `pass 46 / fail 0` — Firestore + Storage rules (auth, posts, chat
-privacy, notifications, voice, admin, image content-types…).
+**Green:** `pass 48 / fail 0 / skipped 2` — Firestore + Storage rules (auth,
+posts, chat privacy, notifications, voice, admin, image content-types…). The
+2 skips are intentional: they assert the **desired** behavior for the open
+P1-C and P2-B rules bugs (clean denial on missing chat docs; admin listing of
+`voiceRooms`) and are enabled once those bugs are fixed — see
+`FOUNDATORS_QA_REPORT.md`.
 
 ## 2. E2E — two-account product flow
 
@@ -44,10 +51,12 @@ then drives both contexts through signup/session, profile edit, posts,
 likes/comments, follows/notifications, messaging, logout/re-login, admin
 denial, privacy checks and feature smokes.
 
-**Green (current expected baseline):** `29 pass, 1 fail` — the single
+**Green (current expected baseline):** `33 pass, 1 fail` — the single
 failure is **S07b, intended bug evidence for P1-B** in
 `FOUNDATORS_QA_REPORT.md` (Post button disabled after a full reload of
-`/create`). After P1-B is fixed, expect `30 pass, 0 fail`.
+`/create`). After P1-B is fixed, expect `34 pass, 0 fail`.
+The suite also attributes React duplicate-key warnings (P3-A) to the exact
+step + component stack when they fire (`keyWarnings` in `qa/results/e2e.json`).
 
 Artifacts: `qa/results/e2e.json`, `qa/screenshots/`.
 
