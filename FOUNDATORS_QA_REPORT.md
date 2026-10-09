@@ -14,7 +14,8 @@
 | Suite | Result | Notes |
 |---|---|---|
 | E2E (two isolated accounts, `qa/e2e.js`) | **29 pass / 1 fail** | The 1 failure (S07b) is *intended bug evidence* for P1-B, not a suite defect |
-| Security probes (`qa/security-sdk.js`, X01–X22) | **19 pass / 0 fail / 3 info** | Every privileged probe denied; 3 informational writes are cosmetic by design |
+| Admin console E2E (`qa/admin.js`, 15 routes) | **5 / 5 pass** | deny → seed `admins/{uid}` → live guard flip → route smokes → revoke |
+| Security probes (`qa/security-sdk.js`, X01–X27) | **24 pass / 0 fail / 3 info** | Every privileged probe denied; 3 informational writes are cosmetic by design |
 | Rules regression (`node --test tests/rules.test.js`) | **46 / 46 pass** | Baseline intact |
 | Responsive (`qa/responsive.js`, 10 viewports × 10 routes) | **10 / 10 pass** | No horizontal overflow anywhere; sidebar ↔ bottom-nav switches correctly at `lg` (1024px) |
 | Performance (`qa/perf.js` + `next build`) | **9 routes measured** | Dev TTFB 71–321 ms, FCP 272–852 ms; prod bundle 3.3 MB static / 2.8 MB JS (§8) |
@@ -58,11 +59,29 @@ This is a three-part chain, all confirmed:
 
 - **Suggested fix:** (a) rules — prefix the chat update rule with `resource != null &&` so it denies cleanly instead of crashing; (b) client — skip `markRead`'s `updateDoc` when the chat document does not exist (or check existence first), and surface a real retry on send failure.
 
-### P2-A — `/discussion` is a dead route
-`app/discussion/[discussionId]/{page,layout,loading}.js` exist, but there is **no** `app/discussion/page.js` → `/discussion` 404s. Either add an index (list) page or remove inbound links to it.
+### P2-B — `/voice`: room-list listeners crash on every load (deterministic)
+- **Symptom:** opening `/voice` throws, twice per load:
+  `Uncaught Error in snapshot listener: FirebaseError: [code=permission-denied]: Null value error. for 'list' @ L1281, false for 'list' @ L1528`
+  → the room list can never populate — for *any* user, including admins.
+- **Root cause:** `firestore.rules:1281` —
+  `allow read: if voiceRoomReadable(resource.data, roomId) || isAdmin();`
+  For **list** queries `resource` is null, so `room.hostId` inside the helper
+  throws a Null-value evaluation error **before** `|| isAdmin()` is ever
+  evaluated. Confirmed against an **empty** `voiceRooms` collection (owner REST
+  shows 0 docs; error still fires). Same missing-`resource != null` guard
+  class as P1-C.
+- **Evidence:** `qa/debug-voice.js` (captured console signature above);
+  `/voice/create` itself loads with 0 errors, and the app's `createVoiceRoom`
+  (`lib/voice.js:104+`) writes the `roomId/hostId/type/status` fields the
+  create rule (L1285–1292) demands — so creation is fine; **reads/lists** are broken.
+- **Suggested fix:** `allow read: if (resource != null && voiceRoomReadable(resource.data, roomId)) || isAdmin();`
+  (plus a null-safe helper for `participants` reads) — and **add a LIST test to
+  `tests/rules.test.js`** (the 46/46 suite passes today because no test lists `voiceRooms`).
 
-### P2-B — `/voice` listeners crash with rules "Null value" errors
-Opening `/voice` throws `permission-denied: … Null value` from the voice room readable/data helpers (`firestore.rules` ≈ L1280–1468). Room list/listeners fail for normal users — same missing-`resource`-guard class of bug as P1-C.
+### P2-A — `/discussion` is a dead route
+`app/discussion/[discussionId]/{page,layout,loading}.js` exist, but there is **no**
+`app/discussion/page.js` → `/discussion` 404s. Either add an index (list) page or
+remove inbound links to it.
 
 ### P3-A — Duplicate React children keys (console warning)
 `Encountered two children with the same key` on `/home` (E2E + responsive runs). Non-unique keys can silently drop/reorder list rows — worth locating in the home feed/story sections.
@@ -91,9 +110,22 @@ Fresh pair per run (Alice + Bob, emulator-verified emails), cookie-banner dismis
 
 Console errors captured this run: `401 @/api/email/` (×2, environment — §9), duplicate-children-key (P3-A). The intermittent `[B] Send failed` (P1-C) appears across runs.
 
+**Stability hardening:** a repeat run surfaced fixed-wait flakes in S07/S30 (post existed — S08/S09/S10 passed); assertions now poll (`waitForText`, 12 s) and failures include URL + body snippet.
+
+### Admin console — positive path (`qa/admin.js`, 5/5)
+
+The admin surface was previously tested only for *denial*; this suite proves the full lifecycle against the emulator (owner-token seeding **only** works locally — the script hard-refuses unless `localhost:8080` answers as the emulator):
+
+- **A01** normal user hits `/admin` → "Access denied" guard (rules + UI agree) ✔
+- **A02** seed `admins/{uid}` (emulator owner REST) → guard flips **live** via `onSnapshot`, no reload needed ✔
+- **A03** all **15** `/admin/*` routes smoke: no app error, no denial, no stuck guard, no empty body (screenshot per route) ✔
+- **A04** admin reads privileged collections: `admins/{uid}` get-own exists, `reports` list OK, `pending-notifications` list OK ✔
+  - note: whole-collection **list of `admins`** is denied by design (`allow read: if … uid() == adminUid`) — get-own only
+- **A05** delete the admin doc → access revoked immediately on next check ✔
+
 ## 4. Security QA
 
-**Expected-deny probes: all denied.** Cross-account: profile edit/delete, post edit/delete, private subcollection read/write, admin grant — **denied**. Self-escalation: verified badge, status, foundingNumber, builderScore, follower inflation, email/fcmTokens smuggling, admin field — **denied**. Admin-only reads (`reports`, `pendingNotifications`) — **denied**. Notification creation without recipient — **denied**. Combined with `tests/rules.test.js` **46/46** and storage-rules coverage inside that suite, the rules posture is good; the P1/P2 issues are availability/correctness bugs, not authorization holes.
+**Expected-deny probes: all denied (24/24).** Cross-account: profile edit/delete, post edit/delete, private subcollection read/write, admin grant — **denied**. Self-escalation: verified/status, foundingNumber, builderScore, follower inflation, email/fcmTokens smuggling, admin field — **denied**. Admin-only reads (`reports`, `pending-notifications`) — **denied**. Notification creation without recipient — **denied**. Deep isolation (X23–X27): an outsider creating a chat *between* two other users, a participant spoofing `senderKey` as their partner, writing another user's notification-settings subcollection, deleting someone else's story, and a requester self-accepting their own collaboration request — **all denied**. Combined with `tests/rules.test.js` **46/46** and storage-rules coverage inside that suite, the rules posture is good; the P1/P2 issues are availability/correctness bugs, not authorization holes.
 
 ## 5. Responsive QA (`qa/responsive.js`)
 
@@ -126,8 +158,11 @@ Production `next build` (Next.js 16.3.5 Turbopack): **compiles clean** (101/101 
 
 ## 10. Artifacts & QA harness (all mine, `qa/`)
 
-- `qa/e2e.js` (30 steps + S03b/S07b/S15b), `qa/security-sdk.js` (X01–X22), `qa/responsive.js` (10 vp), `qa/perf.js`, `qa/recon.js`.
-- Evidence scripts: `debug-save`, `debug-verified{,2,3}`, `debug-msg{,2}`, `debug-chatrules`, `debug-seq`, `debug-batch`, `debug-row`, `debug-dup`, `debug-rest-chat`, … + `qa/notes.md` (working evidence log).
+- `qa/e2e.js` (30 steps + S03b/S07b/S15b), `qa/admin.js` (A01–A05, 15 admin routes),
+  `qa/security-sdk.js` (X01–X22), `qa/responsive.js` (10 vp), `qa/perf.js`, `qa/recon.js`.
+- Evidence scripts: `debug-save`, `debug-verified{,2,3}`, `debug-msg{,2}`, `debug-chatrules`,
+  `debug-seq`, `debug-batch`, `debug-row`, `debug-dup`, `debug-voice`, `debug-rest-chat`, …
+  + `qa/notes.md` (working evidence log).
 - Results: `qa/results/{e2e,security-sdk,responsive,perf,recon}.json`; screenshots: `qa/screenshots/` (gitignored).
 - Harness wiring (also uncommitted until the QA commit): `firebase.json` → emulator ports; `lib/firebase.js` → env-gated `connect*Emulator()` calls; `package.json` → `playwright` devDependency.
 - **No application code, rules, or functions were modified by QA.**

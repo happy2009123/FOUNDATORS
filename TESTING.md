@@ -51,18 +51,34 @@ failure is **S07b, intended bug evidence for P1-B** in
 
 Artifacts: `qa/results/e2e.json`, `qa/screenshots/`.
 
+## 2b. Admin console lifecycle
+
+```bash
+node qa/admin.js
+```
+
+Fresh user is denied `/admin`, then `admins/{uid}` is seeded through the
+**emulator's owner REST API** (the script hard-refuses to run unless
+`localhost:8080` identifies as the emulator — never production), the guard
+must flip live, all **15 `/admin/*` routes** must smoke clean, privileged
+reads (`reports`, `pending-notifications`) must succeed as admin, and access
+must be revoked when the doc is deleted.
+
+**Green:** `5 pass, 0 fail`. Artifact: `qa/results/admin.json`.
+
 ## 3. Security probes (black-box, expected-deny)
 
 ```bash
 node qa/security-sdk.js
 ```
 
-X01–X22 through the real SDK: cross-account writes, private-subcollection
+X01–X27 through the real SDK: cross-account writes, private-subcollection
 access, admin-grant, self-escalation (verified/status/founder-number/builder
 score/followers), email/fcm smuggling, notification spoofing, admin-only
-reads.
+reads, plus deep isolation (outsider chat creation, `senderKey` spoofing,
+foreign settings writes, foreign story deletion, collab-request self-accept).
 
-**Green:** `19 pass, 0 fail, 3 info` — the 3 infos are documented cosmetic
+**Green:** `24 pass, 0 fail, 3 info` — the 3 infos are documented cosmetic
 writes (uid/role fields, CF-enforced sender claim).
 
 ## 4. Responsive QA (10 viewports)
