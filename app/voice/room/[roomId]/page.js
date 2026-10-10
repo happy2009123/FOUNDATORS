@@ -76,7 +76,14 @@ function RemoteAudio({ stream }) {
     const el = ref.current;
     if (!el) return;
     el.srcObject = stream || null;
-    if (stream) attemptPlay(el);
+    el.muted = false;
+    if (stream) {
+      // Some Android WebViews only un-mute after canplay fires.
+      const onReady = () => attemptPlay(el);
+      el.addEventListener('canplay', onReady);
+      attemptPlay(el);
+      return () => el.removeEventListener('canplay', onReady);
+    }
   }, [stream]);
   return <audio ref={ref} autoPlay playsInline />;
 }
@@ -354,7 +361,7 @@ export default function VoiceRoomPage() {
     if (!mesh || !joined) return;
     if (mySpeaker) {
       mesh.ensureMic().then((res) => {
-        if (!res.ok) setMicIssue(res.reason === 'denied' ? 'denied' : 'unavailable');
+        if (!res.ok) setMicIssue(res.reason || 'unavailable');
         else setMicIssue('');
       });
       if (myP && myP.isMuted) {
@@ -411,11 +418,27 @@ export default function VoiceRoomPage() {
     mesh.ensureMic().then((res) => {
       if (res.ok) setMicIssue('');
       else {
-        setMicIssue(res.reason === 'denied' ? 'denied' : 'unavailable');
-        showToast('Microphone access is required to speak.');
+        setMicIssue(res.reason || 'unavailable');
+        if (res.reason === 'insecure') showToast('Voice needs HTTPS — open the app over https:// to use your mic.');
+        else if (res.reason === 'denied') showToast('Microphone blocked. Allow mic access in your browser, then tap the mic again.');
+        else showToast('No microphone found on this device.');
       }
     });
   }, [showToast]);
+
+  // The mic button itself activates the microphone inside a real tap.
+  // Mobile browsers (iOS especially) attach the permission prompt to a user
+  // gesture — the automatic effect can fail silently, so tapping the mic
+  // must always be a valid way to (re)enable it.
+  const onMicPress = () => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    if (audioState.mic !== 'on' && audioState.mic !== 'muted') {
+      ensureMic();
+      return;
+    }
+    toggleMute();
+  };
 
   const toggleMute = () => {
     const mesh = meshRef.current;
@@ -615,6 +638,7 @@ export default function VoiceRoomPage() {
   };
 
   const stateLabel = (() => {
+    if (audioState.mic === 'insecure') return 'Mic needs https://';
     if (audioState.mic === 'denied' || audioState.mic === 'unavailable') return 'Microphone unavailable';
     if (kicked || !joined) return 'Disconnected';
     if (audioState.peers === 'connecting') return 'Connecting…';
@@ -1047,13 +1071,17 @@ export default function VoiceRoomPage() {
       <div className="flex items-center gap-2.5">
         {mySpeaker ? (
           <button
-            onClick={toggleMute}
-            aria-label={muted ? 'Unmute' : 'Mute'}
+            onClick={onMicPress}
+            aria-label={audioState.mic === 'on' && !muted ? 'Mute microphone' : 'Enable microphone'}
             className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg active:scale-95 ${
-              muted ? 'bg-brandred/20 text-brandred ring-2 ring-brandred/60' : 'bg-gold-grad text-[#171100]'
+              audioState.mic === 'on' && muted
+                ? 'bg-brandred/20 text-brandred ring-2 ring-brandred/60'
+                : audioState.mic === 'on'
+                ? 'bg-gold-grad text-[#171100]'
+                : 'border border-gold/50 bg-gold/10 text-gold-hi'
             }`}
           >
-            {muted ? <MicOff size={20} /> : <Mic size={20} />}
+            {audioState.mic === 'on' && muted ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
         ) : (
           <button
@@ -1072,7 +1100,9 @@ export default function VoiceRoomPage() {
         {mySpeaker ? (
           <div className="hidden min-w-0 flex-1 flex-col sm:flex">
             <span className="truncate text-[11.5px] font-bold text-text1">
-              You&apos;re on stage — {muted ? 'muted' : 'microphone live'}
+              {audioState.mic === 'on'
+                ? `You're on stage — ${muted ? 'muted' : 'microphone live'}`
+                : 'You\u2019re on stage — tap the mic to start talking'}
             </span>
             <span className="text-[10.5px] text-text3">{stateLabel}</span>
           </div>
@@ -1088,7 +1118,11 @@ export default function VoiceRoomPage() {
         <div className="mt-2 flex items-center gap-2 rounded-xl border border-brandred/40 bg-brandred/10 px-3 py-2.5">
           <ShieldAlert size={14} className="shrink-0 text-brandred" />
           <span className="min-w-0 flex-1 text-[11.5px] font-bold text-brandred">
-            Microphone access is required to speak.
+            {micIssue === 'insecure'
+              ? 'Voice needs a secure connection — open this page over https:// to use the microphone.'
+              : micIssue === 'denied'
+              ? 'Microphone blocked. Allow mic access in your browser settings, then tap Retry.'
+              : 'No microphone found on this device.'}
           </span>
           <button onClick={ensureMic} className="shrink-0 rounded-lg bg-gold-grad px-2.5 py-1.5 text-[10.5px] font-black text-[#171100]">
             Retry

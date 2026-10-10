@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Code2, Medal, Search, Trophy, Zap } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { initialsAvatar } from '@/lib/avatar';
 
 const challenges=[['Build a payments API','60 min','+500 pts'],['AI prompt optimization','30 min','+300 pts'],['React performance sprint','45 min','+400 pts']];
@@ -19,19 +19,22 @@ export default function Programmers(){
  useEffect(() => {
    let cancelled = false;
    async function fetchUsers() {
-     try {
-       const snap = await getDocs(collection(db, 'users'));
-       if (!cancelled) {
-         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-         setUsers(list.filter((u) => {
-           const role = (u.role || '').toLowerCase();
-           const skills = (u.skills || []).map(s => s.toLowerCase()).join(' ');
-           return role.includes('engineer') || role.includes('developer') || role.includes('builder') ||
-                  role.includes('full-stack') || role.includes('programmer') ||
-                  skills.includes('development') || skills.includes('ai') || skills.includes('react');
-         }));
-       }
-     } catch {
+    try {
+      const supabase = getSupabase();
+      if (!supabase) return;
+      const { data, error } = await supabase.from('profiles').select('*').limit(100);
+      if (error) throw error;
+      if (!cancelled) {
+        const list = mapRows(data || []);
+        setUsers(list.filter((u) => {
+          const role = (u.role || '').toLowerCase();
+          const skills = (u.skills || []).map(s => s.toLowerCase()).join(' ');
+          return role.includes('engineer') || role.includes('developer') || role.includes('builder') ||
+                 role.includes('full-stack') || role.includes('programmer') ||
+                 skills.includes('development') || skills.includes('ai') || skills.includes('react');
+        }));
+      }
+    } catch {
        // silently fail
      } finally {
        if (!cancelled) setLoading(false);

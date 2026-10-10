@@ -9,8 +9,8 @@ import ScrollToTop from '@/components/ScrollToTop';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { subscribeToChats, deleteChat as deleteChatFS } from '@/lib/firestore';
 import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
 import { useHaptics } from '@/lib/useHaptics';
@@ -35,8 +35,12 @@ export default function MessagesPage() {
   const [tab, setTab] = useState('messages');
   const [newConvo, setNewConvo] = useState('');
   const [swipedKey, setSwipedKey] = useState(null);
-  const [pinned, setPinned] = useState(['sophia']);
+  const [pinned, setPinned] = useState([]);
   const [archived, setArchived] = useState([]);
+  // Pin/archive used to be pure in-memory state (seeded with a fake 'sophia'
+  // chat) — both vanished on every reload. Persist per account instead.
+  const pinsLoadedForRef = useRef(null);
+  const skipPersistRef = useRef(false);
   const [userSearch, setUserSearch] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [fsChats, setFsChats] = useState([]);
@@ -49,6 +53,43 @@ export default function MessagesPage() {
     });
     return () => unsub();
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id) {
+      pinsLoadedForRef.current = null;
+      return;
+    }
+    let p = [];
+    let a = [];
+    try {
+      p = JSON.parse(localStorage.getItem(`foundators.pinned.${profile.id}`) || '[]');
+      a = JSON.parse(localStorage.getItem(`foundators.archived.${profile.id}`) || '[]');
+    } catch {
+      p = [];
+      a = [];
+    }
+    skipPersistRef.current = true;
+    pinsLoadedForRef.current = profile.id;
+    setPinned(Array.isArray(p) ? p : []);
+    setArchived(Array.isArray(a) ? a : []);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    const uid = pinsLoadedForRef.current;
+    if (!uid) return;
+    if (skipPersistRef.current) {
+      // The restore effect above just ran in this same commit — do not write
+      // the previous account's (or default) pins under the new account's key.
+      skipPersistRef.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(`foundators.pinned.${uid}`, JSON.stringify(pinned));
+      localStorage.setItem(`foundators.archived.${uid}`, JSON.stringify(archived));
+    } catch {
+      // private mode / quota — pins stay session-local
+    }
+  }, [pinned, archived, profile?.id]);
 
   // Watch lastSeen for every direct-message partner (and local contacts) so
   // rows show a real online dot / "Last seen" instead of always "Online".
@@ -68,7 +109,7 @@ export default function MessagesPage() {
 
   const mergedContacts = useMemo(() => {
     const merged = {};
-    // Primary source of truth: Firestore conversations.
+    // Primary source of truth: chat rows.
     fsChats.forEach((chat) => {
       const convId = chat.id;
       const myUnread = (chat.unreadBy && chat.unreadBy[profile?.id]) || 0;
@@ -98,7 +139,7 @@ export default function MessagesPage() {
         merged[convId] = { ...merged[convId], chatId: convId, unread: myUnread };
       }
     });
-    // Fallback: local store contacts that aren't already shown as a Firestore chat.
+    // Fallback: local store contacts that aren't already shown as a chat.
     Object.entries(contacts).forEach(([key, c]) => {
       if (merged[key]) return;
       const covered = fsChats.some((chat) => (chat.participants || []).includes(key));
@@ -147,9 +188,12 @@ export default function MessagesPage() {
     let cancelled = false;
     async function fetchUsers() {
       try {
-        const snap = await getDocs(collection(db, 'users'));
+        const supabase = getSupabase();
+        if (!supabase) return;
+        const { data, error } = await supabase.from('profiles').select('*').limit(100);
+        if (error) throw error;
         if (!cancelled) {
-          setAllUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setAllUsers(mapRows(data));
         }
       } catch {
         // silently fail

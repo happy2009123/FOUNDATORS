@@ -4,47 +4,19 @@
 // ADMIN — Danger zone
 // Replaces the old unauthenticated /admin/clear "wipe everything"
 // tool, which any signed-in user could reach. Bulk deletion of
-// production data is gone on purpose; the remaining action is
-// bounded (resolved reports only), typed-confirmation gated, and
-// written to the audit log. Firestore rules independently require
-// admin rights for every delete.
+// production data is gone on purpose. The remaining action
+// (purging resolved reports) has no client-side permission in
+// Supabase — reports are admin-readable but not admin-deletable —
+// and no service-role admin API route exists yet, so the button is
+// rendered disabled with an honest explanation instead of failing
+// silently or pretending to work.
 // ─────────────────────────────────────────────────────────────
 
-import { useState } from 'react';
 import { AlertOctagon, Trash2 } from 'lucide-react';
-import { collection, query, where, limit, getDocs, writeBatch, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useStore } from '@/lib/store';
-import { recordAdminAction } from '@/lib/adminData';
-import { Card, SectionTitle, ConfirmDialog } from '@/components/admin/ui';
+import { Card, SectionTitle } from '@/components/admin/ui';
 
 export default function AdminDangerZone({ onChanged }) {
-  const showToast = useStore((s) => s.showToast);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  async function purgeResolved() {
-    setBusy(true);
-    try {
-      let removed = 0;
-      for (;;) {
-        const q = query(collection(db, 'reports'), where('status', '==', 'resolved'), limit(300));
-        const snap = await getDocs(q);
-        if (snap.empty) break;
-        const batch = writeBatch(db);
-        snap.docs.forEach((d) => { batch.delete(d.ref); removed += 1; });
-        await batch.commit();
-        if (snap.docs.length < 300) break;
-      }
-      await recordAdminAction('reports_purged', null, `Removed ${removed} resolved reports`);
-      showToast(`Purged ${removed} resolved report${removed === 1 ? '' : 's'}`);
-      onChanged?.();
-    } catch (e) {
-      showToast(`Failed: ${e?.message || 'permission denied'}`);
-    }
-    setBusy(false);
-    setOpen(false);
-  }
+  void onChanged;
 
   return (
     <Card className="border-brandred/25 p-5">
@@ -57,33 +29,26 @@ export default function AdminDangerZone({ onChanged }) {
           <div className="max-w-[520px]">
             <div className="text-[13.5px] font-extrabold">Purge resolved reports</div>
             <p className="mt-1 text-[12px] leading-relaxed text-text3">
-              Permanently deletes reports already marked <b className="text-text2">Resolved</b> from the moderation
-              queue. Pending and reviewing reports are untouched. Requires typing the confirmation phrase.
+              Would permanently delete reports already marked <b className="text-text2">Resolved</b> from the moderation
+              queue. Pending and reviewing reports are untouched.
             </p>
             <p className="mt-2 text-[11.5px] leading-relaxed text-text3">
-              The former “delete all data” tool was removed — wiping production data is not an admin console feature.
+              Unavailable from the browser: Supabase row-level security exposes reports to admins as read-only, and
+              destructive admin operations run via the Supabase dashboard (Table editor → reports) until a service-role
+              admin API route exists. The former “delete all data” tool stays removed — wiping production data is not an
+              admin console feature.
             </p>
           </div>
         </div>
         <button
-          onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-brandred/40 px-4 py-2.5 text-[12.5px] font-extrabold text-brandred transition-colors hover:bg-brandred/10"
+          disabled
+          aria-disabled="true"
+          title="Destructive admin operations run via the Supabase dashboard"
+          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl border border-brandred/40 px-4 py-2.5 text-[12.5px] font-extrabold text-brandred opacity-50"
         >
           <Trash2 size={14} /> Purge
         </button>
       </div>
-
-      <ConfirmDialog
-        open={open}
-        title="Purge resolved reports"
-        body="This permanently deletes every report with status “Resolved”. It cannot be undone."
-        confirmLabel="Purge"
-        danger
-        busy={busy}
-        requireText="PURGE"
-        onConfirm={purgeResolved}
-        onCancel={() => setOpen(false)}
-      />
     </Card>
   );
 }

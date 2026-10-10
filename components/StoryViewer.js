@@ -5,8 +5,7 @@ import { X, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
 
 const STORY_DURATION = 5000;
 
@@ -30,8 +29,21 @@ export default function StoryViewer({ authors, initialAuthorKey, onClose }) {
   useEffect(() => {
     if (!currentAuthorKey || !profile?.id || !items[currentItem]?.id) return;
     const storyId = items[currentItem].id;
-    const viewRef = doc(db, 'stories', storyId, 'views', profile.id);
-    setDoc(viewRef, { viewerUid: profile.id, viewedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+    (async () => {
+      const { data: existing } = await getSupabase()
+        .from('story_views')
+        .select('*')
+        .eq('story_id', storyId)
+        .eq('viewer_id', profile.id)
+        .maybeSingle();
+      if (!existing) {
+        const { error } = await getSupabase().from('story_views').insert({
+          story_id: storyId,
+          viewer_id: profile.id,
+        });
+        if (error) console.warn('Story view record error:', error);
+      }
+    })();
   }, [currentAuthorKey, currentItem, profile?.id, items]);
 
   const goNext = useCallback(() => {

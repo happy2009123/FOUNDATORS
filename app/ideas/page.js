@@ -10,11 +10,9 @@ import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
-import {
-  collection, getDocs, query, orderBy, limit,
-  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
-} from 'firebase/firestore';
+import { formatPostTime } from '@/lib/timeago';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows, randomId, toRow } from '@/lib/supabase/db';
 
 const STAGE_COLORS = { MVP: '#22c55e', Concept: '#3b82f6', Prototype: '#f59e0b', Launched: '#a855f7' };
 
@@ -47,10 +45,54 @@ export default function Ideas() {
   useEffect(() => {
     async function fetchIdeas() {
       try {
-        const q = query(collection(db, 'ideas'), orderBy('createdAt', 'desc'), limit(30));
-        const snap = await getDocs(q);
-        const items = [];
-        snap.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('ideas')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30);
+        if (error) throw error;
+        const rows = mapRows(data || []);
+        const commentRows = [];
+        const ids = rows.map((r) => r.id);
+        if (ids.length) {
+          const { data: commentsData, error: commentsError } = await supabase
+            .from('idea_comments')
+            .select('*')
+            .in('idea_id', ids)
+            .order('created_at', { ascending: true });
+          if (commentsError) throw commentsError;
+          commentRows.push(...mapRows(commentsData || []));
+        }
+        const items = rows.map((row) => ({
+          id: row.id,
+          name: row.title || '',
+          tagline: row.summary || '',
+          stage: row.stage || '',
+          description: row.description || '',
+          audience: row.audience || '',
+          tech: row.tech || '',
+          problem: row.problem || '',
+          solution: row.solution || '',
+          authorKey: row.authorKey,
+          authorName: row.authorName,
+          authorAvatar: row.authorAvatar,
+          upvotedBy: row.upvotes || [],
+          votes: 0,
+          createdAt: row.createdAt,
+          comments: commentRows
+            .filter((c) => c.ideaId === row.id)
+            .map((c) => ({
+              id: c.id,
+              authorKey: c.authorKey,
+              authorName: c.authorName,
+              authorAvatar: c.authorAvatar,
+              text: c.text,
+              time: '',
+              createdAt: c.createdAt,
+              likes: (c.likedBy || []).length,
+            })),
+        }));
         setIdeas(items);
       } catch (err) {
         console.error('Failed to fetch ideas:', err);
@@ -72,10 +114,12 @@ export default function Ideas() {
     const upvotedBy = idea.upvotedBy || [];
     const isUpvoted = upvotedBy.includes(profile.id);
     try {
-      const ideaRef = doc(db, 'ideas', ideaId);
-      await updateDoc(ideaRef, {
-        upvotedBy: isUpvoted ? arrayRemove(profile.id) : arrayUnion(profile.id),
+      const { error } = await getSupabase().rpc('array_toggle_self', {
+        p_table: 'ideas',
+        p_id: ideaId,
+        p_column: 'upvotes',
       });
+      if (error) throw error;
       setIdeas((prev) => prev.map((i) => {
         if (i.id !== ideaId) return i;
         const updated = isUpvoted
@@ -94,7 +138,6 @@ export default function Ideas() {
     vibrate('light');
     setCommenting(true);
     try {
-      const ideaRef = doc(db, 'ideas', openId);
       const comment = {
         id: `c_${Date.now()}`,
         authorKey: profile.id,
@@ -102,11 +145,21 @@ export default function Ideas() {
         authorAvatar: profile.avatar,
         text: newComment.trim(),
         time: 'Just now',
+        // Real timestamp so the label ages; `time` kept for legacy comments.
+        createdAt: Date.now(),
         likes: 0,
       };
-      await updateDoc(ideaRef, {
-        comments: arrayUnion(comment),
-      });
+      const { error } = await getSupabase()
+        .from('idea_comments')
+        .insert(toRow({
+          id: comment.id,
+          ideaId: openId,
+          authorKey: profile.id,
+          authorName: profile.name,
+          authorAvatar: profile.avatar || null,
+          text: comment.text,
+        }));
+      if (error) throw error;
       setIdeas((prev) => prev.map((idea) => {
         if (idea.id !== openId) return idea;
         return { ...idea, comments: [...(idea.comments || []), comment] };
@@ -132,25 +185,27 @@ export default function Ideas() {
     if (!profile?.id) { showToast('Please sign in to submit ideas'); return; }
     setCreating(true);
     try {
-      const docRef = await addDoc(collection(db, 'ideas'), {
-        name: form.name.trim(),
-        tagline: form.tagline.trim(),
-        stage: form.stage,
-        description: form.description.trim(),
-        problem: form.problem.trim(),
-        solution: form.solution.trim(),
-        audience: form.audience.trim(),
-        tech: form.tech.trim(),
-        authorKey: profile.id,
-        authorName: profile.name,
-        authorAvatar: profile.avatar,
-        upvotedBy: [],
-        votes: 0,
-        comments: [],
-        createdAt: serverTimestamp(),
-      });
+      const ideaId = randomId();
+      const { error } = await getSupabase()
+        .from('ideas')
+        .insert(toRow({
+          id: ideaId,
+          title: form.name.trim(),
+          summary: form.tagline.trim(),
+          stage: form.stage,
+          description: form.description.trim(),
+          problem: form.problem.trim(),
+          solution: form.solution.trim(),
+          audience: form.audience.trim(),
+          tech: form.tech.trim(),
+          authorKey: profile.id,
+          authorName: profile.name,
+          authorAvatar: profile.avatar || null,
+          upvotes: [],
+        }));
+      if (error) throw error;
       const newIdea = {
-        id: docRef.id,
+        id: ideaId,
         name: form.name.trim(),
         tagline: form.tagline.trim(),
         stage: form.stage,
@@ -362,7 +417,7 @@ export default function Ideas() {
                         <div className="flex items-center gap-2">
                           <div className="h-5 w-5 rounded-full bg-gold/20 flex items-center justify-center"><span className="text-[9px] font-bold text-gold">{comment.authorName?.[0] || '?'}</span></div>
                           <span className="text-[10px] font-bold text-text">{comment.authorName || 'Anonymous'}</span>
-                          <span className="text-[9px] text-text2">· {comment.time}</span>
+                          <span className="text-[9px] text-text2">· {formatPostTime(comment.createdAt) || comment.time}</span>
                         </div>
                         <p className="mt-1.5 text-[11px] leading-4 text-text2">{comment.text}</p>
                         <div className="mt-2 flex items-center gap-3">

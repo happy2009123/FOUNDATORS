@@ -11,12 +11,16 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   Loader2, Users, UserPlus, UserCheck, Send, X, Check, MessageCircle,
   Mic, KanbanSquare, Target, Trophy, Briefcase, Link2, HelpCircle,
+  Pencil, Trash2,
 } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
+import { getSupabase } from '@/lib/supabase/client';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { mapRow } from '@/lib/supabase/db';
 import { timeAgo } from '@/lib/admin';
 import {
   subscribeProject,
@@ -29,6 +33,10 @@ import {
   addProjectQuestion,
   fetchUsersByIds,
   isProjectMember,
+  updateProjectDetails,
+  deleteProject,
+  PROJECT_CATEGORIES,
+  PROJECT_STAGES,
 } from '@/lib/projects';
 
 export default function ProjectDetailPage() {
@@ -40,6 +48,8 @@ export default function ProjectDetailPage() {
 
   const [project, setProject] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const [applications, setApplications] = useState([]);
   const [myApplication, setMyApplication] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -49,6 +59,19 @@ export default function ProjectDetailPage() {
   const [qText, setQText] = useState('');
   const [busy, setBusy] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
+  // Owner edit/delete (previously absent entirely — the create form even
+  // promises "You can edit details later", but no such UI existed).
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', description: '', stage: 'Idea', category: 'Other' });
+  const [editBusy, setEditBusy] = useState(false);
+  const [editDeleteConfirm, setEditDeleteConfirm] = useState(false);
+
+  // Disarm the delete confirmation if the owner hesitates.
+  useEffect(() => {
+    if (!editDeleteConfirm) return undefined;
+    const t = setTimeout(() => setEditDeleteConfirm(false), 4000);
+    return () => clearTimeout(t);
+  }, [editDeleteConfirm]);
 
   const isOwner = Boolean(project && profile && project.ownerUid === profile.id);
   const isMember = isProjectMember(project, profile?.id);
@@ -57,12 +80,14 @@ export default function ProjectDetailPage() {
   );
 
   useEffect(() => {
-    const unsub = subscribeProject(projectId, (p) => {
+    setLoadError(false);
+    const unsub = subscribeProject(projectId, (p, err) => {
       setProject(p);
+      setLoadError(Boolean(err));
       setLoaded(true);
     });
     return unsub;
-  }, [projectId]);
+  }, [projectId, retryTick]);
 
   useEffect(() => {
     if (!isOwner) {
@@ -73,20 +98,57 @@ export default function ProjectDetailPage() {
     return unsub;
   }, [projectId, isOwner]);
 
+  // LIVE subscription to the applicant's own application doc — the old
+  // code read it once with getDoc, so a later owner decision (or a
+  // withdraw elsewhere) never showed up, and there was no way to notice a
+  // decline and re-apply. Doc id == applicant uid; field is `uid`.
   useEffect(() => {
-    if (isOwner || !profile || !projectId) return undefined;
+    if (isOwner || !profile?.id || !projectId) {
+      setMyApplication(null);
+      return undefined;
+    }
     let alive = true;
+    let unsub = null;
     (async () => {
       try {
-        const { doc, getDoc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-        const snap = await getDoc(doc(db, 'projects', projectId, 'applications', profile.id));
-        if (alive) setMyApplication(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-      } catch (e) {
+        if (!getSupabase()) {
+          if (alive) setMyApplication(null);
+          return;
+        }
+        unsub = subscribeQuery({
+          key: `my-application:${projectId}:${profile.id}`,
+          table: 'project_applications',
+          filter: `project_id=eq.${projectId}`,
+          queryFn: async () => {
+            const { data, error } = await getSupabase()
+              .from('project_applications')
+              .select('*')
+              .eq('project_id', projectId)
+              .eq('user_id', profile.id)
+              // Withdrawn rows stay in the table (no DELETE policy) but count
+              // as "no application" — the old code deleted the doc outright.
+              .neq('status', 'withdrawn')
+              .limit(1);
+            if (error) throw error;
+            const row = mapRow((data || [])[0]);
+            return row ? { ...row, uid: row.userId } : null;
+          },
+          onData: (row) => {
+            if (alive) setMyApplication(row);
+          },
+          onError: () => {
+            if (alive) setMyApplication(null);
+          },
+        });
+        if (!alive && unsub) { unsub(); unsub = null; }
+      } catch {
         if (alive) setMyApplication(null);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      if (unsub) { unsub(); unsub = null; }
+    };
   }, [projectId, isOwner, profile?.id]);
 
   useEffect(() => {
@@ -167,6 +229,71 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // Declined applicants were stuck: the status chip was a dead end with no
+  // re-apply control, and applyToProject()'s setDoc on the old doc was
+  // permission-denied anyway (owner-only update). Clear the declined doc
+  // first, then open the normal application form.
+  async function reapply() {
+    if (!profile) return;
+    setBusy(true);
+    try {
+      await withdrawApplication(projectId, profile.id);
+      setMyApplication(null);
+      setApplyOpen(true);
+    } catch (e) {
+      showToast('Could not reset your application');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openEdit() {
+    setEditForm({
+      name: project?.name || '',
+      description: project?.description || '',
+      stage: project?.stage || 'Idea',
+      category: project?.category || 'Other',
+    });
+    setEditDeleteConfirm(false);
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!editForm.name.trim()) {
+      showToast('Project name is required');
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await updateProjectDetails(projectId, editForm);
+      setEditOpen(false);
+      showToast('Project updated');
+    } catch (e) {
+      showToast('Could not save changes');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  // Two-tap delete so a stray tap can never wipe the project.
+  async function handleDeleteClick() {
+    if (!editDeleteConfirm) {
+      setEditDeleteConfirm(true);
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await deleteProject(projectId);
+      showToast('Project deleted');
+      router.replace('/projects');
+    } catch (e) {
+      showToast('Could not delete the project');
+      setEditDeleteConfirm(false);
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function decide(app, decision) {
     setBusy(true);
     try {
@@ -193,6 +320,40 @@ export default function ProjectDetailPage() {
   }
 
   if (!ready) return <AuthSkeleton />;
+
+  if (loaded && loadError && !project) {
+    // A failed subscription used to fall through to a permanent spinner (the
+    // error callback never set `loaded`). Show an honest, retryable state.
+    return (
+      <div className="app-shell flex min-h-0 flex-1 flex-col">
+        <SubpageHeader title="Project" />
+        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <div className="text-4xl">📡</div>
+          <h2 className="mt-3 text-[17px] font-extrabold">Couldn&apos;t load this project</h2>
+          <p className="mt-1.5 text-[12px] text-text2">
+            Check your connection and try again.
+          </p>
+          <div className="mt-5 flex gap-2">
+            <button
+              onClick={() => {
+                setLoaded(false);
+                setRetryTick((t) => t + 1);
+              }}
+              className="rounded-full bg-gold-grad px-5 py-2.5 text-[12.5px] font-bold text-[#171100]"
+            >
+              Try again
+            </button>
+            <button
+              onClick={() => router.replace('/projects')}
+              className="rounded-full border border-linesoft px-5 py-2.5 text-[12.5px] font-bold text-text2"
+            >
+              Back to projects
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loaded && !project) {
     return (
@@ -311,12 +472,20 @@ export default function ProjectDetailPage() {
             </button>
 
             {isOwner ? (
-              <button
-                onClick={() => router.push(`/copilot?project=${projectId}`)}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[12.5px] font-extrabold text-[#171100] active:scale-[0.98]"
-              >
-                <KanbanSquare size={15} /> Task board
-              </button>
+              <>
+                <button
+                  onClick={() => router.push(`/copilot?project=${projectId}`)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[12.5px] font-extrabold text-[#171100] active:scale-[0.98]"
+                >
+                  <KanbanSquare size={15} /> Task board
+                </button>
+                <button
+                  onClick={() => (editOpen ? setEditOpen(false) : openEdit())}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-gold/40 px-4 py-2.5 text-[12.5px] font-bold text-gold-hi active:scale-[0.98]"
+                >
+                  <Pencil size={14} /> {editOpen ? 'Close' : 'Edit'}
+                </button>
+              </>
             ) : isMember ? (
               <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-brandgreen/40 bg-brandgreen/10 py-2.5 text-[12.5px] font-bold text-brandgreen">
                 <UserCheck size={15} /> On the team
@@ -334,6 +503,19 @@ export default function ProjectDetailPage() {
                   Undo
                 </button>
               </div>
+            ) : myApplication?.status === 'declined' ? (
+              <div className="flex flex-1 gap-2">
+                <span className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-linesoft py-2.5 text-[12.5px] font-bold text-text3">
+                  Application declined
+                </span>
+                <button
+                  onClick={reapply}
+                  disabled={busy}
+                  className="flex items-center justify-center gap-1.5 rounded-xl bg-gold-grad px-4 text-[12.5px] font-extrabold text-[#171100] disabled:opacity-40"
+                >
+                  Apply again
+                </button>
+              </div>
             ) : myApplication?.status ? (
               <span className="flex flex-1 items-center justify-center rounded-xl border border-linesoft py-2.5 text-[12.5px] font-bold text-text3">
                 Application {myApplication.status}
@@ -347,6 +529,97 @@ export default function ProjectDetailPage() {
               </button>
             )}
           </div>
+
+          {/* owner edit panel */}
+          {isOwner && editOpen && (
+            <div className="mt-3 space-y-3 rounded-xl border border-gold/30 bg-gold/[0.05] p-3">
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-text3">Project name</div>
+                <input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  maxLength={120}
+                  className="w-full rounded-xl border border-linesoft bg-white/[0.03] px-3 py-2 text-[13px] font-bold text-white focus:border-gold/50 focus:outline-none"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-text3">Description</div>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                  rows={3}
+                  maxLength={4000}
+                  className="w-full resize-none rounded-xl border border-linesoft bg-white/[0.03] px-3 py-2 text-[13px] leading-relaxed text-white focus:border-gold/50 focus:outline-none"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-text3">Stage</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PROJECT_STAGES.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setEditForm((f) => ({ ...f, stage: s }))}
+                      className={`rounded-full border px-3 py-1.5 text-[11.5px] font-bold transition-colors ${
+                        editForm.stage === s
+                          ? 'border-gold bg-gold/15 text-gold-hi'
+                          : 'border-linesoft text-text2'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-text3">Category</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PROJECT_CATEGORIES.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setEditForm((f) => ({ ...f, category: c }))}
+                      className={`rounded-full border px-3 py-1.5 text-[11.5px] font-bold transition-colors ${
+                        editForm.category === c
+                          ? 'border-gold bg-gold/15 text-gold-hi'
+                          : 'border-linesoft text-text2'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveEdit}
+                  disabled={editBusy || !editForm.name.trim()}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[12.5px] font-extrabold text-[#171100] disabled:opacity-50"
+                >
+                  {editBusy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  Save changes
+                </button>
+                <button
+                  onClick={() => setEditOpen(false)}
+                  className="rounded-xl border border-linesoft px-4 text-[12.5px] font-bold text-text2"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="border-t border-linesoft pt-3">
+                <button
+                  onClick={handleDeleteClick}
+                  disabled={editBusy}
+                  className={`flex w-full items-center justify-center gap-1.5 rounded-xl border py-2.5 text-[12.5px] font-bold disabled:opacity-50 ${
+                    editDeleteConfirm
+                      ? 'border-brandred bg-brandred/15 text-brandred'
+                      : 'border-brandred/40 text-brandred'
+                  }`}
+                >
+                  <Trash2 size={14} />
+                  {editDeleteConfirm ? 'Tap again to permanently delete' : 'Delete project'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {applyOpen && !isMember && !myApplication && !isOwner ? (
             <div className="mt-3 rounded-xl border border-gold/30 bg-gold/[0.05] p-3">

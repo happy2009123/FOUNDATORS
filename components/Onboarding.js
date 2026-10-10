@@ -7,8 +7,9 @@ import Logo from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
-import { db, auth } from '@/lib/firebase';
-import { doc, getDocs, collection, setDoc, serverTimestamp } from 'firebase/firestore';
+import { updateUserProfile } from '@/lib/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 
 const STEPS = ['welcome', 'role', 'interests', 'follow', 'done'];
 
@@ -26,16 +27,6 @@ const INTERESTS = [
   'Product Design', 'Marketing', 'Fundraising', 'No-Code', 'Open Source',
 ];
 
-const SUGGESTED_KEYS = ['arjun', 'meera', 'rohan', 'sophia', 'ishita', 'daniel'];
-const SUGGESTED_REASONS = {
-  arjun: 'AI + EdTech',
-  meera: 'HealthTech',
-  rohan: 'SaaS + AI',
-  sophia: 'Investor',
-  ishita: 'Design',
-  daniel: 'Full-stack',
-};
-
 export default function Onboarding() {
   const router = useRouter();
   const { vibrate } = useHaptics();
@@ -43,25 +34,40 @@ export default function Onboarding() {
   const showToast = useStore((s) => s.showToast);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const followedUsers = useStore((s) => s.followedUsers);
+  const myId = useStore((s) => s.profile?.id);
 
   const [step, setStep] = useState(0);
   const [role, setRole] = useState('');
   const [selectedInterests, setSelectedInterests] = useState([]);
   const [name, setName] = useState('');
-  const [suggestedUsers, setSuggestedUsers] = useState({});
+  const [suggestedUsers, setSuggestedUsers] = useState([]);
 
   const currentStep = STEPS[step];
 
   useEffect(() => {
-    const keys = SUGGESTED_KEYS;
-    keys.forEach((key) => {
-      getDocs(collection(db, 'users')).then((snap) => {
-        const users = {};
-        snap.forEach((d) => { users[d.id] = { id: d.id, ...d.data() }; });
-        setSuggestedUsers(users);
-      }).catch(() => {});
-    });
-  }, []);
+    // ONE bounded fetch of REAL users for the follow step.
+    let alive = true;
+    const supabase = getSupabase();
+    if (!supabase) {
+      setSuggestedUsers([]);
+      return () => { alive = false; };
+    }
+    supabase
+      .from('profiles')
+      .select('*')
+      .limit(24)
+      .then(({ data }) => {
+        if (!alive) return;
+        const users = mapRows(data).filter((u) => u.id !== myId && !u.banned);
+        setSuggestedUsers(users.slice(0, 6));
+      })
+      .catch(() => {
+        if (alive) setSuggestedUsers([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [myId]);
 
   const next = useCallback(() => {
     vibrate('light');
@@ -75,27 +81,31 @@ export default function Onboarding() {
 
   const finish = useCallback(async () => {
     vibrate('medium');
+    // Flip the guard FIRST so Providers can never bounce back to
+    // /onboarding while (or after) the write is in flight. This was the
+    // source of the endless "enter your name" loop.
+    useStore.setState({ profileCompleted: true });
     if (name.trim()) updateProfile({ name: name.trim() });
     if (role) updateProfile({ role: ROLES.find((r) => r.key === role)?.label || role });
     if (selectedInterests.length) updateProfile({ interests: selectedInterests });
 
-    if (auth?.currentUser) {
-      const uid = auth.currentUser.uid;
+    if (myId) {
+      // Interests have no profiles column in Supabase — kept in the local
+      // store only; the DB write covers the columns that exist.
       const merged = {
         profileCompleted: true,
-        updatedAt: serverTimestamp(),
+        updatedAt: new Date(),
       };
       const trimmedName = name.trim();
       if (trimmedName) merged.name = trimmedName;
       const roleLabel = ROLES.find((r) => r.key === role)?.label || role;
       if (roleLabel) merged.role = roleLabel;
-      if (selectedInterests.length) merged.interests = selectedInterests;
-      await setDoc(doc(db, 'users', uid), merged, { merge: true }).catch(() => {});
+      await updateUserProfile(myId, merged).catch(() => {});
     }
 
     localStorage.setItem('onboarding_complete', 'true');
-    router.push('/home');
-  }, [name, role, selectedInterests, updateProfile, router, vibrate]);
+    router.replace('/home');
+  }, [name, role, selectedInterests, updateProfile, router, vibrate, myId]);
 
   const toggleInterest = (interest) => {
     vibrate('light');
@@ -207,23 +217,29 @@ export default function Onboarding() {
             <h2 className="text-[22px] font-black text-center mb-2">Find people to follow</h2>
             <p className="text-[13px] text-text2 text-center mb-6">Follow at least 3 to populate your feed</p>
             <div className="space-y-3">
-              {SUGGESTED_KEYS.map((key) => {
-                const user = suggestedUsers[key];
-                if (!user) return null;
-                const reason = SUGGESTED_REASONS[key] || '';
-                const isFollowing = !!followedUsers[key];
+              {suggestedUsers.length === 0 && (
+                <p className="py-6 text-center text-[13px] text-text2">
+                  No suggestions yet — you can skip this step.
+                </p>
+              )}
+              {suggestedUsers.map((user) => {
+                const reason =
+                  user.role ||
+                  (Array.isArray(user.skills) && user.skills[0]) ||
+                  'Founder on Foundators';
+                const isFollowing = !!followedUsers[user.id];
                 return (
-                  <div key={key} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
+                  <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-3.5">
                     <Avatar src={user.avatar} name={user.name} size={46} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1">
-                        <span className="text-[14px] font-bold">{user.name}</span>
+                        <span className="text-[14px] font-bold">{user.name || 'Founder'}</span>
                         {user.verified && <span className="text-gold text-[10px]">✓</span>}
                       </div>
                       <div className="text-[11px] text-text2">{reason}</div>
                     </div>
                     <button
-                      onClick={() => { vibrate('light'); toggleFollowUser(key); }}
+                      onClick={() => { vibrate('light'); toggleFollowUser(user.id); }}
                       className={`flex h-10 items-center gap-1.5 rounded-full border px-4 text-[12px] font-bold transition-all ${
                         isFollowing
                           ? 'border-transparent bg-gold text-[#1a1300]'

@@ -9,9 +9,8 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useStore } from '@/lib/store';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
+import { getUserProfile } from '@/lib/firestore';
 import { initialsAvatar } from '@/lib/avatar';
-import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -30,8 +29,8 @@ const STATUS_BADGE = {
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res.success ? res.data : null;
   } catch {
     return null;
   }

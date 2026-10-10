@@ -6,8 +6,8 @@ import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Pla
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { uploadImage } from '@/lib/firestore';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { toRow, randomId } from '@/lib/supabase/db';
 import Avatar from '@/components/Avatar';
 
 const EFFECTS = [
@@ -133,19 +133,28 @@ export default function CreateReelPage() {
         reelUrl = result.data;
       }
 
-      await addDoc(collection(db, 'reels'), {
-        authorKey: profile.id,
-        authorName: profile.name,
-        authorAvatar: profile.avatar,
-        videoUrl: reelUrl,
-        text: caption.trim(),
-        effect: EFFECTS[selectedEffect].name,
-        sound: SOUNDS[selectedSound].name,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        createdAt: serverTimestamp(),
-      });
+      const supabase = getSupabase();
+      if (!supabase) throw new Error('Supabase not configured');
+      // reels has no author_name/author_avatar/effect columns — author data
+      // comes from profiles, and the effect is dropped (reported).
+      const { data: authRes } = await supabase.auth.getUser();
+      const uid = authRes?.user?.id || profile.id;
+      const { error } = await supabase.from('reels').insert(
+        toRow({
+          id: randomId(),
+          userId: uid,
+          videoUrl: reelUrl,
+          caption: caption.trim(),
+          audioName: SOUNDS[selectedSound].name,
+          effect: EFFECTS[selectedEffect]?.name === 'None' ? null : EFFECTS[selectedEffect]?.name,
+          authorName: profile?.name || '',
+          authorAvatar: profile?.avatar || null,
+          likes: 0,
+          commentsCount: 0,
+          shares: 0,
+        })
+      );
+      if (error) throw new Error(error.message);
 
       notification('success');
       showToast('Reel published!');

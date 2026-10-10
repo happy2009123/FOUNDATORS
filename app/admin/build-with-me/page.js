@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────
 // ADMIN → BUILD WITH ME
 // Real collaboration content: posts tagged "cofounder" (Looking
-// for Co-founder) straight from the posts collection — the same
+// for Co-founder) straight from the posts table — the same
 // data the feed uses. Moderation actions are shared with the
 // Posts page (admin delete + audit log).
 // ─────────────────────────────────────────────────────────────
@@ -11,8 +11,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Hammer, Eye, Trash2, Heart, MessageCircle } from 'lucide-react';
-import { db } from '@/lib/firebase';
-import { collection, query, where, limit, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { useStore } from '@/lib/store';
 import { removePost } from '@/lib/adminData';
 import { timeAgo } from '@/lib/admin';
@@ -33,15 +33,16 @@ export default function AdminBuildWithMePage() {
     setError(null);
     setRows(null);
     try {
-      const q = query(collection(db, 'posts'), where('tagType', '==', 'cofounder'), limit(50));
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      list.sort((a, b) => {
-        const ta = a.createdAt?.toDate?.()?.getTime() || a.createdAt?.seconds * 1000 || 0;
-        const tb = b.createdAt?.toDate?.()?.getTime() || b.createdAt?.seconds * 1000 || 0;
-        return tb - ta;
-      });
-      setRows(list);
+      const supabase = getSupabase();
+      if (!supabase) throw new Error('Supabase not configured');
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('tag_type', 'cofounder')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw new Error(error.message);
+      setRows(mapRows(data));
     } catch (e) {
       setError(e?.message || 'Failed to load listings');
       setRows([]);

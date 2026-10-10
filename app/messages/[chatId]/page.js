@@ -5,9 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser } from '@/lib/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
@@ -84,6 +83,13 @@ export default function ChatPage() {
   const recordingInterval = useRef(null);
   const fileInputRef = useRef(null);
   const forwardUnsubRef = useRef(null);
+  // Broadcast channel carrying the ephemeral "other person is typing" signal
+  // (the chats table has no typing column — this replaces the Firestore
+  // `typing.<uid>` map on the chat doc).
+  const typingChannelRef = useRef(null);
+  // Ids of messages we already tried to mark read — prevents a denied or
+  // failed write from being re-attempted on every snapshot.
+  const markedReadRef = useRef(new Set());
 
   useEffect(() => {
     if (chatId) markContactRead(chatId);
@@ -125,7 +131,7 @@ export default function ChatPage() {
   // or a chat doc ID (from the converstion list). We map both to the SAME
   // canonical conversation so every open lands on one persistent chat.
   useEffect(() => {
-    if (!chatId || !profile?.id || !db) return;
+    if (!chatId || !profile?.id) return;
     let cancelled = false;
     setResolveDone(false);
     // Clear the previous conversation so switching chats never renders the old
@@ -137,9 +143,9 @@ export default function ChatPage() {
         // fails (permissions/network) fall through to Case B instead of
         // reporting "conversation doesn't exist" for a valid chat id.
         try {
-          const userSnap = await getDoc(doc(db, 'users', chatId));
-          if (userSnap.exists()) {
-            const other = userSnap.data();
+          const userRes = await getUserProfile(chatId);
+          if (userRes?.success && userRes.data) {
+            const other = userRes.data;
             // Reuse an existing conversation (legacy random-ID or deterministic)
             // so we NEVER generate a second chat for the same pair.
             const existing = await findExistingConversation(profile.id, chatId);
@@ -160,29 +166,28 @@ export default function ChatPage() {
           console.warn('User lookup failed, trying chat id instead:', err);
         }
         if (cancelled) return;
-        // Case B: param is a chat doc ID (e.g. reopened from the list).
-        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        // Case B: param is a chat ID (e.g. reopened from the list).
+        const chat = await getChat(chatId);
         if (cancelled) return;
-        if (chatSnap.exists()) {
-          const data = chatSnap.data();
-          const participants = data.participants || [];
-          const otherUid = !data.isGroup
+        if (chat) {
+          const participants = chat.participants || [];
+          const otherUid = !chat.isGroup
             ? participants.find((p) => p !== profile.id)
             : null;
           const other = otherUid
             ? {
-                name: (data.participantNames && data.participantNames[otherUid]) || 'User',
-                avatar: (data.participantAvatars && data.participantAvatars[otherUid]) || null,
+                name: (chat.participantNames && chat.participantNames[otherUid]) || 'User',
+                avatar: (chat.participantAvatars && chat.participantAvatars[otherUid]) || null,
               }
             : null;
           setDirections({
-            type: data.isGroup ? 'group' : 'dm',
+            type: chat.isGroup ? 'group' : 'dm',
             convId: chatId,
             otherUid,
             other,
             participants,
-            participantNames: data.participantNames || {},
-            participantAvatars: data.participantAvatars || {},
+            participantNames: chat.participantNames || {},
+            participantAvatars: chat.participantAvatars || {},
           });
         }
       } catch (err) {
@@ -193,7 +198,7 @@ export default function ChatPage() {
     }
     resolveDirection();
     return () => { cancelled = true; };
-  }, [chatId, profile?.id, db]);
+  }, [chatId, profile?.id]);
 
   const convId = directions?.convId || null;
   const otherUid = directions?.otherUid || null;
@@ -222,19 +227,27 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!convId || !profile?.id) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
     const markRead = async () => {
       try {
-        const unreadQ = query(
-          collection(db, 'chats', convId, 'messages'),
-          where('read', '==', false)
-        );
-        const snap = await getDocs(unreadQ);
-        snap.docs.forEach(async (d) => {
-          const data = d.data();
-          if (data.senderKey === profile.id) return;
-          await updateDoc(doc(db, 'chats', convId, 'messages', d.id), { read: true });
-        });
-        await updateDoc(doc(db, 'chats', convId), { [`unreadBy.${profile.id}`]: 0 });
+        const { error: msgError } = await supabase
+          .from('chat_messages')
+          .update({ read: true })
+          .eq('chat_id', convId)
+          .eq('read', false)
+          .neq('sender_key', profile.id);
+        if (msgError) throw msgError;
+        // unread_by is a single jsonb map, so the counter has to be rewritten
+        // read-modify-write: read the row, then set my own key back to 0.
+        const chat = await getChat(convId);
+        if (chat) {
+          const { error } = await supabase
+            .from('chats')
+            .update({ unread_by: { ...(chat.unreadBy || {}), [profile.id]: 0 } })
+            .eq('id', convId);
+          if (error) throw error;
+        }
       } catch (err) {
         console.warn('Failed to mark messages read:', err);
       }
@@ -243,24 +256,39 @@ export default function ChatPage() {
   }, [convId, profile?.id]);
 
   useEffect(() => {
-    if (!convId || !db) return;
+    if (!convId) return;
     // Never carry the previous chat's typing indicator into this one.
     setTyping(false);
-    const unsub = onSnapshot(doc(db, 'chats', convId), (snap) => {
-      const data = snap.data();
-      const typingData = data?.typing || {};
-      const otherTyping = Object.entries(typingData).find(
-        ([uid, ts]) => uid !== profile?.id && Date.now() - ts < 3000
-      );
-      setTyping(!!otherTyping);
-    });
-    return () => unsub();
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let clearTimer = null;
+    const channel = supabase
+      .channel(`chat-typing:${convId}`)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        const uid = payload?.uid;
+        if (!uid || uid === profile?.id) return;
+        if (Date.now() - (payload?.ts || 0) >= 3000) return;
+        setTyping(true);
+        clearTimeout(clearTimer);
+        clearTimer = setTimeout(() => setTyping(false), 3000);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      typingChannelRef.current = null;
+      clearTimeout(clearTimer);
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        // channel already torn down
+      }
+    };
   }, [convId, profile?.id]);
 
   useEffect(() => {
     // No conversation resolved yet (still resolving, or definitively missing):
     // there is no metadata read to wait for.
-    if (!convId || !db) {
+    if (!convId) {
       setMetaDone(true);
       return;
     }
@@ -268,26 +296,23 @@ export default function ChatPage() {
     setMetaDone(false);
     async function fetchChatMeta() {
       try {
-        const chatSnap = await getDoc(doc(db, 'chats', convId));
-        if (cancelled) return;
-        if (chatSnap.exists()) {
-          const data = chatSnap.data();
-          const participants = data.participants || [];
-          const uidField = !data.isGroup ? participants.find((p) => p !== profile.id) : null;
-          setChatData({
-            name: data.isGroup
-              ? data.groupName
-              : (uidField && data.participantNames && data.participantNames[uidField]) || other?.name || 'Chat',
-            avatar: data.isGroup
-              ? null
-              : (uidField && data.participantAvatars && data.participantAvatars[uidField]) || other?.avatar || null,
-            isGroup: !!data.isGroup,
-            groupName: data.groupName || '',
-            participants,
-            participantNames: data.participantNames || {},
-            participantAvatars: data.participantAvatars || {},
-          });
-        }
+        const chat = await getChat(convId);
+        if (cancelled || !chat) return;
+        const participants = chat.participants || [];
+        const uidField = !chat.isGroup ? participants.find((p) => p !== profile.id) : null;
+        setChatData({
+          name: chat.isGroup
+            ? chat.groupName
+            : (uidField && chat.participantNames && chat.participantNames[uidField]) || other?.name || 'Chat',
+          avatar: chat.isGroup
+            ? null
+            : (uidField && chat.participantAvatars && chat.participantAvatars[uidField]) || other?.avatar || null,
+          isGroup: !!chat.isGroup,
+          groupName: chat.groupName || '',
+          participants,
+          participantNames: chat.participantNames || {},
+          participantAvatars: chat.participantAvatars || {},
+        });
       } catch (err) {
         console.warn('Failed to load chat metadata:', err);
       } finally {
@@ -299,15 +324,39 @@ export default function ChatPage() {
   }, [convId, profile?.id, profile.name, profile.avatar, other?.name, other?.avatar]);
 
   useEffect(() => {
-    if (!convId || !db) return;
+    if (!convId) return;
     // Drop the previous conversation's messages the instant we switch, so the
     // new chat never renders a stale list while the first snapshot is in flight.
     setFsMessages(null);
+    markedReadRef.current = new Set();
+    const supabase = getSupabase();
     const unsub = subscribeToMessages(convId, (msgs) => {
       setFsMessages(msgs.map((m) => ({
         ...m,
         time: formatMsgTime(m.createdAt),
       })));
+      // Live read receipts: the one-shot markRead effect on mount never
+      // catches messages arriving WHILE the chat is open, so the other side
+      // saw a single tick forever. Mark newly arrived foreign messages read
+      // on every snapshot (rules allow participants to update 'read').
+      const me = useStore.getState().profile?.id;
+      if (!me || !supabase) return;
+      msgs.forEach((m) => {
+        if (m.read !== false || m.senderKey === me) return;
+        if (markedReadRef.current.has(m.id)) return;
+        markedReadRef.current.add(m.id);
+        supabase
+          .from('chat_messages')
+          .update({ read: true })
+          .eq('id', m.id)
+          .eq('chat_id', convId)
+          .then(({ error }) => {
+            if (error) throw error;
+          })
+          .catch(() => {
+            // permission denied or raced delete — never retry in a loop
+          });
+      });
     });
     return () => unsub();
   }, [convId]);
@@ -331,7 +380,7 @@ export default function ChatPage() {
       setInput('');
       setReplyTo(null);
       setShowEmoji(false);
-      if (convId && db) {
+      if (convId) {
         editFS(convId, editingMsg.id, newText)
           .then((r) => {
             if (!r.success) {
@@ -374,12 +423,18 @@ export default function ChatPage() {
         });
     }
     notification('success');
-  }, [input, editingMsg, sendPayload, profile, sendFS, editFS, showToast, notification, convId, db, vibrate]);
+  }, [input, editingMsg, sendPayload, profile, sendFS, editFS, showToast, notification, convId, vibrate]);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
     if (convId && profile?.id) {
-      updateDoc(doc(db, 'chats', convId), { [`typing.${profile.id}`]: Date.now() }).catch(() => {});
+      // Ephemeral typing signal: the chats table has no typing column, so it
+      // travels over the same realtime broadcast channel we listen on above.
+      typingChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: profile.id, at: Date.now() },
+      });
     }
   }, [convId, profile?.id]);
 
@@ -398,7 +453,7 @@ export default function ChatPage() {
   const handleDelete = useCallback(() => {
     if (ctxMenu) {
       const msg = messages[ctxMenu.index];
-      if (msg?.id && convId && db) {
+      if (msg?.id && convId) {
         deleteFS(convId, msg.id).catch(() => {});
       }
       vibrate('light');
@@ -480,7 +535,7 @@ export default function ChatPage() {
 
   const handleDeleteChat = useCallback(() => {
     setShowHeaderMenu(false);
-    if (!convId || !db) return;
+    if (!convId) return;
     if (window.confirm('Delete this conversation for everyone? This cannot be undone.')) {
       deleteChatFS(convId).then((r) => {
         if (r.success) {
@@ -494,7 +549,7 @@ export default function ChatPage() {
         showToast('Could not delete conversation');
       });
     }
-  }, [convId, db, deleteChatFS, router, showToast]);
+  }, [convId, deleteChatFS, router, showToast]);
 
   const handleReaction = useCallback((msgIndex, emoji) => {
     vibrate('light');

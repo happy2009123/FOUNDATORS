@@ -7,14 +7,13 @@ import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import AuthSkeleton from '@/components/AuthSkeleton';
-import { db } from '@/lib/firebase';
+import { getUserProfile } from '@/lib/firestore';
 import { initialsAvatar } from '@/lib/avatar';
-import { doc, getDoc } from 'firebase/firestore';
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res?.success ? res.data : null;
   } catch {
     return null;
   }

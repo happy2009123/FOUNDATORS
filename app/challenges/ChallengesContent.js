@@ -9,11 +9,8 @@ import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
-import {
-  collection, getDocs, query, orderBy, limit,
-  doc, getDoc, setDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
-} from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows, randomId, toRow, ts } from '@/lib/supabase/db';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -90,9 +87,21 @@ export default function ChallengesContent() {
   useEffect(() => {
     if (!profile?.id) return undefined;
     let on = true;
-    getDocs(query(collection(db, 'users', profile.id, 'achievements'), orderBy('earnedAt', 'desc'), limit(100)))
-      .then((snap) => {
-        if (on) setEarned(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    getSupabase()
+      .from('user_achievements')
+      .select('achievement_id, earned_at, achievements ( criteria )')
+      .eq('user_id', profile.id)
+      .order('earned_at', { ascending: false })
+      .limit(100)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        const items = (data || []).map((row) => ({
+          id: row.achievement_id,
+          challengeId: row.achievements?.criteria?.challengeId ?? null,
+          points: Number(row.achievements?.criteria?.points) || 0,
+          earnedAt: ts(row.earned_at),
+        }));
+        if (on) setEarned(items);
       })
       .catch(() => {});
     return () => { on = false; };
@@ -101,11 +110,39 @@ export default function ChallengesContent() {
   useEffect(() => {
     async function fetchChallenges() {
       try {
-        const q = query(collection(db, 'challenges'), orderBy('createdAt', 'desc'), limit(20));
-        const snap = await getDocs(q);
-        const items = [];
-        snap.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
-        setChallenges(items);
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('challenges')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (error) throw error;
+        const rows = mapRows(data || []);
+        const entryMap = {};
+        if (rows.length) {
+          const { data: entries, error: entriesError } = await supabase
+            .from('challenge_entries')
+            .select('challenge_id, user_id')
+            .in('challenge_id', rows.map((r) => r.id));
+          if (entriesError) throw entriesError;
+          (entries || []).forEach((e) => {
+            if (!entryMap[e.challenge_id]) entryMap[e.challenge_id] = [];
+            entryMap[e.challenge_id].push(e.user_id);
+          });
+        }
+        setChallenges(rows.map((row) => ({
+          id: row.id,
+          name: row.title || '',
+          description: row.description || '',
+          category: row.category || 'quick',
+          timeLimit: row.timeLimit || '',
+          timeLimitSec: row.timeLimitSec || 600,
+          points: row.points || 100,
+          creatorKey: row.creatorKey || '',
+          creatorName: row.creatorName || '',
+          participants: entryMap[row.id] || [],
+          createdAt: row.createdAt,
+        })));
       } catch (err) {
         console.error('Failed to fetch challenges:', err);
       } finally {
@@ -183,16 +220,35 @@ export default function ChallengesContent() {
     showToast(`+${ch.points || 0} points! Challenge complete.`);
     if (profile?.id) {
       try {
-        const ref = doc(db, 'users', profile.id, 'achievements', `challenge_${id}`);
-        const snap = await getDoc(ref);
-        if (!snap.exists()) {
-          await setDoc(ref, {
-            title: String(ch.name || 'Challenge').slice(0, 80),
-            source: 'challenges',
-            challengeId: id,
-            points: Number(ch.points) || 0,
-            earnedAt: serverTimestamp(),
-          });
+        const supabase = getSupabase();
+        const achievementId = `challenge_${id}`;
+        const { data: existing } = await supabase
+          .from('user_achievements')
+          .select('achievement_id')
+          .eq('user_id', profile.id)
+          .eq('achievement_id', achievementId)
+          .maybeSingle();
+        if (!existing) {
+          const { data: definition } = await supabase
+            .from('achievements')
+            .select('id')
+            .eq('id', achievementId)
+            .maybeSingle();
+          if (!definition) {
+            const { error: defError } = await supabase.from('achievements').insert(
+              toRow({
+                id: achievementId,
+                title: String(ch.name || 'Challenge').slice(0, 80),
+                description: ch.description || null,
+                criteria: { source: 'challenges', challengeId: id, points: Number(ch.points) || 0 },
+              })
+            );
+            if (defError) throw defError;
+          }
+          const { error: grantError } = await supabase
+            .from('user_achievements')
+            .insert(toRow({ userId: profile.id, achievementId }));
+          if (grantError) throw grantError;
         }
         setEarned((prev) =>
           prev.some((a) => a.challengeId === id)
@@ -228,10 +284,20 @@ export default function ChallengesContent() {
     const participants = challenge.participants || [];
     const isJoined = participants.includes(profile.id);
     try {
-      const challengeRef = doc(db, 'challenges', challenge.id);
-      await updateDoc(challengeRef, {
-        participants: isJoined ? arrayRemove(profile.id) : arrayUnion(profile.id),
-      });
+      const supabase = getSupabase();
+      if (isJoined) {
+        const { error } = await supabase
+          .from('challenge_entries')
+          .delete()
+          .eq('challenge_id', challenge.id)
+          .eq('user_id', profile.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('challenge_entries')
+          .insert(toRow({ id: randomId(), challengeId: challenge.id, userId: profile.id }));
+        if (error) throw error;
+      }
       setChallenges((prev) => prev.map((c) => {
         if (c.id !== challenge.id) return c;
         const updated = isJoined
@@ -270,20 +336,28 @@ export default function ChallengesContent() {
     try {
       const timeLimitSec = parseInt(newChallenge.timeLimit, 10) * 60;
       const points = parseInt(newChallenge.points, 10) || 100;
-      const docRef = await addDoc(collection(db, 'challenges'), {
-        name: newChallenge.name.trim(),
-        description: newChallenge.description.trim(),
-        category: newChallenge.category,
-        timeLimit: `${newChallenge.timeLimit} min`,
-        timeLimitSec: isNaN(timeLimitSec) ? 600 : timeLimitSec,
-        points,
-        creatorKey: profile.id,
-        creatorName: profile.name,
-        participants: [profile.id],
-        createdAt: serverTimestamp(),
-      });
+      const challengeId = randomId();
+      const supabase = getSupabase();
+      const { error } = await supabase.from('challenges').insert(
+        toRow({
+          id: challengeId,
+          title: newChallenge.name.trim(),
+          description: newChallenge.description.trim(),
+          category: newChallenge.category,
+          points,
+          timeLimit: `${newChallenge.timeLimit} min`,
+          timeLimitSec: isNaN(timeLimitSec) ? 600 : timeLimitSec,
+          creatorKey: profile.id,
+          creatorName: profile.name,
+        })
+      );
+      if (error) throw error;
+      const { error: entryError } = await supabase
+        .from('challenge_entries')
+        .insert(toRow({ id: randomId(), challengeId, userId: profile.id }));
+      if (entryError) throw entryError;
       const created = {
-        id: docRef.id,
+        id: challengeId,
         name: newChallenge.name.trim(),
         description: newChallenge.description.trim(),
         category: newChallenge.category,

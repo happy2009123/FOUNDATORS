@@ -41,9 +41,10 @@ service firebase.storage {
     // Post images: uploaded as "posts/<postId>/<name>" BEFORE the Firestore
     // post document exists (see app/create/page.js), so ownership cannot be
     // verified against Firestore at upload time. Signed-in + type + size only.
-    match /posts/{postId}/{fileName} {
+    match /posts/{uid}/{postId}/{fileName} {
       allow read: if true;
       allow write: if isSignedIn()
+        && request.auth.uid == uid
         && isImage()
         && underLimit(10 * 1024 * 1024);
     }
@@ -64,6 +65,16 @@ service firebase.storage {
         && request.auth.uid == userId
         && (isImage() || isVideo())
         && underLimit(20 * 1024 * 1024);
+    }
+
+    // Voice room covers: "voice/covers/<name>" (app/voice/create/page.js).
+    // Previously fell through to the catch-all deny, so voice covers could
+    // never upload when Cloudinary wasn't used.
+    match /voice/covers/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && isImage()
+        && underLimit(5 * 1024 * 1024);
     }
 
     // Everything else in the bucket stays closed (OR semantics: the specific

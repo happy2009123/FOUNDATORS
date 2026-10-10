@@ -6,8 +6,7 @@ import { Search } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import VerifiedBadge from '@/components/VerifiedBadge';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { getFollowers, getFollowing, getUserProfile } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
 
@@ -28,14 +27,14 @@ function FollowersInner() {
   useEffect(() => {
     let cancelled = false;
     async function fetchLists() {
-      // Each list loads independently: a failure reading one subcollection
+      // Each list loads independently: a failure reading one list
       // (e.g. permissions) must not blank the other one out too.
       const profilesFor = async (ids) =>
         Promise.all(
           ids.map(async (fid) => {
             try {
-              const snap = await getDoc(doc(db, 'users', fid));
-              return snap.exists() ? { id: fid, ...snap.data() } : null;
+              const res = await getUserProfile(fid);
+              return res?.success ? res.data : null;
             } catch {
               return null;
             }
@@ -43,17 +42,15 @@ function FollowersInner() {
         ).then((list) => list.filter(Boolean));
 
       try {
-        const followersSnap = await getDocs(collection(db, 'users', userId, 'followers'));
-        const followerProfiles = await profilesFor(followersSnap.docs.map((d) => d.id));
-        if (!cancelled) setFollowers(followerProfiles);
+        const res = await getFollowers(userId);
+        if (!cancelled && res?.success) setFollowers(await profilesFor(res.data || []));
       } catch {
         if (!cancelled) setFollowers((prev) => prev);
       }
 
       try {
-        const followingSnap = await getDocs(collection(db, 'users', userId, 'following'));
-        const followingProfiles = await profilesFor(followingSnap.docs.map((d) => d.id));
-        if (!cancelled) setFollowingList(followingProfiles);
+        const res = await getFollowing(userId);
+        if (!cancelled && res?.success) setFollowingList(await profilesFor(res.data || []));
       } catch {
         if (!cancelled) setFollowingList((prev) => prev);
       } finally {

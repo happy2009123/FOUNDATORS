@@ -34,8 +34,10 @@ import FoundingBadge from '@/components/FoundingBadge';
 import BuilderScoreCard from '@/components/BuilderScoreCard';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { auth, db } from '@/lib/firebase';
-import { collection, query, where, limit, orderBy, onSnapshot, doc, getDocs } from 'firebase/firestore';
+import { subscribeToUserProfile } from '@/lib/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { mapRows } from '@/lib/supabase/db';
 import { listMyProjects } from '@/lib/copilot';
 import { fetchHostRooms } from '@/lib/voice';
 import VoiceRoomCard from '@/components/voice/VoiceRoomCard';
@@ -77,7 +79,7 @@ export default function ProfileView({ userId = null }) {
   const blockedUsers = useStore((s) => s.blockedUsers);
   const isBlocked = !!blockedUsers[userId];
 
-  const ownUid = auth?.currentUser?.uid || profile?.id;
+  const ownUid = profile?.id;
   const isOwn = !userId || userId === ownUid;
   const targetId = isOwn ? ownUid : userId;
 
@@ -100,38 +102,43 @@ export default function ProfileView({ userId = null }) {
     setLoadingProfile(true);
     setNotFound(false);
 
-    // Live snapshot of the profile doc so bio/location/website/skills/counters
+    // Live profile subscription so bio/location/website/skills/counters
     // stay current for both the signed-in user and anyone viewing their profile.
-    const unsubDoc = onSnapshot(
-      doc(db, 'users', uid),
-      (snap) => {
-        if (cancelled) return;
-        if (snap.exists()) {
-          setFirestoreProfile({ id: snap.id, ...snap.data() });
-          const d = snap.data();
-          setFollowerCount(typeof d.followers === 'number' ? d.followers : 0);
-          setFollowingCount(typeof d.following === 'number' ? d.following : 0);
-        } else {
-          setNotFound(true);
-        }
-        setLoadingProfile(false);
-      },
-      () => {
-        if (!cancelled) {
-          setNotFound(true);
-          setLoadingProfile(false);
-        }
+    const unsubProfile = subscribeToUserProfile(uid, (row) => {
+      if (cancelled) return;
+      if (row) {
+        setFirestoreProfile(row);
+        setFollowerCount(typeof row.followers === 'number' ? row.followers : 0);
+        setFollowingCount(typeof row.following === 'number' ? row.following : 0);
+        setNotFound(false);
+      } else {
+        setNotFound(true);
       }
-    );
+      setLoadingProfile(false);
+    });
 
-    const q = query(collection(db, 'posts'), where('authorKey', '==', uid), limit(100));
-    const unsubPosts = onSnapshot(q, (snap) => {
-      if (!cancelled) setPostList(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const unsubPosts = subscribeQuery({
+      key: `profile-posts:${uid}`,
+      table: 'posts',
+      filter: `author_key=eq.${uid}`,
+      queryFn: async () => {
+        const { data, error } = await getSupabase()
+          .from('posts')
+          .select('*')
+          .eq('author_key', uid)
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        return mapRows(data);
+      },
+      onData: (rows) => {
+        if (!cancelled) setPostList(rows);
+      },
     });
 
     return () => {
       cancelled = true;
-      try { unsubDoc(); } catch (e) {}
+      try { unsubProfile(); } catch (e) {}
       try { unsubPosts(); } catch (e) {}
     };
   }, [uid]);
@@ -675,22 +682,47 @@ function ProjectsSection({ uid, isOwn, onCreate }) {
       return undefined;
     }
     let on = true;
+    const supabase = getSupabase();
     Promise.all([
       listMyProjects(uid).catch(() => []),
-      getDocs(
-        query(collection(db, 'projects'), where('members', 'array-contains', uid), limit(30))
-      ).catch(() => null),
+      supabase
+        ? supabase
+            .from('projects')
+            .select('*')
+            .contains('members', [uid])
+            .limit(30)
+        : Promise.resolve(null),
     ])
-      .then(([owned, memberSnap]) => {
+      .then(async ([owned, memberRes]) => {
         if (!on) return;
         const ownedList = (owned || []).map((p) => ({ ...p, _role: 'owner' }));
         const ownedIds = new Set(ownedList.map((p) => p.id));
-        const joined =
-          memberSnap && memberSnap.docs
-            ? memberSnap.docs
-                .filter((d) => !ownedIds.has(d.id))
-                .map((d) => ({ id: d.id, ...d.data(), _role: 'team' }))
-            : [];
+        const teamRows = mapRows(memberRes?.data || []).filter((d) => !ownedIds.has(d.id));
+        const stats = {};
+        if (teamRows.length && supabase) {
+          const { data: taskRows } = await supabase
+            .from('project_tasks')
+            .select('project_id, status')
+            .in('project_id', teamRows.map((r) => r.id));
+          for (const t of taskRows || []) {
+            const s = stats[t.project_id] || { total: 0, done: 0 };
+            s.total += 1;
+            if (t.status === 'done') s.done += 1;
+            stats[t.project_id] = s;
+          }
+        }
+        if (!on) return;
+        const joined = teamRows.map((r) => {
+          const s = stats[r.id] || { total: 0, done: 0 };
+          return {
+            ...r,
+            name: r.title || '',
+            _role: 'team',
+            tasksTotal: s.total,
+            tasksDone: s.done,
+            progress: s.total ? Math.round((s.done / s.total) * 100) : 0,
+          };
+        });
         setItems([...ownedList, ...joined]);
       })
       .catch(() => {
@@ -773,9 +805,19 @@ function BuildWithMeSection({ uid, isOwn, onCreate }) {
       return undefined;
     }
     let on = true;
-    getDocs(query(collection(db, 'posts'), where('authorKey', '==', uid), where('tagType', '==', 'cofounder'), limit(20)))
-      .then((snap) => {
-        if (on) setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const supabase = getSupabase();
+    if (!supabase) {
+      setItems([]);
+      return () => { on = false; };
+    }
+    supabase
+      .from('posts')
+      .select('*')
+      .eq('author_key', uid)
+      .eq('tag_type', 'cofounder')
+      .limit(20)
+      .then(({ data }) => {
+        if (on) setItems(mapRows(data));
       })
       .catch(() => {
         if (on) setItems([]);
@@ -924,15 +966,19 @@ function AchievementsSection({ uid, isOwn }) {
       return undefined;
     }
     let on = true;
-    getDocs(
-      query(
-        collection(db, 'users', uid, 'achievements'),
-        orderBy('earnedAt', 'desc'),
-        limit(50)
-      )
-    )
-      .then((snap) => {
-        if (on) setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const supabase = getSupabase();
+    if (!supabase) {
+      setItems([]);
+      return () => { on = false; };
+    }
+    supabase
+      .from('achievements')
+      .select('*')
+      .eq('user_id', uid)
+      .order('earned_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => {
+        if (on) setItems(mapRows(data));
       })
       .catch(() => {
         if (on) setItems([]);

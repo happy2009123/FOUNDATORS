@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Flame, UserPlus, ArrowRight, MapPin, AtSign } from 'lucide-react';
 import Avatar from '@/components/Avatar';
-import { db, auth } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { useStore } from '@/lib/store';
 
 const FALLBACK_TAGS = [
@@ -36,16 +36,23 @@ export default function DesktopRightPanel() {
     let cancelled = false;
     async function fetchUsers() {
       try {
-        const userId = auth?.currentUser?.uid;
-        const snap = await getDocs(collection(db, 'users'));
+        const supabase = getSupabase();
+        if (!supabase) return;
+        const { data: authRes } = await supabase.auth.getUser();
+        const userId = authRes?.user?.id;
+        const snap = await supabase.from('profiles').select('*').limit(100);
+        if (snap.error) throw snap.error;
         let blockedIds = new Set();
         if (userId) {
-          const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
-          blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
+          const blockedSnap = await supabase.from('blocks').select('blocked_id').eq('user_id', userId);
+          if (blockedSnap.error) throw blockedSnap.error;
+          blockedIds = new Set((blockedSnap.data || []).map((r) => r.blocked_id));
         }
         if (!cancelled) {
           const map = {};
-          snap.docs.filter((d) => !blockedIds.has(d.id)).forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+          mapRows(snap.data || [])
+            .filter((d) => !blockedIds.has(d.id))
+            .forEach((d) => { map[d.id] = d; });
           setUsers(map);
         }
       } catch {

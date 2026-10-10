@@ -6,15 +6,14 @@
 // the desktop header. No seeded/fake trending entries.
 // ─────────────────────────────────────────────────────────────
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useCallback, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, X, Clock, TrendingUp, Hash, FolderKanban, FileText } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query as firestoreQuery, orderBy, limit } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
-import { auth } from '@/lib/firebase';
 
 function extractTags(posts) {
   const counts = new Map();
@@ -30,8 +29,11 @@ function extractTags(posts) {
     .slice(0, 8);
 }
 
-export default function SearchPage() {
+// Inner component uses useSearchParams, which requires a Suspense boundary
+// in the App Router — see the default export at the bottom.
+function SearchInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { vibrate } = useHaptics();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -43,35 +45,48 @@ export default function SearchPage() {
   const followedUsers = useStore((s) => s.followedUsers);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
 
+  // Reactive ?q= — the old window.location read ran ONCE on mount, so a
+  // second deep-link from the desktop header while already on /search
+  // silently no-op'd. urlQ changes re-apply the query every time.
+  const urlQ = searchParams.get('q');
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const q = params.get('q');
-    if (q) setQuery(q);
-  }, []);
+    if (urlQ) setQuery(urlQ);
+  }, [urlQ]);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       try {
-        const userId = auth?.currentUser?.uid;
-        const [userSnap, postSnap, projectSnap] = await Promise.all([
-          getDocs(collection(db, 'users')),
-          getDocs(firestoreQuery(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(60))),
-          getDocs(firestoreQuery(collection(db, 'projects'), orderBy('createdAt', 'desc'), limit(30))),
+        const supabase = getSupabase();
+        if (!supabase) return;
+        const { data: authRes } = await supabase.auth.getUser();
+        const userId = authRes?.user?.id;
+        const [usersRes, postRes, projectRes, blockedRes] = await Promise.all([
+          supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(50),
+          supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(60),
+          supabase.from('projects').select('*').order('created_at', { ascending: false }).limit(30),
+          userId
+            ? supabase.from('blocks').select('blocked_id').eq('user_id', userId)
+            : Promise.resolve({ data: null }),
         ]);
-        let blockedIds = new Set();
-        if (userId) {
-          const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
-          blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
-        }
+        if (usersRes.error) throw usersRes.error;
+        if (postRes.error) throw postRes.error;
+        if (projectRes.error) throw projectRes.error;
+        if (blockedRes?.error) throw blockedRes.error;
         if (!cancelled) {
+          const blockedIds = new Set((blockedRes?.data || []).map((r) => r.blocked_id));
           setUsers(
-            userSnap.docs
-              .filter((d) => !blockedIds.has(d.id))
-              .map((d) => ({ id: d.id, ...d.data() }))
+            mapRows(usersRes.data || []).filter(
+              (u) =>
+                !blockedIds.has(u.id) &&
+                u.id !== userId &&
+                u.status !== 'suspended'
+            )
           );
-          setPosts(postSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-          setProjects(projectSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setPosts(mapRows(postRes.data || []));
+          setProjects(
+            mapRows(projectRes.data || []).map((p) => ({ ...p, name: p.title || '' }))
+          );
         }
       } catch {
         // silently fail
@@ -343,5 +358,13 @@ export default function SearchPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <SearchInner />
+    </Suspense>
   );
 }

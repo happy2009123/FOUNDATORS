@@ -11,8 +11,8 @@ import { useRouter } from 'next/navigation';
 import { Award, ChevronLeft, Gift } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import Avatar from '@/components/Avatar';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { useStore } from '@/lib/store';
 
 export default function Founding100Page() {
@@ -24,17 +24,44 @@ export default function Founding100Page() {
   useEffect(() => {
     if (!authReady || !isLoggedIn) return;
     let alive = true;
-    getDocs(collection(db, 'foundingMembers'))
-      .then((snap) => {
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        if (!supabase) throw new Error('Supabase not configured');
+        const { data, error } = await supabase
+          .from('founding_members')
+          .select('number, user_id, created_at');
+        if (error) throw error;
+        const rows = mapRows(data || []);
+        const ids = [...new Set(rows.map((r) => r.userId).filter(Boolean))];
+        const profileMap = new Map();
+        if (ids.length) {
+          const { data: profRows } = await supabase
+            .from('profiles')
+            .select('id, name, handle, avatar')
+            .in('id', ids);
+          (profRows || []).forEach((p) => profileMap.set(p.id, p));
+        }
         if (!alive) return;
-        const rows = snap.docs
-          .map((d) => ({ id: d.id, number: Number(d.id), ...d.data() }))
-          .sort((a, b) => a.number - b.number);
-        setMembers(rows);
-      })
-      .catch(() => {
+        setMembers(
+          rows
+            .map((r) => {
+              const p = profileMap.get(r.userId);
+              return {
+                id: String(r.number),
+                number: Number(r.number),
+                uid: r.userId,
+                name: p?.name || '',
+                handle: p?.handle || '',
+                avatar: p?.avatar || null,
+              };
+            })
+            .sort((a, b) => a.number - b.number)
+        );
+      } catch {
         if (alive) setMembers([]);
-      });
+      }
+    })();
     return () => {
       alive = false;
     };

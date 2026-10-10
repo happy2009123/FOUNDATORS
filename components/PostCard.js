@@ -25,9 +25,8 @@ import { useHaptics } from '@/lib/useHaptics';
 import VerifiedBadge from './VerifiedBadge';
 import Avatar from './Avatar';
 import RichText from './RichText';
-import { db } from '@/lib/firebase';
-import { deletePost as firestoreDeletePost, updatePost as firestoreUpdatePost } from '@/lib/firestore';
-import { doc, getDoc } from 'firebase/firestore';
+import { deletePost as firestoreDeletePost, updatePost as firestoreUpdatePost, getUserProfile } from '@/lib/firestore';
+import { formatPostTime } from '@/lib/timeago';
 
 const TAG_META = {
   idea: { label: 'Idea', icon: Lightbulb, cls: 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)]' },
@@ -37,8 +36,8 @@ const TAG_META = {
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res?.success ? res.data : null;
   } catch {
     return null;
   }
@@ -58,6 +57,22 @@ export default memo(function PostCard({ post }) {
     setLocalLikeCount(displayPost.likes);
   }, [displayPost.likes]);
   const toggleLike = useStore((s) => s.toggleLike);
+
+  // Derive the relative time from the real createdAt (serverTimestamp) so
+  // the label ages ("2m ago") instead of being frozen at "Just now", and so
+  // Firestore-loaded posts (which have no `meta` field at all) aren't blank.
+  // Re-renders every minute to keep the label fresh; falls back to the
+  // static meta while createdAt is still the pre-write null.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const liveTime = formatPostTime(displayPost.createdAt ?? post.createdAt);
+  const metaBase = String(post.meta || displayPost.meta || '').replace(/\s*·\s*Just now$/, '');
+  const timeLabel = liveTime
+    ? (metaBase ? `${metaBase} · ${liveTime}` : liveTime)
+    : (post.meta || displayPost.meta || '');
   const toggleBookmark = useStore((s) => s.toggleBookmark);
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
@@ -173,7 +188,7 @@ export default memo(function PostCard({ post }) {
               {author?.name}
               {author?.verified && <VerifiedBadge />}
             </div>
-            <div className="mt-0.5 text-xs text-text2">{post.meta}</div>
+            <div className="mt-0.5 text-xs text-text2">{timeLabel}</div>
           </div>
         </button>
         <div className="flex items-center gap-1.5">

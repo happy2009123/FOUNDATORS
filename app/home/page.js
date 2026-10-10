@@ -10,8 +10,8 @@ import PullToRefresh from '@/components/PullToRefresh';
 import ScrollToTop from '@/components/ScrollToTop';
 import FeedAlgorithm from '@/components/FeedAlgorithm';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query, limit } from 'firebase/firestore';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { subscribeVoiceByStatus } from '@/lib/voice';
 
 const quick = [
@@ -19,10 +19,21 @@ const quick = [
   ['work','Find work',BriefcaseBusiness,'/opportunities'], ['mentor','Mentor',Users,'/match/find_mentor'], ['project','Join project',Rocket,'/projects'], ['voice','Voice Rooms',Mic,'/voice'], ['learn','Learn',Zap,'/challenges'],
 ];
 
-export default function HomePage(){
+ export default function HomePage(){
  const router=useRouter(); const profile=useStore(s=>s.profile);
  const scrollRef=useRef(null);
- const handleRefresh=useCallback(()=>new Promise(r=>setTimeout(r,1200)),[]);
+ const [refreshTick, setRefreshTick] = useState(0);
+ // Pull-to-refresh actually reloads: the old handler was a 1200ms timer that
+ // refreshed NOTHING (matches/projects effect is gated behind a ref, and the
+ // feed caches its first page at module level).
+ const handleRefresh=useCallback(async()=>{
+   lastFetchedProfile.current=null;
+   setRefreshTick((t)=>t+1);
+   await new Promise((resolve)=>{
+     window.dispatchEvent(new CustomEvent('foundators:refresh-feed',{detail:resolve}));
+     setTimeout(resolve,3000); // safety: never hang the spinner if no feed is mounted
+   });
+ },[]);
  const [matches, setMatches] = useState([]);
  const [userProjects, setUserProjects] = useState([]);
  const lastFetchedProfile = useRef(null);
@@ -35,37 +46,41 @@ export default function HomePage(){
 
     const fetchMatches = async () => {
       try {
-        const usersSnap = await getDocs(query(collection(db, 'users'), limit(50)));
-        const users = [];
-        usersSnap.forEach(d => {
-          if (d.id !== profile.id) users.push({ id: d.id, ...d.data() });
-        });
+        const { data, error } = await getSupabase()
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const users = mapRows(data || [])
+          .filter((u) => u.id !== profile.id && u.status !== 'suspended');
         if (!cancelled) setMatches(users.slice(0, 6));
       } catch (err) {
         console.error('Failed to fetch matches:', err);
       }
     };
 
-   const fetchProjects = async () => {
-     try {
-       const postsSnap = await getDocs(query(collection(db, 'posts'), limit(5)));
-       const projects = [];
-       postsSnap.forEach(d => {
-         const data = d.data();
-         if (data.authorKey === profile.id && data.text) {
-           projects.push({ id: d.id, ...data });
-         }
-       });
-       if (!cancelled) setUserProjects(projects);
-     } catch (err) {
-       console.error('Failed to fetch projects:', err);
-     }
-   };
+    const fetchProjects = async () => {
+      try {
+        const { data, error } = await getSupabase()
+          .from('posts')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(5);
+        if (error) throw error;
+        const projects = mapRows(data || [])
+          .filter((d) => d.authorKey === profile.id && d.text)
+          .map((d) => ({ id: d.id, ...d }));
+        if (!cancelled) setUserProjects(projects);
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+      }
+    };
 
-   fetchMatches();
-   fetchProjects();
-   return () => { cancelled = true; };
- }, [profile?.id]);
+    fetchMatches();
+    fetchProjects();
+    return () => { cancelled = true; };
+  }, [profile?.id, refreshTick]);
 
   const radar = matches.length > 0
     ? matches

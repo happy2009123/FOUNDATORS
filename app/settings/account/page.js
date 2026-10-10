@@ -1,28 +1,40 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Shield, Download, Trash2, Key, AlertTriangle, Check, Copy } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Key, AlertTriangle, Copy } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
-import { db, auth } from '@/lib/firebase';
-import { doc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { deleteUser } from 'firebase/auth';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
+import { signInWithGooglePopup, signOut } from '@/lib/supabase/auth';
 
 export default function AccountSettingsPage() {
   const ready = useRequireAuth();
   const router = useRouter();
-  const { vibrate, notification } = useHaptics();
+  const { vibrate } = useHaptics();
   const showToast = useStore((s) => s.showToast);
   const logout = useStore((s) => s.logout);
   const profile = useStore((s) => s.profile);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [show2FA, setShow2FA] = useState(false);
-  const [twoFACode, setTwoFACode] = useState('');
-  const [twoFAEnabled, setTwoFAEnabled] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSupabase()
+      ?.auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setAuthUser(data?.user || null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const usesPassword = (authUser?.identities || []).some((i) => i.provider === 'email');
 
   if (!ready) return <AuthSkeleton />;
 
@@ -31,27 +43,38 @@ export default function AccountSettingsPage() {
     if (!profile?.id) return showToast('Not logged in');
 
     try {
+      const supabase = getSupabase();
+      if (!supabase) throw new Error('Supabase not configured');
+
       const userData = { profile };
 
       // Fetch posts
-      const postsSnap = await getDocs(query(collection(db, 'posts'), where('authorKey', '==', profile.id)));
-      userData.posts = postsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const postsSnap = await supabase.from('posts').select('*').eq('author_key', profile.id);
+      if (postsSnap.error) throw postsSnap.error;
+      userData.posts = mapRows(postsSnap.data || []);
 
       // Fetch followers
-      const followersSnap = await getDocs(collection(db, 'users', profile.id, 'followers'));
-      userData.followers = followersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const followersSnap = await supabase.from('follows').select('*').eq('following_id', profile.id);
+      if (followersSnap.error) throw followersSnap.error;
+      userData.followers = mapRows(followersSnap.data || []);
 
       // Fetch following
-      const followingSnap = await getDocs(collection(db, 'users', profile.id, 'following'));
-      userData.following = followingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const followingSnap = await supabase.from('follows').select('*').eq('follower_id', profile.id);
+      if (followingSnap.error) throw followingSnap.error;
+      userData.following = mapRows(followingSnap.data || []);
 
       // Fetch bookmarks
-      const bookmarksSnap = await getDocs(collection(db, 'users', profile.id, 'bookmarks'));
-      userData.bookmarks = bookmarksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const bookmarksSnap = await supabase
+        .from('posts')
+        .select('id, created_at')
+        .contains('bookmarked_by', [profile.id]);
+      if (bookmarksSnap.error) throw bookmarksSnap.error;
+      userData.bookmarks = mapRows(bookmarksSnap.data || []);
 
       // Fetch notifications
-      const notifsSnap = await getDocs(collection(db, 'users', profile.id, 'notifications'));
-      userData.notifications = notifsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const notifsSnap = await supabase.from('notifications').select('*').eq('user_id', profile.id);
+      if (notifsSnap.error) throw notifsSnap.error;
+      userData.notifications = mapRows(notifsSnap.data || []);
 
       const exportPayload = {
         exportDate: new Date().toISOString(),
@@ -73,44 +96,115 @@ export default function AccountSettingsPage() {
     }
   };
 
-  const handleEnable2FA = () => {
-    vibrate('medium');
-    if (twoFACode.length === 6) {
-      setTwoFAEnabled(true);
-      setShow2FA(false);
-      notification('success');
-      showToast('Two-factor authentication enabled');
-    }
-  };
-
+  // Deletion must be ALL-OR-NOTHING. The previous flow deleted the
+  // Firestore document first and called deleteUser() afterwards — when
+  // deleteUser threw auth/requires-recent-login (stale session), the user
+  // was left with a live sign-in but no data: a broken half-deleted
+  // account. We now reauthenticate FIRST (nothing is touched if this
+  // fails), then purge data, then end the session.
   const handleDeleteAccount = async () => {
-    if (!profile?.id) return;
+    const supabase = getSupabase();
+    if (!profile?.id || !supabase) return;
     vibrate('medium');
     setDeleting(true);
 
     try {
-      // Delete user's subcollections
-      const subcollections = ['notifications', 'followers', 'following', 'blocked', 'bookmarks', 'settings'];
-      for (const sub of subcollections) {
-        try {
-          const snap = await getDocs(collection(db, 'users', profile.id, sub));
-          for (const d of snap.docs) {
-            await deleteDoc(doc(db, 'users', profile.id, sub, d.id));
-          }
-        } catch (err) {
-          console.warn(`Failed to delete subcollection ${sub}:`, err);
+      // 1. Reauthenticate so nothing is touched if the confirmation fails.
+      const { data: authRes } = await supabase.auth.getUser();
+      const user = authRes?.user;
+      if (!user) throw new Error('Not signed in');
+      const providerIds = (user.identities || []).map((i) => i.provider);
+      if (providerIds.includes('email')) {
+        if (!deletePassword) {
+          showToast('Enter your password to confirm');
+          setDeleting(false);
+          return;
         }
+        const { error: reauthError } = await supabase.auth.signInWithPassword({
+          email: user.email || '',
+          password: deletePassword,
+        });
+        if (reauthError) {
+          showToast('Incorrect password');
+          setDeleting(false);
+          return;
+        }
+      } else if (providerIds.includes('google')) {
+        const googleRes = await signInWithGooglePopup();
+        if (googleRes?.error) throw new Error(googleRes.error);
       }
 
-      // Delete user doc
-      await deleteDoc(doc(db, 'users', profile.id));
+      const uid = profile.id;
+      const drop = async (label, request) => {
+        try {
+          const { error } = await request();
+          if (error) throw error;
+        } catch (err) {
+          console.warn(`Failed to delete ${label}:`, err);
+        }
+      };
 
-      // Delete Firebase Auth account
-      if (auth?.currentUser) {
-        await deleteUser(auth.currentUser);
+      // 2. Purge data (each step is idempotent, so a retry after a rare
+      //    late failure is safe).
+      await drop('notifications', () => supabase.from('notifications').delete().eq('user_id', uid));
+      await drop('followers', () => supabase.from('follows').delete().eq('following_id', uid));
+      await drop('following', () => supabase.from('follows').delete().eq('follower_id', uid));
+      await drop('blocked', () => supabase.from('blocks').delete().eq('user_id', uid));
+      await drop('settings', () => supabase.from('user_settings').delete().eq('user_id', uid));
+
+      // Bookmarks are a jsonb array on other people's posts; clear this
+      // user's entries through the same RPC the app uses to un-bookmark.
+      try {
+        const { data: bookmarked, error } = await supabase
+          .from('posts')
+          .select('id')
+          .contains('bookmarked_by', [uid]);
+        if (error) throw error;
+        for (const row of bookmarked || []) {
+          const { error: bmError } = await supabase.rpc('toggle_bookmark', {
+            p_post_id: row.id,
+            p_bookmark: false,
+          });
+          if (bmError) throw bmError;
+        }
+      } catch (err) {
+        console.warn('Failed to delete bookmarks:', err);
+      }
+
+      // The user's own posts (plus every comment on them).
+      let myPostIds = [];
+      try {
+        const { data: postRows, error } = await supabase
+          .from('posts')
+          .select('id')
+          .eq('author_key', uid);
+        if (error) throw error;
+        myPostIds = (postRows || []).map((r) => r.id);
+      } catch (err) {
+        console.warn('Failed to fetch own posts:', err);
+      }
+      if (myPostIds.length) {
+        await drop('post comments', () => supabase.from('comments').delete().in('post_id', myPostIds));
+        await drop('own posts', () => supabase.from('posts').delete().in('id', myPostIds));
+      }
+
+      // Comments the user left on OTHER people's posts.
+      await drop('own comments', () => supabase.from('comments').delete().eq('author_key', uid));
+
+      // User profile row last.
+      await drop('profile', () => supabase.from('profiles').delete().eq('id', uid));
+
+      // 3. End the session. Deleting the auth user itself
+      //    (supabase.auth.admin.deleteUser) requires a server-side admin
+      //    call with the service-role key — it cannot be done from here.
+      try {
+        await signOut();
+      } catch (err) {
+        console.error('signOut failed after data purge:', err);
       }
 
       setShowDeleteConfirm(false);
+      setDeletePassword('');
       showToast('Account deleted');
       logout();
       router.push('/login');
@@ -162,14 +256,9 @@ export default function AccountSettingsPage() {
         <section>
           <h2 className="text-[12px] font-bold uppercase tracking-wide text-text3 mb-3">Security</h2>
           <div className="rounded-2xl border border-linesoft bg-card divide-y divide-linesoft">
-            <button onClick={() => setShow2FA(true)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
-              <Shield size={16} className="text-gold" />
-              <div className="flex-1">
-                <div className="text-[13px] font-bold">Two-factor authentication</div>
-                <div className="text-[11px] text-text2">{twoFAEnabled ? 'Enabled' : 'Add extra security to your account'}</div>
-              </div>
-              {twoFAEnabled && <Check size={16} className="text-brandgreen" />}
-            </button>
+            {/* Two-factor authentication was removed: the old flow "enabled"
+                2FA after any 6 digits with nothing behind it — a fake security
+                control. It will return only with real TOTP/enforcement. */}
             <button onClick={() => router.push('/forgot-password')} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
               <Key size={16} className="text-gold" />
               <div className="flex-1">
@@ -210,34 +299,6 @@ export default function AccountSettingsPage() {
         </section>
       </div>
 
-      {show2FA && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShow2FA(false)}>
-          <div className="w-full max-w-[320px] rounded-3xl bg-card p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gold/10 mx-auto">
-              <Shield size={20} className="text-gold" />
-            </div>
-            <h3 className="text-[16px] font-bold text-center">Enable 2FA</h3>
-            <p className="mt-1 text-[12px] text-text2 text-center">Enter the 6-digit code from your authenticator app</p>
-            <input
-              type="text"
-              value={twoFACode}
-              onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              maxLength={6}
-              className="mt-4 w-full rounded-2xl border border-linesoft bg-white/[0.03] px-4 py-3 text-center text-[24px] font-mono tracking-[0.3em] text-white placeholder:text-text3 focus:border-gold focus:outline-none"
-              aria-label="2FA code"
-            />
-            <button
-              onClick={handleEnable2FA}
-              disabled={twoFACode.length !== 6}
-              className="mt-4 w-full rounded-2xl bg-gold py-3 text-[13px] font-bold text-[#1a1300] disabled:opacity-40"
-            >
-              Verify & Enable
-            </button>
-          </div>
-        </div>
-      )}
-
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-6" onClick={() => setShowDeleteConfirm(false)}>
           <div className="w-full max-w-[300px] rounded-3xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
@@ -246,6 +307,19 @@ export default function AccountSettingsPage() {
             </div>
             <h3 className="text-[16px] font-bold">Delete your account?</h3>
             <p className="mt-1 text-[12px] text-text2">This action is permanent. All your data will be deleted.</p>
+            {usesPassword && (
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Confirm your password"
+                className="mt-4 w-full rounded-2xl border border-linesoft bg-white/[0.03] px-4 py-3 text-[13px] text-white placeholder:text-text3 focus:border-brandred focus:outline-none"
+                aria-label="Confirm password"
+              />
+            )}
+            {!usesPassword && (
+              <p className="mt-3 text-[11px] text-text3">Your Google account will be asked for confirmation.</p>
+            )}
             <div className="mt-5 flex gap-3">
               <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 rounded-full border border-linesoft py-3 text-[12px] font-bold text-text2">
                 Cancel

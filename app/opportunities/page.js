@@ -6,8 +6,7 @@ import SubpageHeader from '@/components/SubpageHeader';
 import ScrollToTop from '@/components/ScrollToTop';
 import EmptyState from '@/components/EmptyState';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
 
 const cats = ['All', 'Jobs', 'Freelance', 'Investment', 'Funding', 'Mentorship', 'Partnerships'];
 const catMap = { Jobs: 'job', Freelance: 'freelance', Investment: 'investment', Funding: 'funding', Mentorship: 'mentorship', Partnerships: 'partnership' };
@@ -23,11 +22,13 @@ export default function Opportunities() {
   useEffect(() => {
     async function fetchOpportunities() {
       try {
-        const q2 = query(collection(db, 'opportunities'), orderBy('createdAt', 'desc'), limit(30));
-        const snap = await getDocs(q2);
-        const fetched = [];
-        snap.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
-        setItems(fetched);
+        const supabase = getSupabase();
+        if (!supabase) return;
+        // GAP: the Supabase schema has no `opportunities` table (and no
+        // equivalent one matches title/org/loc/type), so this is a
+        // zero-result placeholder until such a table exists — reported in
+        // the migration notes.
+        setItems([]);
       } catch (err) {
         console.error('Failed to fetch opportunities:', err);
       } finally {

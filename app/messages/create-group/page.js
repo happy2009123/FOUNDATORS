@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Search, Users, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useRequireAuth } from '@/lib/useRequireAuth';
+import AuthSkeleton from '@/components/AuthSkeleton';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { createChat } from '@/lib/firestore';
 import Avatar from '@/components/Avatar';
 
 export default function CreateGroupPage() {
+  const ready = useRequireAuth();
   const router = useRouter();
   const { vibrate, notification } = useHaptics();
   const showToast = useStore((s) => s.showToast);
@@ -21,20 +24,33 @@ export default function CreateGroupPage() {
   const [users, setUsers] = useState([]);
 
   useEffect(() => {
+    if (!ready) return undefined;
+    let cancelled = false;
     const fetchUsers = async () => {
       try {
-        const snap = await getDocs(collection(db, 'users'));
-        const list = [];
-        snap.forEach((d) => {
-          if (d.id !== profile?.id) {
-            list.push({ id: d.id, ...d.data() });
-          }
-        });
+        // limit(50): the old code read the ENTIRE users collection on
+        // every mount (unbounded read cost as the platform grows).
+        const supabase = getSupabase();
+        if (!supabase) throw new Error('Supabase not configured');
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (cancelled) return;
+        const list = mapRows(data || []).filter(
+          (u) => u.id !== profile?.id && u.status !== 'suspended'
+        );
         setUsers(list);
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to load users for group:', e);
+        if (!cancelled) setUsers([]);
+      }
     };
     fetchUsers();
-  }, [profile?.id]);
+    return () => { cancelled = true; };
+  }, [profile?.id, ready]);
 
   const filteredUsers = users.filter((u) =>
     u.name?.toLowerCase().includes(search.toLowerCase())
@@ -83,6 +99,10 @@ export default function CreateGroupPage() {
       showToast('Failed to create group');
     }
   }, [groupName, selected, users, profile, vibrate, notification, showToast, router]);
+
+  // AFTER all hooks — an early return before the useCallbacks above would
+  // change the hook count between renders when `ready` flips.
+  if (!ready) return <AuthSkeleton />;
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
