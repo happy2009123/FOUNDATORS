@@ -1,23 +1,24 @@
-import { Montserrat, Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import Script from 'next/script';
 import './globals.css';
 import Providers from './Providers';
 
-const montserrat = Montserrat({
-  subsets: ['latin'],
-  weight: ['600', '700', '800', '900'],
+const montserrat = localFont({
+  src: './fonts/montserrat.woff2',
+  weight: '100 900',
   variable: '--font-montserrat',
   display: 'swap',
 });
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+const inter = localFont({
+  src: './fonts/inter.woff2',
+  weight: '100 900',
   variable: '--font-inter',
   display: 'swap',
 });
 
 export const metadata = {
+  metadataBase: new URL('https://foundators.app'),
   title: {
     default: 'Foundators — Social Network for Founders',
     template: '%s | Foundators',
@@ -46,7 +47,6 @@ export const metadata = {
     follow: true,
   },
   manifest: '/manifest.json',
-  themeColor: '#d9ac3d',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
