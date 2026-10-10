@@ -14,8 +14,8 @@ import {
   ArrowLeft, CheckCircle2, Code2, Coins, Handshake, Loader2, MapPin,
   MessageCircle, Send, Sparkles, UserPlus, Users, X,
 } from 'lucide-react';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import MainScreenShell from '@/components/MainScreenShell';
 import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
@@ -88,11 +88,11 @@ export default function IntentMatch() {
     let cancelled = false;
     async function fetchUsers() {
       try {
-        const snap = await getDocs(collection(db, 'users'));
+        const { data, error } = await getSupabase().from('profiles').select('*').limit(100);
+        if (error) throw error;
         if (cancelled) return;
         const me = profile?.id;
-        const all = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+        const all = mapRows(data || [])
           .filter((u) => u.id !== me && u.status !== 'suspended');
         const scored = all
           .map((u) => ({ ...u, _m: scoreCandidate(u, intent, profile) }))

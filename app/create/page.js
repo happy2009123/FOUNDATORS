@@ -147,7 +147,8 @@ export default function CreatePage() {
       if (selectedImage) {
         const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         const compressed = await compressImage(selectedImage);
-        const result = await uploadImage(compressed, `posts/${postId}/${compressed.name}`);
+        // Path must be uid-scoped to satisfy storage.rules posts/{uid}/{postId}/{fileName}
+        const result = await uploadImage(compressed, `posts/${profile.id}/${postId}/${compressed.name}`);
         if (result.success) {
           finalImageUrl = result.data;
         } else {

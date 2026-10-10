@@ -9,11 +9,8 @@ import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
-import {
-  collection, getDocs, query, orderBy, limit,
-  doc, getDoc, updateDoc, addDoc, arrayUnion, arrayRemove, serverTimestamp,
-} from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows, randomId, toRow } from '@/lib/supabase/db';
 
 const FILTER_TABS = ['All', 'Today', 'This Week', 'Online', 'Free'];
 const CATEGORY_OPTIONS = ['Meetup', 'Workshop', 'Hackathon', 'Pitch Night', 'Conference', 'Social'];
@@ -44,10 +41,28 @@ export default function Events() {
   useEffect(() => {
     async function fetchEvents() {
       try {
-        const q = query(collection(db, 'events'), orderBy('createdAt', 'desc'), limit(30));
-        const snap = await getDocs(q);
-        const items = [];
-        snap.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+        const { data, error } = await getSupabase()
+          .from('events')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30);
+        if (error) throw error;
+        const items = mapRows(data || []).map((row) => ({
+          id: row.id,
+          name: row.title || '',
+          description: row.description || '',
+          location: row.location || '',
+          category: row.category || '',
+          date: row.date || '',
+          isToday: !!row.isToday,
+          price: row.price || 'Free',
+          priceValue: row.priceValue || 0,
+          creatorKey: row.hostId,
+          creatorName: row.creatorName || '',
+          isOnline: row.isOnline,
+          attendees: row.attendees || [],
+          createdAt: row.createdAt,
+        }));
         setEvents(items);
       } catch (err) {
         console.error('Failed to fetch events:', err);
@@ -82,10 +97,12 @@ export default function Events() {
     const attendees = event.attendees || [];
     const isGoing = attendees.includes(profile.id);
     try {
-      const eventRef = doc(db, 'events', event.id);
-      await updateDoc(eventRef, {
-        attendees: isGoing ? arrayRemove(profile.id) : arrayUnion(profile.id),
+      const { error } = await getSupabase().rpc('array_toggle_self', {
+        p_table: 'events',
+        p_id: event.id,
+        p_column: 'attendees',
       });
+      if (error) throw error;
       setEvents((prev) => prev.map((e) => {
         if (e.id !== event.id) return e;
         const updated = isGoing
@@ -130,23 +147,27 @@ export default function Events() {
     if (!profile?.id) { showToast('Please sign in to create events'); return; }
     setCreating(true);
     try {
-      const docRef = await addDoc(collection(db, 'events'), {
-        name: newEvent.name.trim(),
-        description: newEvent.description.trim(),
-        date: newEvent.date.trim(),
-        location: newEvent.location.trim(),
-        category: newEvent.category,
-        isToday: newEvent.date.toLowerCase().startsWith('today'),
-        isOnline: newEvent.location.toLowerCase().includes('online'),
-        price: 'Free',
-        priceValue: 0,
-        creatorKey: profile.id,
-        creatorName: profile.name,
-        attendees: [profile.id],
-        createdAt: serverTimestamp(),
-      });
+      const eventId = randomId();
+      const { error } = await getSupabase()
+        .from('events')
+        .insert(toRow({
+          id: eventId,
+          title: newEvent.name.trim(),
+          description: newEvent.description.trim(),
+          location: newEvent.location.trim(),
+          category: newEvent.category,
+          date: newEvent.date.trim(),
+          isToday: newEvent.date.toLowerCase().startsWith('today'),
+          price: 'Free',
+          priceValue: 0,
+          creatorName: profile.name,
+          isOnline: newEvent.location.toLowerCase().includes('online'),
+          hostId: profile.id,
+          attendees: [profile.id],
+        }));
+      if (error) throw error;
       const created = {
-        id: docRef.id,
+        id: eventId,
         name: newEvent.name.trim(),
         description: newEvent.description.trim(),
         date: newEvent.date.trim(),

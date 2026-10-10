@@ -1,44 +1,23 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { firebaseConfig } from '@/lib/firebaseConfig';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-async function verifyIdToken(idToken) {
-  const key =
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
-    process.env.FIREBASE_WEB_API_KEY ||
-    process.env.FIREBASE_API_KEY ||
-    firebaseConfig.apiKey;
-  if (!key) return { error: 'missing-key' };
-  if (!idToken) return { error: 'missing-token' };
+async function verifyIdToken(token) {
+  if (!token) return { error: 'missing-token' };
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { error: 'missing-key' };
   try {
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      }
-    );
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const errJson = await res.json();
-        detail = (errJson.error && errJson.error.message) || '';
-      } catch (e) {
-        detail = '';
-      }
-      return { error: `lookup-${res.status}${detail ? `:${detail}` : ''}` };
-    }
-    const json = await res.json();
-    const user = json && json.users && json.users[0];
-    if (!user || !user.localId) return { error: 'no-user' };
+    const { data, error } = await supabase.auth.getUser(token);
+    const user = data && data.user;
+    if (error || !user) return { error: `lookup:${(error && error.message) || 'no-user'}` };
+    const meta = user.user_metadata || {};
     return {
       user: {
-        uid: user.localId,
+        uid: user.id,
         email: user.email || '',
-        displayName: user.displayName || '',
+        displayName: meta.name || meta.full_name || '',
       },
     };
   } catch (err) {
@@ -91,7 +70,9 @@ export async function POST(req) {
   }
   const { idToken, type } = body || {};
 
-  const auth = await verifyIdToken(idToken);
+  const authHeader = req.headers.authorization || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const auth = await verifyIdToken(bearer || idToken || '');
   if (auth.error) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }

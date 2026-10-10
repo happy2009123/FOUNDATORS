@@ -6,8 +6,8 @@ import { ArrowLeft, ImagePlus, Loader2, Mic, X } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRow } from '@/lib/supabase/db';
 import { uploadImage } from '@/lib/firestore';
 import {
   VOICE_CATEGORIES,
@@ -87,18 +87,18 @@ function CreateRoomInner() {
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
-    getDoc(doc(db, 'projects', projectId))
-      .then((snap) => {
-        if (cancelled || !snap.exists()) return;
-        const p = snap.data();
-        setTitle((t) => t || `Discuss: ${p.name || 'our project'}`);
-        setDescription(
-          (d) =>
-            d ||
-            [p.problem ? `Problem: ${p.problem}` : '', p.solution ? `Solution: ${p.solution}` : '']
-              .filter(Boolean)
-              .join('\n')
-        );
+    const supabase = getSupabase();
+    if (!supabase) return;
+    supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const p = mapRow(data);
+        setTitle((t) => t || `Discuss: ${p.title || 'our project'}`);
+        setDescription((d) => d || p.description || '');
         setTagsText((t) => t || 'project,collaboration');
       })
       .catch(() => {});

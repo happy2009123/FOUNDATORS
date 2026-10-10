@@ -49,8 +49,8 @@ service cloud.firestore {
       return number is int
         && number >= 1
         && number <= 100
-        && exists(/databases/$(database)/documents/foundingMembers/$(number))
-        && get(/databases/$(database)/documents/foundingMembers/$(number)).data.uid == userId;
+        && existsAfter(/databases/$(database)/documents/foundingMembers/$(number))
+        && getAfter(/databases/$(database)/documents/foundingMembers/$(number)).data.uid == userId;
     }
 
     // A signed-in user may add or remove ONLY their own uid from a
@@ -449,17 +449,50 @@ service cloud.firestore {
         && request.resource.data.bookmarkedBy is list
         && isValidTimestamp(request.resource.data.createdAt);
 
-      // UPDATE: Two allowed paths —
-      //  1. Anyone (signed in) can toggle likes/bookmarks and bump the
-      //     comment counter when commenting
-      //  2. Only the author can edit post content
+      // 1. Like / unlike — any signed-in user may toggle ONLY their own uid.
+      //    The post author must NOT be special-cased here: binding this to
+      //    resource.data.authorKey meant nobody but the author could like.
+      //    Invariant: likes always equals the unique likedBy size, and the
+      //    only membership change possible is adding/removing uid().
       allow update: if isSignedIn()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'likedBy', 'bookmarkedBy', 'likes', 'commentsCount'
-           ]);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy', 'likes'])
+        && request.resource.data.likedBy is list
+        && request.resource.data.likes is int
+        && request.resource.data.likes == request.resource.data.likedBy.toSet().size()
+        && request.resource.data.likedBy.toSet()
+             .difference(resource.data.likedBy.toSet()).hasOnly([uid()])
+        && resource.data.likedBy.toSet()
+             .difference(request.resource.data.likedBy.toSet()).hasOnly([uid()]);
+
+      // 2. Bookmark / unbookmark — any signed-in user may toggle ONLY their
+      //    own uid in bookmarkedBy (no author binding).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bookmarkedBy'])
+        && request.resource.data.bookmarkedBy is list
+        && request.resource.data.bookmarkedBy.toSet()
+             .difference(resource.data.bookmarkedBy.toSet()).hasOnly([uid()])
+        && resource.data.bookmarkedBy.toSet()
+             .difference(request.resource.data.bookmarkedBy.toSet()).hasOnly([uid()]);
+
+      // 3. Comment count ±1 — ANY signed-in user may bump the counter, not
+      //    only the post author (otherwise every non-author comment's
+      //    increment(1) was permission-denied and commenting silently broke).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentsCount'])
+        && request.resource.data.commentsCount is int
+        && request.resource.data.commentsCount >= 0
+        && (request.resource.data.commentsCount == resource.data.commentsCount + 1
+            || request.resource.data.commentsCount == resource.data.commentsCount - 1);
+
+      // 4. Author may edit post content — but never the engagement fields
+      //    (likedBy/likes/bookmarkedBy/commentsCount), which are covered
+      //    exclusively by rules 1–3 above.
       allow update: if isSignedIn()
         && resource.data.authorKey == uid()
-        && request.resource.data.authorKey == resource.data.authorKey;
+        && request.resource.data.authorKey == resource.data.authorKey
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['authorKey', 'uid', 'likedBy', 'likes',
+                      'bookmarkedBy', 'commentsCount']);
 
       // DELETE: Only the author can delete their own post; admins can
       // remove posts as part of moderation (logged via adminActions)
@@ -496,15 +529,27 @@ service cloud.firestore {
           && isValidTimestamp(request.resource.data.createdAt)
           && request.resource.data.edited is bool;
 
-        // UPDATE: Anyone can toggle a comment like; only the comment
-        // author can edit the comment text
+// 1. Comment like / unlike — any signed-in user toggles ONLY their own uid
+        //    (was incorrectly bound to the comment author's uid).
         allow update: if isSignedIn()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-               'likedBy', 'likes'
-             ]);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy', 'likes'])
+          && request.resource.data.likedBy is list
+          && request.resource.data.likes is int
+          && request.resource.data.likes == request.resource.data.likedBy.toSet().size()
+          && request.resource.data.likedBy.toSet()
+               .difference(resource.data.likedBy.toSet()).hasOnly([uid()])
+          && resource.data.likedBy.toSet()
+               .difference(request.resource.data.likedBy.toSet()).hasOnly([uid()]);
+
+      // 2. Comment edit — only the author may change the text. 'updatedAt' is
+      //    part of the payload sent by updateComment() (lib/firestore.js), so
+      //    it must be whitelisted or every edit is permission-denied.
         allow update: if isSignedIn()
           && resource.data.authorKey == uid()
-          && request.resource.data.authorKey == resource.data.authorKey;
+          && request.resource.data.authorKey == resource.data.authorKey
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['text', 'edited', 'updatedAt'])
+          && isValidString(request.resource.data.text, 2000);
 
         // DELETE: comment author, admin, or the author of the post the
         // comment lives on. deletePost() batch-clears all comments when a
@@ -696,9 +741,20 @@ service cloud.firestore {
         && uid() in request.resource.data.participants
         && isNonEmptyArray(request.resource.data.participants);
 
-      // UPDATE: Only participants can update (e.g., lastMessage)
+      // UPDATE: Only participants can update (e.g., lastMessage, typing,
+      // unreadBy, per-recipient counters). The participant list itself is
+      // IMMUTABLE after creation — no client code rewrites participants on an
+      // existing chat (createChat only ever merges the same set), and the
+      // previous single-element checks were dead code because 'participants'
+      // wasn't in the affectedKeys allowlist. 'createdAt' is included because
+      // createChat() re-merges with a fresh serverTimestamp when a chat is
+      // re-opened; without it that merge write was permission-denied.
       allow update: if isSignedIn()
-        && uid() in resource.data.participants;
+        && uid() in resource.data.participants
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['lastMessage', 'lastMessageAt', 'typing', 'unreadBy',
+                       'participantNames', 'participantAvatars', 'isGroup',
+                       'groupName', 'createdAt']);
 
       // DELETE: Only participants can delete a chat
       allow delete: if isSignedIn()
@@ -745,11 +801,13 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited']))
           );
 
-        // DELETE: The message sender can delete their own message. Chat
-        // participants can also delete messages as part of deleting the
-        // whole chat (e.g. "clear chat").
+        // DELETE: only the message sender (or an admin) may delete a message.
+        // The old clause OR'd in "any chat participant", which made the sender
+        // check meaningless — any participant could wipe other people's
+        // messages one by one. deleteChat()/deleteMessage() are currently not
+        // wired to any UI (grep: no call sites), so nothing regresses.
         allow delete: if isSignedIn()
-          && uid() in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+          && (resource.data.senderKey == uid() || isAdmin());
       }
     }
 
@@ -790,9 +848,66 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.authorKey == uid();
-      allow update: if isSignedIn();
+      // Only the AUTHOR may rewrite a reel — the previous condition only
+      // checked that authorKey was immutable, which let ANY signed-in user
+      // modify any reel. Engagement fields stay out of reach too.
+      allow update: if isSignedIn()
+        && resource.data.authorKey == uid()
+        && request.resource.data.authorKey == resource.data.authorKey
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['authorKey', 'createdAt']);
       allow delete: if isSignedIn()
-        && resource.data.authorKey == uid();
+        && resource.data.authorKey == uid()
+        || isAdmin();
+
+      // ----------------------------------------------------------
+      // REEL COMMENTS SUBCOLLECTION (components/ReelComments.js)
+      // rules do not cascade: without this block every reel comment
+      // write fell through to the catch-all deny and comments on
+      // reels were completely broken.
+      // ----------------------------------------------------------
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSignedIn()
+          && request.resource.data.authorKey == uid()
+          && request.resource.data.keys().hasAll([
+               'text', 'authorKey', 'authorName', 'authorAvatar',
+               'likes', 'likedBy', 'createdAt'
+             ])
+          && isValidString(request.resource.data.text, 2000)
+          && isValidString(request.resource.data.authorKey, 128)
+          && request.resource.data.authorAvatar is string
+          && request.resource.data.likes is int
+          && request.resource.data.likedBy is list
+          && isValidTimestamp(request.resource.data.createdAt);
+
+        allow update: if isSignedIn()
+          && (
+            // Comment like toggle — own uid only, counter matches list
+            (request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['likes', 'likedBy'])
+             && request.resource.data.likedBy is list
+             && request.resource.data.likes is int
+             && request.resource.data.likes
+                  == request.resource.data.likedBy.toSet().size()
+             && request.resource.data.likedBy.toSet()
+                  .difference(resource.data.likedBy.toSet()).hasOnly([uid()])
+             && resource.data.likedBy.toSet()
+                  .difference(request.resource.data.likedBy.toSet()).hasOnly([uid()]))
+            ||
+            // Replies — arrayUnion/arrayRemove of reply objects (adding a
+            // reply, liking a reply). The replies array holds embedded maps,
+            // so only the field itself can be constrained here.
+            (request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['replies'])
+             && request.resource.data.get('replies', []) is list
+             && resource.data.get('replies', []) is list)
+          );
+
+        allow delete: if (isSignedIn() && resource.data.authorKey == uid())
+          || isAdmin();
+      }
     }
 
     // ============================================================
@@ -1175,6 +1290,32 @@ service cloud.firestore {
     // Per-user reminder bookmarks (enables one-tap toggle state).
     match /users/{userId}/voiceReminders/{voiceReminderId} {
       allow read, write: if isOwner(userId);
+    }
+    // pending-notifications queue — push payloads for OTHER users are created
+    // by signed-in clients (lib/notify.js), so the old "targetUserId == uid()"
+    // (plus the invalid use of `resource` on create, which is null for creates)
+    // made every client write permission-denied and the pipeline completely
+    // dead. Rule now: the writer must be the attributed actor OR the target,
+    // with bounded title/body so the queue can't be used for arbitrary spam.
+    match /pending-notifications/{notifId} {
+      allow read: if isSignedIn()
+        && (resource.data.targetUserId == uid() || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll(['targetUserId', 'title', 'body',
+                          'sent', 'createdAt'])
+        && request.resource.data.targetUserId is string
+        && request.resource.data.targetUserId.size() > 0
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 500
+        && request.resource.data.sent == false
+        && request.resource.data.actorKey is string
+        && (request.resource.data.actorKey == uid()
+            || request.resource.data.targetUserId == uid())
+        && isValidTimestamp(request.resource.data.createdAt);
+      allow update: if isSignedIn() && (uid() == resource.data.targetUserId || isAdmin());
+      allow delete: if isSignedIn() && (uid() == resource.data.targetUserId || isAdmin());
     }
     match /{document=**} {
       allow read, write: if false;

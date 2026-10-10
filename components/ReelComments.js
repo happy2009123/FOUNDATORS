@@ -6,13 +6,19 @@ import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { timeAgo } from '@/lib/admin';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, increment, arrayUnion, arrayRemove, doc, getDoc } from 'firebase/firestore';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { mapRows } from '@/lib/supabase/db';
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const { data } = await getSupabase()
+      .from('profiles')
+      .select('name, avatar')
+      .eq('id', key)
+      .maybeSingle();
+    if (!data) return null;
+    return { id: key, name: data.name, avatar: data.avatar };
   } catch {
     return null;
   }
@@ -29,11 +35,33 @@ export default function ReelComments({ reelId, onClose }) {
 
   useEffect(() => {
     if (!reelId) return;
-    const q = query(collection(db, 'reels', reelId, 'comments'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const unsub = subscribeQuery({
+      key: `reelComments:${reelId}`,
+      table: 'reel_comments',
+      filter: `reel_id=eq.${reelId}`,
+      queryFn: async () => {
+        const { data, error } = await getSupabase()
+          .from('reel_comments')
+          .select('*')
+          .eq('reel_id', reelId)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const rows = mapRows(data);
+        const userIds = [...new Set(rows.map((c) => c.userId))];
+        const fetched = await Promise.all(userIds.map((uid) => fetchUser(uid)));
+        const userMap = {};
+        fetched.forEach((u) => { if (u) userMap[u.id] = u; });
+        setUsers(userMap);
+        return rows;
+      },
+      onData: (rows) => {
+        setComments(rows);
+      },
+      onError: (err) => {
+        console.warn('Comments listener error:', err);
+      },
     });
-    return () => unsub();
+    return unsub;
   }, [reelId]);
 
   useEffect(() => {
@@ -43,51 +71,42 @@ export default function ReelComments({ reelId, onClose }) {
   const send = async () => {
     if (!text.trim() || !profile) return;
     vibrate('light');
-    const body = {
+    const { error } = await getSupabase().from('reel_comments').insert({
+      reel_id: reelId,
+      user_id: profile.id,
       text: text.trim(),
-      authorKey: profile.id,
-      authorName: profile.name,
-      authorAvatar: profile.avatar,
+      liked_by: [],
       likes: 0,
-      likedBy: [],
-    };
-    if (replyTo && comments.some((c) => c.id === replyTo)) {
-      const reply = { ...body, id: `r_${Date.now()}`, createdAt: Date.now() };
-      await updateDoc(doc(db, 'reels', reelId, 'comments', replyTo), { replies: arrayUnion(reply) });
-    } else {
-      await addDoc(collection(db, 'reels', reelId, 'comments'), { ...body, createdAt: serverTimestamp() });
-    }
+    });
+    if (error) console.warn('Comment add error:', error);
     setText('');
     setReplyTo(null);
   };
 
-  const toggleLikeComment = async (commentId, alreadyLiked) => {
+  const toggleLikeComment = async (commentId) => {
     vibrate('light');
-    const ref = doc(db, 'reels', reelId, 'comments', commentId);
-    if (alreadyLiked) {
-      await updateDoc(ref, { likes: increment(-1), likedBy: arrayRemove(profile.id) });
-    } else {
-      await updateDoc(ref, { likes: increment(1), likedBy: arrayUnion(profile.id) });
-    }
-  };
+    const { data: comment } = await getSupabase()
+      .from('reel_comments')
+      .select('likes, liked_by')
+      .eq('id', commentId)
+      .maybeSingle();
+    if (!comment) return;
 
-  const toggleReplyLike = async (parentId, reply, alreadyLiked) => {
-    if (!profile) return;
-    vibrate('light');
-    const ref = doc(db, 'reels', reelId, 'comments', parentId);
-    const updated = {
-      ...reply,
-      likes: Math.max(0, (reply.likes || 0) + (alreadyLiked ? -1 : 1)),
-      likedBy: alreadyLiked
-        ? (reply.likedBy || []).filter((i) => i !== profile.id)
-        : [...(reply.likedBy || []), profile.id],
-    };
-    try {
-      await updateDoc(ref, { replies: arrayRemove(reply) });
-      await updateDoc(ref, { replies: arrayUnion(updated) });
-    } catch {
-      // reply predates stable ids — skip the optimistic like
+    const alreadyLiked = comment.liked_by && comment.liked_by.includes(profile.id);
+    let newLikes, newLikedBy;
+
+    if (alreadyLiked) {
+      newLikes = Math.max(0, comment.likes - 1);
+      newLikedBy = (comment.liked_by || []).filter((id) => id !== profile.id);
+    } else {
+      newLikes = comment.likes + 1;
+      newLikedBy = [...(comment.liked_by || []), profile.id];
     }
+
+    await getSupabase()
+      .from('reel_comments')
+      .update({ likes: newLikes, liked_by: newLikedBy })
+      .eq('id', commentId);
   };
 
   const REACTIONS = ['❤️', '🔥', '👏', '😂', '😮', '😢'];
@@ -119,74 +138,37 @@ export default function ReelComments({ reelId, onClose }) {
       {/* Comments list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {comments.map((comment) => {
-          const commentUser = users[comment.authorKey];
+          const commentUser = users[comment.userId];
           return (
             <div key={comment.id} className="space-y-3">
               <div className="flex gap-3">
-                <Avatar src={commentUser?.avatar || comment.authorAvatar} name={commentUser?.name || comment.authorName} size={32} />
+                <Avatar
+                  src={commentUser?.avatar || commentUser?.name ? undefined : undefined}
+                  name={commentUser?.name || comment.userId || 'You'}
+                  size={32}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-bold">{commentUser?.name || comment.authorName || 'You'}</span>
-                    <span className="text-[10px] text-text3">{comment.createdAt ? timeAgo(comment.createdAt) : (comment.time || '')}</span>
+                    <span className="text-[12px] font-bold">
+                      {commentUser?.name || comment.authorName || comment.userId || 'You'}
+                    </span>
+                    <span className="text-[10px] text-text3">
+                      {comment.created_at ? timeAgo(comment.created_at) : '—'}
+                    </span>
                   </div>
                   <p className="text-[13px] text-text mt-0.5">{comment.text}</p>
                   <div className="flex items-center gap-3 mt-1.5">
                     <button
-                      onClick={() => toggleLikeComment(comment.id, comment.likedBy?.includes(profile?.id))}
+                      onClick={() => toggleLikeComment(comment.id)}
                       className="flex items-center gap-1 text-[11px] text-text3"
                       aria-label="Like comment"
                     >
                       <Heart size={12} className={comment.likedBy?.includes(profile?.id) ? 'fill-gold text-gold' : ''} />
                       <span>{comment.likes}</span>
                     </button>
-                    <button
-                      onClick={() => { setReplyTo(comment.id); setText(`@${commentUser?.name} `); }}
-                      className="text-[11px] text-text3 font-medium"
-                      aria-label="Reply to comment"
-                    >
-                      Reply
-                    </button>
                   </div>
                 </div>
               </div>
-
-              {/* Replies */}
-              {comment.replies?.length > 0 && (
-                <div className="ml-10 space-y-3 border-l-2 border-linesoft pl-3">
-                  {comment.replies.map((reply) => {
-                    const replyUser = users[reply.authorKey];
-                    return (
-                      <div key={reply.id} className="flex gap-2.5">
-                        <Avatar src={replyUser?.avatar} name={replyUser?.name} size={24} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold">{replyUser?.name || reply.authorName || 'You'}</span>
-                            <span className="text-[10px] text-text3">{reply.createdAt ? timeAgo(reply.createdAt) : (reply.time || '')}</span>
-                          </div>
-                          <p className="text-[12px] text-text mt-0.5">{reply.text}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <button
-                              onClick={() => toggleReplyLike(comment.id, reply, reply.likedBy?.includes(profile?.id))}
-                              className="flex items-center gap-1 text-[10px] text-text3"
-                              aria-label="Like reply"
-                            >
-                              <Heart size={10} className={reply.likedBy?.includes(profile?.id) ? 'fill-gold text-gold' : ''} />
-                              <span>{reply.likes}</span>
-                            </button>
-                            <button
-                              onClick={() => { setReplyTo(comment.id); setText(`@${replyUser?.name} `); }}
-                              className="text-[10px] text-text3 font-medium"
-                              aria-label="Reply to reply"
-                            >
-                              Reply
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           );
         })}

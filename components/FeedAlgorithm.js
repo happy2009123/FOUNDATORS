@@ -5,8 +5,8 @@ import { useStore } from '@/lib/store';
 import PostCard from './PostCard';
 import { useInfiniteScroll } from '@/lib/useInfiniteScroll';
 import { sortByTrend } from '@/lib/trending';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, getDocs, startAfter } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 
 function scorePost(post, profile, followedUsers) {
   let score = 0;
@@ -46,15 +46,21 @@ export default function FeedAlgorithm() {
   const [initialLoaded, setInitialLoaded] = useState(() => !!cachedInitial);
 
   const loadInitial = useCallback(async () => {
-    if (!db) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
     try {
-      const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
-      const snap = await getDocs(q);
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
+      if (error) throw error;
+      const rows = data || [];
+      const fetched = mapRows(rows);
       cachedInitial = {
         posts: fetched,
-        lastDoc: snap.docs[snap.docs.length - 1] || null,
-        hasMore: snap.docs.length === PAGE_SIZE,
+        lastDoc: rows[rows.length - 1] || null,
+        hasMore: rows.length === PAGE_SIZE,
       };
       setFirestorePosts(fetched);
       setLastDoc(cachedInitial.lastDoc);
@@ -66,15 +72,22 @@ export default function FeedAlgorithm() {
   }, []);
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore || !lastDoc || !db) return;
+    const supabase = getSupabase();
+    if (!hasMore || loadingMore || !lastDoc || !supabase) return;
     setLoadingMore(true);
     try {
-      const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE));
-      const snap = await getDocs(q);
-      const newPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .lt('created_at', lastDoc.created_at)
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
+      if (error) throw error;
+      const rows = data || [];
+      const newPosts = mapRows(rows);
       setFirestorePosts(prev => [...prev, ...newPosts]);
       if (cachedInitial) cachedInitial.posts = [...cachedInitial.posts, ...newPosts];
-      setLastDoc(snap.docs[snap.docs.length - 1] || null);
+      setLastDoc(rows[rows.length - 1] || null);
       setHasMore(newPosts.length === PAGE_SIZE);
     } catch {}
     setLoadingMore(false);
@@ -82,6 +95,23 @@ export default function FeedAlgorithm() {
 
   useEffect(() => {
     loadInitial();
+  }, [loadInitial]);
+
+  // Pull-to-refresh support: clear the module cache and re-fetch page one,
+  // keeping the current list visible until the fresh results land (no empty
+  // flash). The dispatcher passes a resolve() in event.detail.
+  useEffect(() => {
+    const onRefresh = (e) => {
+      const done = typeof e?.detail === 'function' ? e.detail : null;
+      cachedInitial = null;
+      loadInitial()
+        .catch(() => {})
+        .finally(() => {
+          if (done) done();
+        });
+    };
+    window.addEventListener('foundators:refresh-feed', onRefresh);
+    return () => window.removeEventListener('foundators:refresh-feed', onRefresh);
   }, [loadInitial]);
 
   const lastRef = useInfiniteScroll(loadMore, hasMore);

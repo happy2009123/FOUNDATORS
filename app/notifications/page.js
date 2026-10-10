@@ -11,8 +11,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import Avatar from '@/components/Avatar';
 import AuthSkeleton from '@/components/AuthSkeleton';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getUserProfile } from '@/lib/firestore';
 import { timeAgo } from '@/lib/admin';
 
 const TYPE_META = {
@@ -35,8 +34,8 @@ const FALLBACK_META = { icon: Bell, cls: 'bg-[rgba(217,172,61,0.15)] text-gold-h
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res?.success ? res.data : null;
   } catch {
     return null;
   }
@@ -65,8 +64,17 @@ export default function NotificationsPage() {
 
   if (!ready) return <AuthSkeleton />;
 
-  const today = notifications.slice(0, 4);
-  const earlier = notifications.slice(4);
+  // Bucket by the notification's ACTUAL date — the old code labelled the
+  // first 4 items "Today" regardless of when they arrived.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const today = [];
+  const earlier = [];
+  notifications.forEach((n) => {
+    const t = n.createdAt?.toDate ? n.createdAt.toDate().getTime() : null;
+    if (t !== null && t >= startOfToday.getTime()) today.push(n);
+    else earlier.push(n);
+  });
 
   function handleOpen(n) {
     if (n.linkType === 'post') router.push(`/post/${n.linkId}`);

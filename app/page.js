@@ -6,7 +6,6 @@ import { ArrowRight, Sparkles, Users, Code2, BriefcaseBusiness, Globe2, ShieldCh
 import Logo, { Wordmark } from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHydration } from '@/lib/useHydration';
-import { auth } from '@/lib/firebase';
 import Intro from '@/components/Intro';
 
 const pillars = [
@@ -23,14 +22,14 @@ export default function LandingPage() {
 
   // A live session must land directly on /home — never on the landing
   // screen or /login. Fires once the auth observer reports the restored
-  // session (or as soon as Firebase has a current user).
+  // session (or as soon as a session is known).
   useEffect(() => {
-    if (hydrated && authReady && (isLoggedIn || auth?.currentUser)) {
+    if (hydrated && authReady && isLoggedIn) {
       router.replace('/home');
     }
   }, [hydrated, authReady, isLoggedIn, router]);
 
-  const go = () => router.push(isLoggedIn || auth?.currentUser ? '/home' : '/login');
+  const go = () => router.push(isLoggedIn ? '/home' : '/login');
 
   return (
     <Intro>

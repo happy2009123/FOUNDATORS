@@ -7,13 +7,12 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
 import ShareModal from '@/components/gestures/ShareModal';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getUserProfile } from '@/lib/firestore';
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res.success ? res.data : null;
   } catch {
     return null;
   }

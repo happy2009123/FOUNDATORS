@@ -8,9 +8,8 @@ import PullToRefresh from '@/components/PullToRefresh';
 import ScrollToTop from '@/components/ScrollToTop';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
-import { auth } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 
 const filters=['All','Co-founder','Programmer','Investor','Mentor','Freelancer'];
 
@@ -42,33 +41,43 @@ export default function DiscoverPage(){
  const scrollRef=useRef(null);
  const [users, setUsers] = useState({});
  const [loading, setLoading] = useState(true);
- const handleRefresh=useCallback(()=>new Promise(r=>setTimeout(r,1200)),[]);
+
+ // Shared fetch so pull-to-refresh reloads the list (the old handler was a
+ // 1200ms timer that refreshed nothing — this effect ran exactly once).
+ const loadUsers = useCallback(async () => {
+   try {
+     const supabase = getSupabase();
+     if (!supabase) return;
+     const { data: authRes } = await supabase.auth.getUser();
+     const userId = authRes?.user?.id;
+     const [usersRes, blockedRes] = await Promise.all([
+       supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(50),
+       userId
+         ? supabase.from('blocks').select('blocked_id').eq('user_id', userId)
+         : Promise.resolve({ data: null }),
+     ]);
+     if (usersRes.error) throw usersRes.error;
+     if (blockedRes?.error) throw blockedRes.error;
+     const blockedIds = new Set((blockedRes?.data || []).map((r) => r.blocked_id));
+     const map = {};
+     mapRows(usersRes.data || [])
+       .filter((u) => !blockedIds.has(u.id) && u.id !== userId && u.status !== 'suspended')
+       .forEach((u) => { map[u.id] = u; });
+     setUsers(map);
+   } catch {
+     // keep the currently rendered list on a failed refresh
+   } finally {
+     setLoading(false);
+   }
+ }, []);
+
+ const handleRefresh = useCallback(async () => {
+   await loadUsers();
+ }, [loadUsers]);
 
  useEffect(() => {
-   let cancelled = false;
-   async function fetchUsers() {
-     try {
-       const userId = auth?.currentUser?.uid;
-       const snap = await getDocs(collection(db, 'users'));
-       let blockedIds = new Set();
-       if (userId) {
-         const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
-         blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
-       }
-       if (!cancelled) {
-         const map = {};
-         snap.docs.filter((d) => !blockedIds.has(d.id)).forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
-         setUsers(map);
-       }
-     } catch {
-       // silently fail
-     } finally {
-       if (!cancelled) setLoading(false);
-     }
-   }
-   fetchUsers();
-   return () => { cancelled = true; };
- }, []);
+   loadUsers();
+ }, [loadUsers]);
 
  const matches = useMemo(() => {
    return Object.values(users)

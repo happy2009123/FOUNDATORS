@@ -8,8 +8,8 @@ import PersonCard from '@/components/PersonCard';
 import DiscussionCard from '@/components/DiscussionCard';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const TITLES = {
@@ -29,9 +29,10 @@ export default function ListPage() {
     let cancelled = false;
     async function fetchUsers() {
       try {
-        const snap = await getDocs(collection(db, 'users'));
+        const { data, error } = await getSupabase().from('profiles').select('*').limit(100);
+        if (error) throw error;
         if (!cancelled) {
-          setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setUsers(mapRows(data || []));
         }
       } catch {
         // silently fail

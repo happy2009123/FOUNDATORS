@@ -7,15 +7,14 @@
 // People tab stays fully real.
 // ─────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Hash, Users, Flame, ArrowRight, X } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import TopBar from '@/components/TopBar';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query as firestoreQuery, orderBy, limit } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
 import { useStore } from '@/lib/store';
-import { auth } from '@/lib/firebase';
 import Avatar from '@/components/Avatar';
 
 const TAG_ICONS = ['🤖', '🚀', '📱', '💰', '🎨', '💻', '🏥', '📚'];
@@ -43,8 +42,9 @@ function extractTags(posts) {
     .slice(0, 12);
 }
 
-export default function ExplorePage() {
+function ExploreInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('trending');
   const [users, setUsers] = useState({});
@@ -53,27 +53,40 @@ export default function ExplorePage() {
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
   const followedUsers = useStore((s) => s.followedUsers);
 
+  // Honour /explore?q=<tag> deep-links (hashtag clicks elsewhere in the
+  // app) — previously the page never read the URL at all, so the chip
+  // navigation silently no-op'd.
+  const urlQ = searchParams.get('q');
+  useEffect(() => {
+    if (urlQ) setSearchQuery(urlQ.replace(/^#/, ''));
+  }, [urlQ]);
+
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       try {
-        const userId = auth?.currentUser?.uid;
-        const [snap, postSnap] = await Promise.all([
-          getDocs(collection(db, 'users')),
-          getDocs(firestoreQuery(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(60))),
+        const supabase = getSupabase();
+        if (!supabase) return;
+        const { data: authRes } = await supabase.auth.getUser();
+        const userId = authRes?.user?.id;
+        const [usersRes, postRes, blockedRes] = await Promise.all([
+          supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(50),
+          supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(60),
+          userId
+            ? supabase.from('blocks').select('blocked_id').eq('user_id', userId)
+            : Promise.resolve({ data: null }),
         ]);
-        let blockedIds = new Set();
-        if (userId) {
-          const blockedSnap = await getDocs(collection(db, 'users', userId, 'blocked'));
-          blockedIds = new Set(blockedSnap.docs.map((d) => d.id));
-        }
+        if (usersRes.error) throw usersRes.error;
+        if (postRes.error) throw postRes.error;
+        if (blockedRes?.error) throw blockedRes.error;
         if (!cancelled) {
+          const blockedIds = new Set((blockedRes?.data || []).map((r) => r.blocked_id));
           const map = {};
-          snap.docs
-            .filter((d) => !blockedIds.has(d.id))
-            .forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+          mapRows(usersRes.data || [])
+            .filter((u) => !blockedIds.has(u.id) && u.id !== userId && u.status !== 'suspended')
+            .forEach((u) => { map[u.id] = u; });
           setUsers(map);
-          setPosts(postSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setPosts(mapRows(postRes.data || []));
         }
       } catch {
         // silently fail
@@ -312,5 +325,13 @@ export default function ExplorePage() {
         )}
       </div>
     </MainScreenShell>
+  );
+}
+
+export default function ExplorePage() {
+  return (
+    <Suspense fallback={null}>
+      <ExploreInner />
+    </Suspense>
   );
 }

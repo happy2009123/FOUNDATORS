@@ -18,9 +18,8 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { sanitize } from '@/lib/security';
-import { db } from '@/lib/firebase';
+import { getUserProfile } from '@/lib/firestore';
 import { initialsAvatar } from '@/lib/avatar';
-import { doc, getDoc } from 'firebase/firestore';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -36,8 +35,8 @@ const GOLD_THEME = { primary: '#D9AC3D', bg: '#1a1300', accent: '#f5d780' };
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res.success ? res.data : null;
   } catch {
     return null;
   }

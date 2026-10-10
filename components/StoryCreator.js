@@ -6,8 +6,8 @@ import { X, Camera, Type, Palette, Sparkles, Send, Image, Check, ChevronLeft } f
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { uploadImage } from '@/lib/firestore';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { mapRow, toRow, ok, fail, randomId, toMillis } from '@/lib/supabase/db';
 import Avatar from '@/components/Avatar';
 
 const BACKGROUNDS = [
@@ -107,19 +107,20 @@ export default function StoryCreator() {
         imageUrl = result.data;
       }
 
-      await addDoc(collection(db, 'stories'), {
-        authorKey: profile.id,
-        authorName: profile.name,
-        authorAvatar: profile.avatar,
-        imageUrl,
-        text: mode === 'text' ? text.trim() : null,
-        bg: mode === 'text' ? bg : null,
-        font: mode === 'text' ? font : null,
-        fontSize: mode === 'text' ? fontSize : null,
-        mode,
-        createdAt: serverTimestamp(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      const payload = toRow({
+        userId: profile.id,
+        mediaUrl: imageUrl,
+        caption: mode === 'text' ? text.trim() : null,
+        mediaType: mode === 'text' ? 'text' : 'image',
+        expiresAt: new Date(Date.now() + 864e5).toISOString(),
       });
+
+      const { error } = await getSupabase().from('stories').insert(payload);
+      if (error) {
+        showToast('Failed to share story: ' + error.message);
+        setIsUploading(false);
+        return;
+      }
 
       notification('success');
       showToast('Story shared!');

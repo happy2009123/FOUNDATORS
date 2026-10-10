@@ -7,8 +7,9 @@ import SubpageHeader from '@/components/SubpageHeader';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import AuthSkeleton from '@/components/AuthSkeleton';
-import { db } from '@/lib/firebase';
-import { collection, query, where, limit, getDocs } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRows } from '@/lib/supabase/db';
+import { getFollowers } from '@/lib/firestore';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -37,22 +38,23 @@ export default function AnalyticsPage() {
     const fetchAnalytics = async () => {
       try {
         // 1. Get user's posts
-        const postsQ = query(collection(db, 'posts'), where('authorKey', '==', profile.id));
-        const postsSnap = await getDocs(postsQ);
-        const userPosts = postsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const { data: postsData } = await getSupabase()
+          .from('posts')
+          .select('*')
+          .eq('author_key', profile.id);
+        const userPosts = mapRows(postsData || []);
 
         const totalLikes = userPosts.reduce((sum, p) => sum + (p.likes || 0), 0);
         const totalComments = userPosts.reduce((sum, p) => sum + (p.commentsCount || 0), 0);
         const totalPosts = userPosts.length;
 
         // 2. Get analytics events for this user
-        const eventsQ = query(
-          collection(db, 'analytics'),
-          where('authorKey', '==', profile.id),
-          limit(100)
-        );
-        const eventsSnap = await getDocs(eventsQ);
-        const events = eventsSnap.docs.map((d) => d.data());
+        const { data: eventsData } = await getSupabase()
+          .from('analytics_events')
+          .select('*')
+          .eq('user_id', profile.id)
+          .limit(100);
+        const events = mapRows(eventsData || []);
 
         // 3. Compute weekly data from events (group by day of week)
         const weeklyMap = {};
@@ -87,8 +89,8 @@ export default function AnalyticsPage() {
         // 6. Build follower count from events or followers subcollection
         let followerCount = 0;
         try {
-          const followersSnap = await getDocs(collection(db, 'users', profile.id, 'followers'));
-          followerCount = followersSnap.size;
+          const followers = await getFollowers(profile.id);
+          if (followers?.success) followerCount = (followers.data || []).length;
         } catch {}
 
         if (cancelled) return;

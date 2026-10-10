@@ -5,19 +5,18 @@
 // Admin profile (same FOUNDATORS profile language), security,
 // session info, working preferences (persisted + applied), and
 // the guarded danger zone. No decorative controls: every toggle
-// persists to users/{uid}/settings/admin and changes behavior
-// on reload; every button performs a real action.
+// persists to user_settings and changes behavior on reload;
+// every button performs a real action.
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
 import {
   Shield, KeyRound, MonitorSmartphone, Save, BadgeCheck, ExternalLink,
   LogOut, Rows3, LayoutGrid, Clock,
 } from 'lucide-react';
-import { auth, db } from '@/lib/firebase';
+import { sendPasswordReset } from '@/lib/supabase/auth';
+import { getSupabase } from '@/lib/supabase/client';
 import { useStore } from '@/lib/store';
 import {
   Card, PageHeader, SectionTitle, Badge, ConfirmDialog, ErrorState,
@@ -25,6 +24,12 @@ import {
 import AdminDangerZone from '@/components/admin/DangerZone';
 
 const DEFAULT_PREFS = { compactTables: false, defaultPeriod: '7D' };
+
+async function sessionUid(profileId) {
+  const supabase = getSupabase();
+  const { data } = supabase ? await supabase.auth.getSession() : {};
+  return data?.session?.user?.id || profileId || null;
+}
 
 export default function AdminSettingsPage() {
   const router = useRouter();
@@ -34,30 +39,55 @@ export default function AdminSettingsPage() {
 
   const [prefs, setPrefs] = useState(null);
   const [prefsErr, setPrefsErr] = useState(null);
+  const [session, setSession] = useState(null);
   const [resetBusy, setResetBusy] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
 
-  const prefsRef = db ? doc(db, 'users', profile?.id || 'x', 'settings', 'admin') : null;
-
   const loadPrefs = useCallback(async () => {
-    if (!prefsRef || !profile?.id) return;
+    const uid = await sessionUid(profile?.id);
+    const supabase = getSupabase();
+    if (!uid || !supabase) return;
     setPrefsErr(null);
     try {
-      const snap = await getDoc(prefsRef);
-      setPrefs(snap.exists() ? { ...DEFAULT_PREFS, ...snap.data() } : { ...DEFAULT_PREFS });
+      const { data, error } = await supabase.from('user_settings').select('settings').eq('user_id', uid).maybeSingle();
+      if (error) throw new Error(error.message);
+      setPrefs({ ...DEFAULT_PREFS, ...(data?.settings || {}) });
     } catch (e) {
       setPrefsErr(e?.message || 'Could not load preferences');
       setPrefs({ ...DEFAULT_PREFS });
     }
-  }, [profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
 
   useEffect(() => { loadPrefs(); }, [loadPrefs]);
+
+  useEffect(() => {
+    let on = true;
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.auth.getSession().then(({ data }) => {
+        if (on) setSession(data?.session || null);
+      });
+    }
+    return () => { on = false; };
+  }, []);
+
+  async function savePrefs(next) {
+    const uid = await sessionUid(profile?.id);
+    if (!uid) throw new Error('Not signed in');
+    const { error } = await getSupabase()
+      .from('user_settings')
+      .upsert(
+        { user_id: uid, settings: next, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      );
+    if (error) throw new Error(error.message);
+  }
 
   async function togglePref(key) {
     const next = { ...(prefs || DEFAULT_PREFS), [key]: !prefs?.[key] };
     setPrefs(next);
     try {
-      await setDoc(prefsRef, next, { merge: true });
+      await savePrefs(next);
       showToast('Preference saved');
     } catch (e) {
       showToast(`Save failed: ${e?.message || 'permission denied'}`);
@@ -69,7 +99,7 @@ export default function AdminSettingsPage() {
     const next = { ...(prefs || DEFAULT_PREFS), defaultPeriod: value };
     setPrefs(next);
     try {
-      await setDoc(prefsRef, next, { merge: true });
+      await savePrefs(next);
       showToast('Default dashboard period saved');
     } catch (e) {
       showToast(`Save failed: ${e?.message || 'permission denied'}`);
@@ -78,20 +108,22 @@ export default function AdminSettingsPage() {
   }
 
   async function sendReset() {
-    const email = auth?.currentUser?.email;
+    const email = session?.user?.email;
     if (!email) { showToast('No email on this account'); return; }
     setResetBusy(true);
     try {
-      await sendPasswordResetEmail(auth, email);
-      showToast(`Reset link sent to ${email}`);
+      const { error } = await sendPasswordReset(email);
+      if (error) showToast(`Failed: ${error || 'try again later'}`);
+      else showToast(`Reset link sent to ${email}`);
     } catch (e) {
       showToast(`Failed: ${e?.message || 'try again later'}`);
     }
     setResetBusy(false);
   }
 
-  const meta = auth?.currentUser?.metadata;
-  const provider = auth?.currentUser?.providerData?.[0]?.providerId || 'password';
+  const provider = session?.user?.app_metadata?.provider || 'email';
+  const createdAt = session?.user?.created_at;
+  const lastSignInAt = session?.user?.last_sign_in_at;
 
   return (
     <div className="animate-screen-in">
@@ -151,7 +183,7 @@ export default function AdminSettingsPage() {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-bold">Password reset</div>
-                <div className="text-[11.5px] text-text3">Emails a secure reset link to {auth?.currentUser?.email || 'your account email'}</div>
+                <div className="text-[11.5px] text-text3">Emails a secure reset link to {session?.user?.email || 'your account email'}</div>
               </div>
               <button
                 onClick={sendReset}
@@ -168,7 +200,7 @@ export default function AdminSettingsPage() {
               <div>
                 <div className="text-[13px] font-bold">Server-side authorization</div>
                 <div className="text-[11.5px] leading-relaxed text-text3">
-                  Admin powers are enforced by Firestore rules via the <code className="text-gold-hi">admins/&#123;uid&#125;</code> allowlist — not by the frontend. Sensitive credentials are never displayed here.
+                  Admin powers are enforced by Postgres row-level security via the <code className="text-gold-hi">admins</code> table and the <code className="text-gold-hi">is_admin()</code> function — not by the frontend. Sensitive credentials are never displayed here.
                 </div>
               </div>
             </div>
@@ -179,10 +211,10 @@ export default function AdminSettingsPage() {
         <Card className="p-5">
           <SectionTitle title="Session" />
           <div className="space-y-2.5">
-            <InfoRow icon={MonitorSmartphone} label="Signed in as" value={auth?.currentUser?.email || '—'} />
-            <InfoRow icon={Shield} label="Provider" value={provider === 'google.com' ? 'Google' : 'Email & password'} />
-            <InfoRow icon={Clock} label="First sign-in" value={meta?.creationTime ? new Date(meta.creationTime).toLocaleString() : '—'} />
-            <InfoRow icon={Clock} label="Last sign-in" value={meta?.lastSignInTime ? new Date(meta.lastSignInTime).toLocaleString() : '—'} />
+            <InfoRow icon={MonitorSmartphone} label="Signed in as" value={session?.user?.email || '—'} />
+            <InfoRow icon={Shield} label="Provider" value={provider === 'google' ? 'Google' : 'Email & password'} />
+            <InfoRow icon={Clock} label="First sign-in" value={createdAt ? new Date(createdAt).toLocaleString() : '—'} />
+            <InfoRow icon={Clock} label="Last sign-in" value={lastSignInAt ? new Date(lastSignInAt).toLocaleString() : '—'} />
           </div>
           <p className="mt-4 border-t border-white/5 pt-3 text-[11px] leading-relaxed text-text3">
             Sign out ends this session on this device. To revoke every device, change the password — sessions using the old credential are invalidated on next token refresh.

@@ -9,7 +9,6 @@ import { useHaptics } from '@/lib/useHaptics';
 import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { useHydration } from '@/lib/useHydration';
-import { auth } from '@/lib/firebase';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,11 +20,11 @@ export default function LoginPage() {
   const authReady = useStore((s) => s.authReady);
 
   // A live session must never land on the login screen: if the user is
-  // already signed in (Firebase session restored on reload, or a login
+  // already signed in (session restored on reload, or a login
   // that just completed), skip straight to home.
   useEffect(() => {
     if (!hydrated || !authReady) return;
-    if (isLoggedIn || auth?.currentUser) router.replace('/home');
+    if (isLoggedIn) router.replace('/home');
   }, [hydrated, authReady, isLoggedIn, router]);
 
   const [email, setEmail] = useState('');
@@ -47,7 +46,8 @@ export default function LoginPage() {
     try {
       await signInWithEmail(email, password);
       notification('success');
-      router.push('/home');
+      // replace: back-swipe must not land on the login form again
+      router.replace('/home');
     } catch (err) {
       const msg = err.message?.includes('not found') ? 'No account found with this email' :
                   err.message?.includes('password') ? 'Incorrect password' :
@@ -66,7 +66,8 @@ export default function LoginPage() {
       notification('success');
       router.push('/home');
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
+      const cancelled = String(err?.message || '').toLowerCase().includes('closed') || String(err?.code || '').includes('popup');
+      if (!cancelled) {
         showToast('Google sign-in failed');
       }
     } finally {

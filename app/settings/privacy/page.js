@@ -7,8 +7,7 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
-import { db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { getSupabase } from '@/lib/supabase/client';
 
 export default function PrivacySettingsPage() {
   const ready = useRequireAuth();
@@ -36,13 +35,17 @@ export default function PrivacySettingsPage() {
 
   useEffect(() => {
     if (!profile?.id) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
     const loadPrefs = async () => {
       try {
-        const snap = await getDoc(doc(db, 'users', profile.id, 'settings', 'privacy'));
-        if (snap.exists()) {
-          const data = snap.data();
-          setPrefs((prev) => ({ ...prev, ...data }));
-        }
+        const { data } = await supabase
+          .from('user_settings')
+          .select('settings')
+          .eq('user_id', profile.id)
+          .maybeSingle();
+        const stored = data?.settings?.privacy;
+        if (stored) setPrefs((prev) => ({ ...prev, ...stored }));
       } catch (err) {
         console.error('Failed to load privacy settings:', err);
       }
@@ -85,13 +88,25 @@ export default function PrivacySettingsPage() {
   );
 
   const handleSave = async () => {
-    if (!profile?.id) return;
+    const supabase = getSupabase();
+    if (!profile?.id || !supabase) return;
     setSaving(true);
     try {
-      await setDoc(doc(db, 'users', profile.id, 'settings', 'privacy'), {
-        ...prefs,
-        updatedAt: serverTimestamp(),
-      });
+      // Read-modify-write the settings jsonb so other keys (notifications,
+      // voiceReminders, …) stored on the same row are never wiped.
+      const { data: existing } = await supabase
+        .from('user_settings')
+        .select('settings')
+        .eq('user_id', profile.id)
+        .maybeSingle();
+      const merged = { ...((existing && existing.settings) || {}), privacy: prefs };
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert(
+          { user_id: profile.id, settings: merged, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+      if (error) throw error;
       updateSettings({ privacy: prefs });
       showToast('Privacy settings saved!');
     } catch (err) {

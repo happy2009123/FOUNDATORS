@@ -10,7 +10,7 @@ import { useFirebaseAuth } from '@/lib/useFirebaseAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { useHydration } from '@/lib/useHydration';
 import { rememberReferralFromUrl } from '@/lib/referrals';
-import { auth } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -29,7 +29,7 @@ export default function SignupPage() {
   // Already signed in? Never show the signup form — go straight home.
   useEffect(() => {
     if (!hydrated || !authReady) return;
-    if (isLoggedIn || auth?.currentUser) router.replace('/home');
+    if (isLoggedIn) router.replace('/home');
   }, [hydrated, authReady, isLoggedIn, router]);
 
   const [name, setName] = useState('');
@@ -41,17 +41,21 @@ export default function SignupPage() {
   // Fire-and-forget branded welcome email via Resend (server route /api/email).
   // Never blocks or fails the signup itself.
   function sendWelcomeEmail() {
-    const user = auth.currentUser;
-    if (!user) return;
-    user
-      .getIdToken()
-      .then((idToken) =>
-        fetch('/api/email', {
+    const supabase = getSupabase();
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        const token = data?.session?.access_token;
+        if (!token) return;
+        return fetch('/api/email', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken, type: 'welcome' }),
-        })
-      )
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ type: 'welcome' }),
+        });
+      })
       .catch(() => {});
   }
 
@@ -75,11 +79,18 @@ export default function SignupPage() {
     }
     setLoading(true);
     try {
-      await signUpWithEmail(email, password, name.trim());
+      const { needsConfirm } = await signUpWithEmail(email, password, name.trim());
       notification('success');
-      showToast(`Welcome to Foundators, ${name.trim().split(' ')[0]}!`);
       sendWelcomeEmail();
-      router.push('/home');
+      if (needsConfirm) {
+        // No session exists yet (email confirmation is on) — pushing /home
+        // would immediately bounce to /login and feel like a broken loop.
+        showToast(`Welcome, ${name.trim().split(' ')[0]}! Confirm your email to log in.`);
+        router.replace('/login');
+      } else {
+        showToast(`Welcome to Foundators, ${name.trim().split(' ')[0]}!`);
+        router.replace('/home');
+      }
     } catch (err) {
       const msg = err.message?.includes('already') ? 'An account with this email already exists' :
                   err.message?.includes('invalid') ? 'Invalid email address' :
@@ -100,7 +111,8 @@ export default function SignupPage() {
       sendWelcomeEmail();
       router.push('/home');
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
+      const cancelled = String(err?.message || '').toLowerCase().includes('closed') || String(err?.code || '').includes('popup');
+      if (!cancelled) {
         showToast('Google sign-up failed');
       }
     } finally {

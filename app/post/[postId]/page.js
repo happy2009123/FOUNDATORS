@@ -9,15 +9,16 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import Avatar from '@/components/Avatar';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { subscribeToComments } from '@/lib/firestore';
+import { getSupabase } from '@/lib/supabase/client';
+import { mapRow, toMillis } from '@/lib/supabase/db';
+import { getUserProfile, subscribeToComments } from '@/lib/firestore';
+import { formatPostTime } from '@/lib/timeago';
 import { initialsAvatar } from '@/lib/avatar';
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const res = await getUserProfile(key);
+    return res?.success ? res.data : null;
   } catch {
     return null;
   }
@@ -54,18 +55,35 @@ export default function PostCommentsPage() {
   const [postLoading, setPostLoading] = useState(!post);
   const [author, setAuthor] = useState(null);
 
+  // Real relative time from createdAt (falls back to the static meta while
+  // the serverTimestamp is still null) — same logic as PostCard.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const liveTime = formatPostTime(post?.createdAt);
+  const metaBase = String(post?.meta || '').replace(/\s*·\s*Just now$/, '');
+  const postTimeLabel = liveTime
+    ? (metaBase ? `${metaBase} · ${liveTime}` : liveTime)
+    : (post?.meta || '');
+
   // If the post isn't in the feed store (e.g. opened from another user's profile),
-  // fetch it directly from Firestore by id.
+  // fetch it directly from Supabase by id.
   useEffect(() => {
     if (!postId) return;
     if (!posts.find((p) => p.id === postId)) {
       let cancelled = false;
-      getDoc(doc(db, 'posts', postId))
-        .then((snap) => {
+      getSupabase()
+        .from('posts')
+        .select('*')
+        .eq('id', postId)
+        .maybeSingle()
+        .then(({ data }) => {
           if (cancelled) return;
           setPostLoading(false);
-          if (!snap.exists()) return;
-          setDirectPost({ id: snap.id, ...snap.data() });
+          if (!data) return;
+          setDirectPost(mapRow(data));
         })
         .catch(() => { if (!cancelled) setPostLoading(false); });
       return () => { cancelled = true; };
@@ -82,13 +100,13 @@ export default function PostCommentsPage() {
 
   useEffect(() => { if (sortBy) sortComments(postId, sortBy); }, [sortBy, postId, comments.length]);
 
-  // Load comments from Firebase (real-time)
+  // Load comments from Supabase (real-time)
   useEffect(() => {
     if (!postId) return;
     const unsub = subscribeToComments(postId, (firestoreComments) => {
       const me = useStore.getState().profile?.id;
       const fmt = (c) => {
-        const secs = c.createdAt?._seconds;
+        const secs = Math.floor(toMillis(c.createdAt) / 1000);
         if (!secs) return 'now';
         const diff = Math.floor(Date.now() / 1000) - secs;
         if (diff < 60) return `${diff}s`;
@@ -291,7 +309,7 @@ export default function PostCommentsPage() {
             <Avatar src={authorData.avatar} name={authorData.name} size={36} />
             <div>
               <div className="text-sm font-bold">{authorData.name}</div>
-              <div className="text-[11px] text-text2">{post.meta}</div>
+              <div className="text-[11px] text-text2">{postTimeLabel}</div>
             </div>
           </div>
           <div className="text-sm">{post.text}</div>

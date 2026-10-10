@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import StoryViewer from './StoryViewer';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { mapRows } from '@/lib/supabase/db';
 import { initialsAvatar } from '@/lib/avatar';
 
 export default function StoriesBar() {
@@ -18,33 +19,46 @@ export default function StoriesBar() {
   const [viewingStory, setViewingStory] = useState(null);
 
   useEffect(() => {
-    const now = new Date();
-    const q = query(
-      collection(db, 'stories'),
-      where('expiresAt', '>', now),
-      orderBy('expiresAt', 'asc'),
-      limit(20)
-    );
-    setLoading(true);
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const fetched = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setStories(fetched);
+    if (!isSupabaseConfigured()) {
+      setStories([]);
+      setLoading(false);
+      return;
+    }
+
+    const key = 'stories:bar';
+
+    const unsub = subscribeQuery({
+      key,
+      table: 'stories',
+      filter: `expires_at=gt.${new Date().toISOString()}`,
+      queryFn: async () => {
+        const { data, error } = await getSupabase()
+          .from('stories')
+          .select('*, profiles(name, avatar)', { count: 'exact' })
+          .gt('expires_at', new Date().toISOString())
+          .order('expires_at', { ascending: true })
+          .limit(20);
+        if (error) throw error;
+        return mapRows(data);
+      },
+      onData: (rows) => {
+        setStories(rows);
         setLoading(false);
       },
-      (err) => {
+      onError: (err) => {
         console.warn('Stories listener error:', err);
         setStories([]);
         setLoading(false);
-      }
-    );
-    return () => unsub();
+      },
+    });
+
+    return unsub;
   }, []);
 
   const groupedStories = stories.reduce((acc, story) => {
-    if (!acc[story.authorKey]) acc[story.authorKey] = [];
-    acc[story.authorKey].push(story);
+    const authorKey = story.user_id || story.id;
+    if (!acc[authorKey]) acc[authorKey] = [];
+    acc[authorKey].push(story);
     return acc;
   }, {});
 
@@ -53,9 +67,14 @@ export default function StoriesBar() {
     const first = authorStories[0];
     return {
       authorKey,
-      authorName: first?.authorName || 'User',
-      authorAvatar: first?.authorAvatar || initialsAvatar(first?.authorName || 'User'),
-      stories: authorStories.sort((a, b) => (a.createdAt?._seconds || 0) - (b.createdAt?._seconds || 0)),
+      authorName: first?.profiles?.name || 'User',
+      authorAvatar:
+        first?.profiles?.avatar || initialsAvatar(first?.profiles?.name || 'User'),
+      stories: authorStories.sort((a, b) => {
+        const aCreated = a.created_at?.toMillis ? a.created_at.toMillis() : 0;
+        const bCreated = b.created_at?.toMillis ? b.created_at.toMillis() : 0;
+        return aCreated - bCreated;
+      }),
     };
   });
 

@@ -21,14 +21,19 @@ import { useStore } from '@/lib/store';
 import MainScreenShell from '@/components/MainScreenShell';
 import ReelComments from '@/components/ReelComments';
 import { useHaptics } from '@/lib/useHaptics';
-import { db } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { mapRow, mapRows } from '@/lib/supabase/db';
 import { initialsAvatar } from '@/lib/avatar';
-import { doc, getDoc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 async function fetchUser(key) {
   try {
-    const snap = await getDoc(doc(db, 'users', key));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    const { data } = await getSupabase()
+      .from('profiles')
+      .select('*')
+      .eq('id', key)
+      .maybeSingle();
+    return data ? mapRow(data) : null;
   } catch {
     return null;
   }
@@ -66,35 +71,46 @@ export default function ReelsContent() {
 
   useEffect(() => {
     setLoading(true);
-    const q = query(collection(db, 'reels'), orderBy('createdAt', 'desc'), limit(20));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const fetched = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            authorKey: data.authorKey || '',
-            text: data.text || '',
-            details: data.text || '',
-            videoUrl: data.videoUrl || null,
-            type: data.effect || 'update',
-            audio: data.sound || 'Original Audio',
-            likes: data.likes || 0,
-            comments: data.comments || 0,
-            shares: data.shares || 0,
-            gradient: 'from-purple-900 to-blue-900',
-          };
-        });
+    if (!getSupabase()) {
+      setReels([]);
+      setLoading(false);
+      return undefined;
+    }
+    const unsub = subscribeQuery({
+      key: 'reels:feed',
+      table: 'reels',
+      queryFn: async () => {
+        const { data, error } = await getSupabase()
+          .from('reels')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (error) throw error;
+        return mapRows(data || []);
+      },
+      onData: (rows) => {
+        const fetched = rows.map((data) => ({
+          id: data.id,
+          authorKey: data.userId || '',
+          text: data.caption || '',
+          details: data.caption || '',
+          videoUrl: data.videoUrl || null,
+          type: data.effect || 'update',
+          audio: data.audioName || 'Original Audio',
+          likes: data.likes || 0,
+          comments: data.commentsCount || 0,
+          shares: data.shares || 0,
+          gradient: 'from-purple-900 to-blue-900',
+        }));
         setReels(fetched);
         setLoading(false);
       },
-      (err) => {
+      onError: (err) => {
         console.warn('Reels listener error:', err);
         setReels([]);
         setLoading(false);
-      }
-    );
+      },
+    });
     return () => unsub();
   }, []);
 

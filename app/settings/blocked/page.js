@@ -15,6 +15,7 @@ export default function BlockedMutedPage() {
   const { vibrate } = useHaptics();
   const showToast = useStore((s) => s.showToast);
   const blockedUsers = useStore((s) => s.blockedUsers);
+  const unblockUser = useStore((s) => s.unblockUser);
   const [tab, setTab] = useState('blocked');
   const [search, setSearch] = useState('');
 
@@ -76,7 +77,10 @@ export default function BlockedMutedPage() {
             <button
               onClick={() => {
                 vibrate('light');
-                showToast(tab === 'blocked' ? `Unblocked ${key}` : `Unmuted ${key}`);
+                // Actually unblock (state + Firestore doc) — previously this
+                // button only showed a toast and never removed the block.
+                unblockUser(key);
+                showToast(`Unblocked ${key}`);
               }}
               className="rounded-full border border-linesoft px-4 py-2 text-[11px] font-bold text-text2"
             >

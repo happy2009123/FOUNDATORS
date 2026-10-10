@@ -4,39 +4,36 @@
 // ADMIN → GROWTH — one honest scoreboard for the growth engine:
 // platform totals plus the loops this build wired up (referral
 // invites issued/activated, pending collaboration requests,
-// Founding 100 seats used). Server-side counts via
-// getCountFromServer — no collection is ever fully downloaded.
+// Founding 100 seats used). Server-side counts via Postgres
+// aggregates — no table is ever fully downloaded. Loops whose
+// rows are hidden from admins by row-level security are shown
+// as unavailable instead of as invented platform numbers.
 // ─────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  getCountFromServer,
-  collection,
-  collectionGroup,
-  query,
-  where,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
 import {
   Users, FolderKanban, FileText, CalendarDays, Target, Lightbulb,
-  TrendingUp, UserPlus, Handshake, Award, Loader2, ArrowRight,
+  TrendingUp, UserPlus, Handshake, Award, Loader2,
 } from 'lucide-react';
 import { Card, PageHeader } from '@/components/admin/ui';
 
 const COUNTS = [
-  { key: 'users', label: 'Founders', col: 'users', icon: Users, href: '/admin/users' },
-  { key: 'projects', label: 'Projects', col: 'projects', icon: FolderKanban, href: '/admin/projects' },
-  { key: 'posts', label: 'Posts', col: 'posts', icon: FileText, href: '/admin/posts' },
-  { key: 'events', label: 'Events', col: 'events', icon: CalendarDays, href: '/admin/analytics' },
-  { key: 'challenges', label: 'Challenges', col: 'challenges', icon: Target, href: '/admin/analytics' },
-  { key: 'ideas', label: 'Ideas', col: 'ideas', icon: Lightbulb, href: '/admin/analytics' },
+  { key: 'users', label: 'Founders', table: 'profiles', icon: Users, href: '/admin/users' },
+  { key: 'projects', label: 'Projects', table: 'projects', icon: FolderKanban, href: '/admin/projects' },
+  { key: 'posts', label: 'Posts', table: 'posts', icon: FileText, href: '/admin/posts' },
+  { key: 'events', label: 'Events', table: 'events', icon: CalendarDays, href: '/admin/analytics' },
+  { key: 'challenges', label: 'Challenges', table: 'challenges', icon: Target, href: '/admin/analytics' },
+  { key: 'ideas', label: 'Ideas', table: 'ideas', icon: Lightbulb, href: '/admin/analytics' },
 ];
 
-function countOf(refOrQuery) {
-  return getCountFromServer(refOrQuery)
-    .then((s) => s.data().count)
-    .catch(() => 0);
+async function countOf(table) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase not configured');
+  const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
+  if (error) throw new Error(error.message);
+  return count || 0;
 }
 
 export default function AdminGrowthPage() {
@@ -47,25 +44,14 @@ export default function AdminGrowthPage() {
     let on = true;
     (async () => {
       try {
-        const base = await Promise.all(COUNTS.map((c) => countOf(collection(db, c.col))));
-        const [invitesTotal, invitesActivated, pendingCollab, founding] = await Promise.all([
-          countOf(collectionGroup(db, 'invites')),
-          countOf(query(collectionGroup(db, 'invites'), where('activated', '==', true))),
-          countOf(query(collectionGroup(db, 'collabRequests'), where('status', '==', 'pending'))),
-          countOf(collection(db, 'foundingMembers')),
-        ]);
-        if (on) setStats({ base, invitesTotal, invitesActivated, pendingCollab, founding });
+        const base = await Promise.all(COUNTS.map((c) => countOf(c.table)));
+        if (on) setStats({ base });
       } catch (e) {
-        if (on) setStats({ failed: true });
+        if (on) setStats({ failed: true, error: e?.message });
       }
     })();
     return () => { on = false; };
   }, []);
-
-  const conversion =
-    stats && stats.invitesTotal > 0
-      ? Math.round((stats.invitesActivated / stats.invitesTotal) * 100)
-      : null;
 
   return (
     <div>
@@ -81,7 +67,7 @@ export default function AdminGrowthPage() {
       ) : stats.failed ? (
         <Card>
           <p className="text-[13px] text-text2">
-            Could not load counts — check the Firestore rules are published and try again.
+            Could not load counts — check that Supabase is configured and the migration has run, then try again.
           </p>
         </Card>
       ) : (
@@ -112,24 +98,20 @@ export default function AdminGrowthPage() {
               <LoopCard
                 icon={UserPlus}
                 title="Referral invites"
-                value={`${stats.invitesTotal} issued · ${stats.invitesActivated} activated`}
-                hint={
-                  conversion !== null
-                    ? `${conversion}% activated — activated founders post or build (+3 Builder Score each).`
-                    : 'Nobody has used an invite link yet.'
-                }
+                value="Not available client-side"
+                hint="referral_invites rows are visible only to their own participants under row-level security — platform-wide issued/activated totals must be read from the Supabase dashboard."
               />
               <LoopCard
                 icon={Handshake}
                 title="Collaboration requests"
-                value={`${stats.pendingCollab} pending`}
-                hint="Requests waiting on a recipient from Match — accept opens a chat."
+                value="Not available client-side"
+                hint="collab_requests rows are visible only to their own participants under row-level security — the platform pending total must be read from the Supabase dashboard."
               />
               <LoopCard
                 icon={Award}
                 title="Founding 100"
-                value={`${stats.founding} of 100 claimed`}
-                hint="Admin-granted permanent numbers (grant or revoke in Founding 100)."
+                value="Not in this schema"
+                hint="The Supabase schema ships no founding members table yet, so seats claimed cannot be counted or granted here."
               />
               <LoopCard
                 icon={FolderKanban}

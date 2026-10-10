@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Camera, X, Plus, Loader2, Check, Copy, Globe } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { auth } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
 import { uploadToCloudinary } from '@/lib/cloudinary';
 import { updateUserProfile } from '@/lib/firestore';
 import Avatar from '@/components/Avatar';
@@ -22,7 +22,20 @@ export default function EditProfilePage() {
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
 
-  const uid = auth?.currentUser?.uid || profile?.id;
+  const [authUid, setAuthUid] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSupabase()
+      ?.auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setAuthUid(data?.user?.id || null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const uid = authUid || profile?.id;
 
   const [name, setName] = useState(profile.name || '');
   const [handle, setHandle] = useState(profile.handle || '');

@@ -3,15 +3,14 @@
 // ─────────────────────────────────────────────────────────────
 // ADMIN → DASHBOARD
 // Platform health first: real counts, real growth curve, real
-// activity stream. Every number comes from Firestore aggregates
-// or documents — nothing is hardcoded. Missing data renders an
+// activity stream. Every number comes from Postgres aggregates
+// or rows — nothing is hardcoded. Missing data renders an
 // honest empty state, never an invented statistic.
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { getSupabase } from '@/lib/supabase/client';
 import {
   Users, FileText, ShieldAlert, Activity, UserPlus, MessageSquare,
   Flag, ArrowRight, Crown, Radio, TrendingUp,
@@ -72,7 +71,10 @@ export default function AdminDashboard() {
   }, []);
   const loadReports = useCallback(() => {
     fetchReports(100).then((r) => {
-      if (r.ok) setPending(r.data.filter((x) => (x.status || 'pending') === 'pending').slice(0, 4));
+      if (r.ok) {
+        // Schema default is 'open'; legacy rows used 'pending'.
+        setPending(r.data.filter((x) => ['open', 'pending'].includes(x.status || 'pending')).slice(0, 4));
+      }
     });
   }, []);
   const loadUsers = useCallback(() => {
@@ -94,10 +96,14 @@ export default function AdminDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        if (!db || !auth?.currentUser?.uid || cancelled) return;
-        const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'settings', 'admin'));
-        const p = snap.exists() ? snap.data().defaultPeriod : null;
-        if (p && ['7D', '30D', '90D', '1Y'].includes(p)) setPeriod(p);
+        const supabase = getSupabase();
+        if (!supabase || cancelled) return;
+        const { data: authData } = await supabase.auth.getSession();
+        const uid = authData?.session?.user?.id;
+        if (!uid || cancelled) return;
+        const { data } = await supabase.from('user_settings').select('settings').eq('user_id', uid).maybeSingle();
+        const p = data?.settings?.defaultPeriod;
+        if (!cancelled && p && ['7D', '30D', '90D', '1Y'].includes(p)) setPeriod(p);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -211,7 +217,7 @@ export default function AdminDashboard() {
             </div>
           )}
           <p className="mt-4 border-t border-white/5 pt-3 text-[11px] leading-relaxed text-text3">
-            Counted live from Firestore — “active” means a heartbeat (last seen) inside the selected window.
+            Counted live from Postgres — “active” means a heartbeat (last seen) inside the selected window.
           </p>
         </Card>
       </div>
