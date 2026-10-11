@@ -1028,8 +1028,78 @@ export default function VoiceRoomPage() {
     </div>
   );
 
+  const micSection = (
+    <div className="mx-3.5 mb-2 rounded-2xl border border-line bg-card px-3.5 py-3">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-text3">
+        <Mic size={11} className="text-gold" /> Microphone
+        <span className="h-px flex-1 bg-linesoft" />
+      </div>
+      <div className="flex items-center gap-3">
+        <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+            !mySpeaker
+              ? 'bg-white/5 text-text3'
+              : audioState.mic === 'on' && !muted
+              ? 'bg-gold-grad text-[#171100] shadow-[0_0_18px_-6px_rgba(217,172,61,0.9)]'
+              : audioState.mic === 'on' && muted
+              ? 'bg-brandred/20 text-brandred ring-2 ring-brandred/50'
+              : 'border border-gold/40 bg-gold/10 text-gold-hi'
+          }`}
+        >
+          {mySpeaker && audioState.mic === 'on' && muted ? <MicOff size={18} /> : <Mic size={18} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-extrabold text-text1">
+            {!mySpeaker
+              ? 'Listening only'
+              : audioState.mic === 'on' && !muted
+              ? 'Mic is on'
+              : audioState.mic === 'on' && muted
+              ? 'Mic is muted'
+              : audioState.mic === 'denied'
+              ? 'Mic blocked'
+              : audioState.mic === 'insecure'
+              ? 'Needs https://'
+              : audioState.mic === 'unavailable'
+              ? 'No mic found'
+              : 'Mic is off'}
+          </div>
+          <div className="truncate text-[10.5px] text-text3">
+            {!mySpeaker
+              ? 'Raise your hand to request the mic'
+              : audioState.mic === 'on' && !muted
+              ? 'Others can hear you right now'
+              : audioState.mic === 'on' && muted
+              ? 'Tap unmute to speak again'
+              : mySpeaker
+              ? 'Tap the switch to turn your mic on'
+              : ''}
+          </div>
+        </div>
+        {mySpeaker ? (
+          <button
+            onClick={onMicPress}
+            role="switch"
+            aria-checked={audioState.mic === 'on' && !muted}
+            aria-label={audioState.mic === 'on' && !muted ? 'Turn microphone off' : 'Turn microphone on'}
+            className={`relative h-8 w-14 shrink-0 rounded-full transition-colors active:scale-95 ${
+              audioState.mic === 'on' && !muted ? 'bg-gold-grad' : 'bg-white/10'
+            }`}
+          >
+            <span
+              className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${
+                audioState.mic === 'on' && !muted ? 'left-7' : 'left-1'
+              }`}
+            />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
   const bottomBars = (
     <div className="border-t border-linesoft bg-[#0a0a0a] px-3 pb-3 pt-2.5">
+      {joined && !kicked && !joinError ? micSection : null}
       <div className="mb-2 flex gap-2">
         <button
           onClick={() => {
