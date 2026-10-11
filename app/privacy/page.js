@@ -3,127 +3,139 @@
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Shield, Lock, Eye, Database, Share2, Mail, Calendar } from 'lucide-react';
 
-const LAST_UPDATED = 'September 1, 2026';
+const LAST_UPDATED = 'October 12, 2026';
 
 const sections = [
   {
     icon: Shield,
-    title: '1. Introduction',
-    content: `Foundators ("we", "our", "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our social networking platform, including our website, mobile applications, and any related services (collectively, the "Service"). By using Foundators, you agree to the collection and use of information in accordance with this policy. If you do not agree with the terms of this Privacy Policy, please do not access the Service.`,
+    title: '1. Introduction & Legal Framework',
+    content: `This Privacy Policy is issued by Foundators ("we", "our", "us", the "Data Fiduciary") in accordance with the Digital Personal Data Protection Act, 2023 (India) and applies to all personal data we process about you (the "Data Principal"). It explains what personal data we collect, why we collect it, how we protect it, and the rights you have over it. By creating an account (where you give consent at signup) or by using our platform, you agree to the collection and use of information as described here. If you do not agree, please do not use the Service.`,
+  },
+  {
+    icon: Mail,
+    title: '2. Data Fiduciary & Grievance Officer',
+    content: 'The Data Fiduciary responsible for your personal data is:',
+    contact: {
+      email: 'happykirtania@gmail.com',
+      entity: 'Happy Kirtania, Founder — Foundators (Grievance Officer under the DPDP Act)',
+    },
+    extra: 'You may raise any question, complaint, or grievance about the processing of your personal data at the address above. We acknowledge every grievance within 72 hours and work to resolve it within 30 days. You also have the right to file a complaint with the Data Protection Board of India.',
   },
   {
     icon: Eye,
-    title: '2. Information We Collect',
+    title: '3. Personal Data We Collect',
     subsections: [
       {
-        subtitle: '2.1 Account Information',
-        text: 'When you create an account, we collect information you voluntarily provide, including your full name, email address, username, password, profile photograph, bio, professional role, company name, location, and any other details you choose to include in your profile.',
+        subtitle: '3.1 Data you provide',
+        text: 'Name, email address, password (stored only as a salted hash), profile photo, username/handle, bio, professional role, company, location, skills, and anything else you choose to add to your profile.',
       },
       {
-        subtitle: '2.2 User Content',
-        text: 'We collect content you create, upload, or share on the Service, including posts, comments, messages, ideas, business plans, pitch decks, files, images, and any other materials you submit or make available to other users.',
+        subtitle: '3.2 Content you create',
+        text: 'Posts, comments, messages, ideas, projects, event details, voice-room participation, reactions, and any files or images you upload.',
       },
       {
-        subtitle: '2.3 Usage Data',
-        text: 'We automatically collect information about how you interact with the Service, including pages viewed, features used, search queries, posts liked or saved, connections made, messages sent, time and duration of activities, referring URLs, and navigation patterns.',
+        subtitle: '3.3 Data collected automatically',
+        text: 'Pages viewed, features used, search queries, likes and saves, connections made, messages sent, timestamps of activity, device type, browser, operating system, IP address, and language preferences.',
       },
       {
-        subtitle: '2.4 Device and Technical Information',
-        text: 'We collect information about the device and network you use to access the Service, including device type, operating system, browser type and version, screen resolution, unique device identifiers, IP address, mobile network information, and language preferences.',
+        subtitle: '3.4 Data from sign-in providers',
+        text: 'If you sign up with Google, we receive your name, email address, and profile photo from Google according to your Google account settings.',
       },
     ],
   },
   {
     icon: Database,
-    title: '3. How We Use Your Information',
-    content: 'We use the information we collect for the following purposes:',
+    title: '4. Why We Process Your Data (Purpose & Legal Basis)',
+    content: 'We process your personal data only for the following purposes, on the basis of the consent you give at signup and of "legitimate uses" recognised by the DPDP Act:',
     items: [
-      'To provide, maintain, and improve the Service and its features.',
-      'To personalize your experience by delivering relevant content, connections, and recommendations.',
-      'To communicate with you, including sending service-related notices, updates, security alerts, and promotional messages (which you may opt out of at any time).',
-      'To analyze usage trends and develop new products, features, and services.',
-      'To detect, prevent, and address technical issues, fraud, unauthorized access, and other malicious activity.',
-      'To enforce our Terms of Service and comply with applicable laws, regulations, and legal processes.',
-      'To facilitate connections, matches, and interactions between users based on shared interests and goals.',
-    ],
-  },
-  {
-    icon: Share2,
-    title: '4. Information Sharing and Disclosure',
-    subsections: [
-      {
-        subtitle: '4.1 With Other Users',
-        text: 'Your profile information, including your name, photograph, bio, and professional details, is visible to other users of the Service. Content you share publicly (such as posts in community spaces) is accessible to all users. Messages are visible only to the participants of the conversation.',
-      },
-      {
-        subtitle: '4.2 With Service Providers',
-        text: 'We may share your information with trusted third-party service providers who assist us in operating the Service, such as cloud hosting providers, analytics services, payment processors, and communication platforms. These providers are contractually obligated to protect your information and may not use it for purposes other than those we specify.',
-      },
-      {
-        subtitle: '4.3 For Legal Requirements',
-        text: 'We may disclose your information if required to do so by law, or in good faith belief that such action is necessary to comply with a legal obligation, protect and defend our rights or property, prevent fraud, or protect the personal safety of users or the public.',
-      },
-      {
-        subtitle: '4.4 Business Transfers',
-        text: 'In the event of a merger, acquisition, reorganization, bankruptcy, or sale of assets, your information may be transferred as part of that transaction. We will notify you of any such change and any choices you may have regarding your information.',
-      },
+      'To create and maintain your account and provide the Service (profiles, posts, messages, voice rooms, events, projects).',
+      'To personalise your experience — matching, recommendations, and founder discovery based on the skills and goals you share.',
+      'To send you service-related notices: security alerts, message and collaboration notifications, and updates about rooms you joined.',
+      'To keep the platform safe: detect spam, fraud, and misuse, and enforce our Terms.',
+      'To understand aggregate usage trends so we can improve the product (analyses use aggregated data wherever possible).',
+      'To comply with applicable laws and respond to lawful requests.',
     ],
   },
   {
     icon: Lock,
-    title: '5. Data Security',
-    content: 'We implement industry-standard technical and organizational measures to protect your personal information against unauthorized access, alteration, disclosure, or destruction. These measures include:',
+    title: '5. Your Consent, and Withdrawing It',
+    content: 'When you create an account, you are shown this notice and asked to give clear, specific, unconditional consent (and to confirm you are 18 or older) before signing up — by email or with Google. A timestamped record of your consent is stored with your account.',
     items: [
-      'Encryption of data in transit (TLS/SSL) and at rest using AES-256 encryption.',
-      'Role-based access controls limiting internal access to personal data on a need-to-know basis.',
-      'Regular security audits, vulnerability assessments, and penetration testing.',
-      'Secure authentication protocols, including password hashing with bcrypt.',
-      'Automated monitoring systems to detect and respond to suspicious activity.',
+      'You can withdraw consent for optional processing at any time in Settings (for example, notification preferences and privacy controls).',
+      'Withdrawing consent for account-essential processing means we can no longer provide the Service to you — in that case, delete your account (Settings → Account).',
+      'Deleting your account withdraws consent, erases your personal data from active systems, and stops all processing except where we must retain limited records by law.',
     ],
-    extra: 'While we strive to protect your personal information, no method of transmission over the Internet or electronic storage is 100% secure. We cannot guarantee absolute security, but we are committed to promptly addressing any security incidents that may occur.',
   },
   {
-    icon: Database,
-    title: '6. Data Retention',
-    content: 'We retain your personal information for as long as your account is active or as needed to provide the Service. We will also retain your information as necessary to comply with legal obligations, resolve disputes, and enforce our agreements. When you delete your account, we will remove your profile and personal data within 30 days, though certain information may be retained in backup systems for up to 90 days for disaster recovery purposes. Aggregated or anonymized data that cannot be used to identify you may be retained indefinitely.',
-  },
-  {
-    icon: Eye,
-    title: '7. Your Rights',
-    content: 'Depending on your jurisdiction, you may have the following rights regarding your personal information:',
-    items: [
-      'Right of Access — Request a copy of the personal data we hold about you.',
-      'Right to Rectification — Request correction of inaccurate or incomplete information.',
-      'Right to Erasure — Request deletion of your personal data, subject to legal exceptions.',
-      'Right to Data Portability — Request a copy of your data in a commonly used, machine-readable format.',
-      'Right to Restrict Processing — Request that we limit how we use your data in certain circumstances.',
-      'Right to Object — Object to the processing of your data for specific purposes, including direct marketing.',
-      'Right to Withdraw Consent — Where processing is based on consent, withdraw that consent at any time.',
+    icon: Share2,
+    title: '6. Sharing, Transfers & Cross-Border Data',
+    subsections: [
+      {
+        subtitle: '6.1 With other users',
+        text: 'Your profile (name, photo, bio, professional details) is visible to other users. Public posts are visible to the community. Messages are visible only to conversation participants.',
+      },
+      {
+        subtitle: '6.2 With service providers',
+        text: 'We use vetted infrastructure providers to run the Service — including Supabase (database, authentication, storage), Cloudinary (image hosting), and our email provider. They process data only on our instructions and are bound to protect it.',
+      },
+      {
+        subtitle: '6.3 Cross-border transfers',
+        text: 'As permitted by the DPDP Act, your data may be stored and processed in countries to which transfers are not restricted by the Government of India. Our providers host data in secure regions and encrypt it in transit and at rest.',
+      },
+      {
+        subtitle: '6.4 Legal requirements & business transfers',
+        text: 'We may disclose data where required by law or to protect our rights, other users, or the public. If we are ever merged or acquired, your data may transfer with the business — this policy continues to apply and you will be informed.',
+      },
     ],
-    extra: 'To exercise any of these rights, contact us at happykirtania@gmail.com. We will respond to your request within 30 days.',
-  },
-  {
-    icon: Database,
-    title: '8. Cookies and Tracking Technologies',
-    content: 'We use cookies, web beacons, pixels, and similar technologies to maintain your session, remember your preferences, and analyze usage patterns. We use essential cookies to operate the Service, performance cookies to understand how users interact with the Service, and functional cookies to remember your settings. You can control cookies through your browser settings. Disabling certain cookies may affect the functionality of the Service. We do not sell your personal information to third parties for advertising purposes.',
   },
   {
     icon: Shield,
-    title: "9. Children's Privacy",
-    content: 'The Service is not intended for individuals under the age of 13. We do not knowingly collect personal information from children under 13. If we become aware that we have inadvertently collected personal information from a child under 13, we will take steps to delete such information promptly. If you are a parent or guardian and believe your child has provided personal information to us, please contact us at happykirtania@gmail.com.',
+    title: '7. Data Security',
+    content: 'We implement technical and organisational measures appropriate to the risk, including:',
+    items: [
+      'Encryption of data in transit (TLS) and at rest.',
+      'Passwords stored only as salted hashes — never in readable form.',
+      'Row-level security and access controls so users can only reach data they are permitted to see.',
+      'Least-privilege access for anyone operating the platform.',
+      'Automated monitoring for suspicious activity.',
+    ],
+    extra: 'No method of transmission or storage is 100% secure, but we act promptly on any security incident and notify affected users and the Data Protection Board of India where the law requires it.',
+  },
+  {
+    icon: Database,
+    title: '8. Retention & Erasure',
+    content: 'We keep your personal data only as long as your account is active or as needed to provide the Service, and to meet legal obligations (for example, records we must keep under law). When you delete your account, your profile and personal data are erased from active systems within 30 days; encrypted backups age out within 90 days. Aggregated data that cannot identify you may be retained. You can also request correction or erasure of specific data at any time by emailing us.',
+  },
+  {
+    icon: Eye,
+    title: '9. Your Rights as a Data Principal (DPDP Act, 2023)',
+    items: [
+      'Right to Access — obtain a summary of the personal data we process about you and of our processing activities. A downloadable copy is available in Settings → Account.',
+      'Right to Correction & Erasure — correct inaccurate data (Settings → Edit Profile) or request erasure of your personal data.',
+      'Right to Grievance Redressal — raise a complaint with our Grievance Officer (happykirtania@gmail.com); we acknowledge within 72 hours and resolve within 30 days.',
+      'Right to Nominate — nominate another individual to exercise your rights in the event of your death or incapacity. To nominate someone, email our Grievance Officer.',
+      'Right to Withdraw Consent — stop any non-essential processing at any time (see section 5).',
+      'Right to Complaint — approach the Data Protection Board of India if you believe your rights have been infringed.',
+    ],
+    extra: 'To exercise any of these rights, use Settings → Account (export or delete your data) or contact happykirtania@gmail.com. We respond within 30 days.',
+  },
+  {
+    icon: Shield,
+    title: "10. Children's Data",
+    content: 'Foundators is a platform for adults. You must be at least 18 years old to create an account (a "child" under the DPDP Act is anyone below 18). We do not knowingly process the personal data of anyone under 18. If we learn that a child has provided us data, we erase it promptly. A parent or guardian who believes their child has used the Service should contact happykirtania@gmail.com.',
   },
   {
     icon: Calendar,
-    title: '10. Changes to This Policy',
-    content: 'We may update this Privacy Policy from time to time. When we make material changes, we will notify you through the Service, via email, or by posting a prominent notice before the changes take effect. We encourage you to review this Privacy Policy periodically. Your continued use of the Service after the effective date of any modifications constitutes your acceptance of the updated policy.',
+    title: '11. Changes to This Notice',
+    content: 'We may update this Privacy Policy from time to time. For material changes we will show a prominent notice in the Service (and where required, seek fresh consent) before they take effect. The "Last updated" date at the top always shows when this notice was last revised. Continued use of the Service after an update means you accept the revised notice.',
   },
   {
     icon: Mail,
-    title: '11. Contact Us',
-    content: 'If you have any questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us at:',
+    title: '12. Contact',
+    content: 'Questions, requests, or grievances about your personal data or this notice:',
     contact: {
       email: 'happykirtania@gmail.com',
-      entity: 'Happy Kirtania, Founder',
+      entity: 'Happy Kirtania, Founder — Data Fiduciary & Grievance Officer',
     },
   },
 ];

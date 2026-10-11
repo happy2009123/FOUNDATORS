@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Mail, Lock, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { User, Mail, Lock, ArrowRight, Check, Eye, EyeOff, Loader2 } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
@@ -36,7 +37,25 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // DPDP consent receipt — stored on the auth user record so there is an
+  // auditable timestamp of when/what the user agreed to.
+  const consentMeta = {
+    consentAt: new Date().toISOString(),
+    consentVersion: 'dpdp-2026-10-12',
+    consentAge18: true,
+    consentTos: true,
+  };
+
+  function consentGuard() {
+    if (!consent) {
+      showToast('Please confirm you are 18+ and accept the Privacy Policy & Terms');
+      return false;
+    }
+    return true;
+  }
 
   // Fire-and-forget branded welcome email via Resend (server route /api/email).
   // Never blocks or fails the signup itself.
@@ -64,6 +83,7 @@ export default function SignupPage() {
       showToast('Please fill in all fields');
       return;
     }
+    if (!consentGuard()) return;
     if (password.length < 6) {
       showToast('Password must be at least 6 characters');
       return;
@@ -79,7 +99,7 @@ export default function SignupPage() {
     }
     setLoading(true);
     try {
-      const { needsConfirm } = await signUpWithEmail(email, password, name.trim());
+      const { needsConfirm } = await signUpWithEmail(email, password, name.trim(), consentMeta);
       notification('success');
       sendWelcomeEmail();
       if (needsConfirm) {
@@ -103,9 +123,10 @@ export default function SignupPage() {
   }
 
   async function handleGoogleSignUp() {
+    if (!consentGuard()) return;
     setLoading(true);
     try {
-      await signInWithGoogle();
+      await signInWithGoogle(consentMeta);
       notification('success');
       showToast('Welcome to Foundators!');
       sendWelcomeEmail();
@@ -133,6 +154,28 @@ export default function SignupPage() {
         <Field icon={Mail} placeholder="Email address" value={email} onChange={setEmail} ariaLabel="Email address" />
         <Field icon={Lock} placeholder="Password (min. 6 characters)" type="password" value={password} onChange={setPassword} ariaLabel="Password" />
         <Field icon={Lock} placeholder="Confirm password" type="password" value={confirm} onChange={setConfirm} last ariaLabel="Confirm password" />
+
+        <div className="mt-3.5 flex items-start gap-3 rounded-2xl border border-line bg-white/[0.02] px-3.5 py-3">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={consent}
+            aria-label="I am 18 or older and consent to the Privacy Policy and Terms"
+            onClick={() => setConsent((v) => !v)}
+            className={`mt-0.5 flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[6px] border active:scale-90 ${
+              consent ? 'border-gold bg-gold-grad text-[#171100]' : 'border-text3 bg-transparent'
+            }`}
+          >
+            {consent ? <Check size={12} strokeWidth={3} /> : null}
+          </button>
+          <span className="text-[11.5px] leading-[1.55] text-text2">
+            I am 18 years or older, and I consent to the collection and use of my personal data as
+            described in the{' '}
+            <Link href="/privacy" className="font-bold text-gold">Privacy Policy</Link> (issued under
+            the DPDP Act, 2023) and agree to the{' '}
+            <Link href="/terms" className="font-bold text-gold">Terms of Service</Link>.
+          </span>
+        </div>
 
         <button
           onClick={handleSignup}
