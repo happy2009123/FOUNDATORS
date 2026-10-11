@@ -213,6 +213,8 @@ export default function VoiceRoomPage() {
   const meshRef = useRef(null);
   const joinedRef = useRef(false);
   const participantsLoadedRef = useRef(false);
+  const joinedAtRef = useRef(0);
+  const leaveRef = useRef(() => {});
 
   const uid = profile && profile.id ? profile.id : null;
   const isHost = !!(room && uid && room.hostId === uid);
@@ -287,6 +289,7 @@ export default function VoiceRoomPage() {
     joinedRef.current = true;
     joinVoiceRoom(roomId, profile, isHost ? 'host' : undefined)
       .then((role) => {
+        joinedAtRef.current = Date.now();
         setJoined(true);
         setMyRole(role);
       })
@@ -296,15 +299,27 @@ export default function VoiceRoomPage() {
       });
   }, [ready, room, uid, participants, participantsLoaded, kicked, joinError, isHost, profile, roomId]);
 
+  // Removal detection. The roster is delivered asynchronously (join write →
+  // realtime event → debounced refetch), so a missing row right after join
+  // is normal lag, not a kick. Give it a grace window (re-evaluated by the
+  // 1s `now` tick below) and, if my row does show up, come back from the
+  // removed screen instead of staying stuck on it.
   useEffect(() => {
-    if (!joined || !participantsLoaded || kicked) return;
-    if (!myP && participantsLoadedRef.current) {
-      setKicked(true);
-      joinedRef.current = false;
-    } else if (myP) {
+    if (!joined || !participantsLoaded) return;
+    if (myP) {
       setMyRole(myP.role);
+      if (kicked) {
+        setKicked(false);
+        joinedRef.current = true;
+      }
+      return;
     }
-  }, [joined, participants, participantsLoaded, myP, kicked]);
+    if (kicked || !participantsLoadedRef.current) return;
+    const sinceJoin = joinedAtRef.current ? Date.now() - joinedAtRef.current : 999999;
+    if (sinceJoin < 8000) return;
+    setKicked(true);
+    joinedRef.current = false;
+  }, [joined, participants, participantsLoaded, myP, kicked, now]);
 
   useEffect(() => {
     if (!ready || !roomId || !joined || !room || room.status !== 'live') return;
@@ -386,17 +401,31 @@ export default function VoiceRoomPage() {
     return () => clearInterval(t);
   }, [ready, joined, room, roomId, uid, isHost]);
 
+  // Leave the roster only when the page is actually going away (component
+  // unmount or the tab closing) — never when `room` merely gets a fresh
+  // object identity from a realtime patch (heartbeat, participant counts,
+  // start/end). The old version had `room` in its deps, so its cleanup ran
+  // leaveVoiceRoom() on EVERY room update and evicted you from your own
+  // roster — which the removal check above then read as "You were removed
+  // from this room" the instant the room went live.
+  leaveRef.current = () => {
+    if (!joinedRef.current) return;
+    joinedRef.current = false;
+    leaveVoiceRoom(roomId, uid).catch(() => {});
+  };
+
   useEffect(() => {
-    if (!ready || !joined || !room || room.status !== 'live') return;
-    const onUnload = () => {
-      leaveVoiceRoom(roomId, uid);
+    const onPageHide = (e) => {
+      // persisted=true → the page will be restored (bfcache / app switch);
+      // only evict when the page is really going away.
+      if (!e.persisted) leaveRef.current();
     };
-    window.addEventListener('pagehide', onUnload);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
-      window.removeEventListener('pagehide', onUnload);
-      leaveVoiceRoom(roomId, uid);
+      window.removeEventListener('pagehide', onPageHide);
+      leaveRef.current();
     };
-  }, [ready, joined, room, roomId, uid]);
+  }, []);
 
   useEffect(() => {
     if (!canMod || !participantsLoaded || !room) return;
