@@ -64,7 +64,7 @@ export default function SettingsPage() {
           <SettingRow key={r.key} label={r.label} on={settings[r.key]} onToggle={() => toggleSetting(r.key)} />
         ))}
         <button
-          onClick={() => showToast('Blocked users list coming soon')}
+          onClick={() => router.push('/settings/blocked')}
           className="flex w-full items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold"
         >
           <span>Blocked users</span>

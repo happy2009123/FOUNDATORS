@@ -7,6 +7,7 @@ import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { subscribeToChats } from '@/lib/firestore';
 import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
+import { chatMediaLabel } from '@/lib/chatMedia';
 
 export default function ChatListPane({ activeChatId = null }) {
   const router = useRouter();
@@ -110,7 +111,7 @@ export default function ChatListPane({ activeChatId = null }) {
         )}
         {rows.map((c) => {
           const active = activeChatId === c.chatId;
-          const lastMsg = c.lastMessage || (c.messages && c.messages[c.messages.length - 1]?.text) || 'Start a conversation';
+          const lastMsg = chatMediaLabel(c.lastMessage || (c.messages && c.messages[c.messages.length - 1]?.text) || 'Start a conversation');
           return (
             <button
               key={c.chatId}
