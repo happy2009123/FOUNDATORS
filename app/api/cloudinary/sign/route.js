@@ -1,8 +1,21 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { getSupabaseAdmin, isSupabaseAdminConfigured } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
+
+// Diagnostic: lets us see (without exposing secrets) which server env vars
+// are present on this deployment. Used to debug 401s from POST.
+export async function GET() {
+  return NextResponse.json({
+    adminConfigured: isSupabaseAdminConfigured(),
+    cloudinaryConfigured: Boolean(
+      (process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) &&
+        process.env.CLOUDINARY_API_KEY &&
+        process.env.CLOUDINARY_API_SECRET
+    ),
+  });
+}
 
 // Supabase access tokens are verified server-side with the admin client
 // (SUPABASE_SECRET_KEY); the verified user id scopes every upload path below.
@@ -33,15 +46,22 @@ const UID_SCOPED_ROOTS = ['stories', 'reels'];
 
 export async function POST(req) {
   try {
+    // 0. Config check first: without SUPABASE_SECRET_KEY the admin client
+    //    is null and EVERY upload 401s with an unhelpful "Unauthorized".
+    if (!isSupabaseAdminConfigured()) {
+      console.error('[cloudinary-sign] missing SUPABASE_SECRET_KEY (or NEXT_PUBLIC_SUPABASE_URL) in server env');
+      return NextResponse.json({ error: 'Unauthorized', reason: 'admin-not-configured' }, { status: 401 });
+    }
     // 1. Require a Supabase access token from the client (Authorization header).
     const authHeader = req.headers.authorization || '';
     const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!jwt) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized', reason: 'no-token' }, { status: 401 });
     }
     const user = await verifyUser(jwt);
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      console.error('[cloudinary-sign] token verification failed (expired or invalid JWT)');
+      return NextResponse.json({ error: 'Unauthorized', reason: 'invalid-token' }, { status: 401 });
     }
     const uid = user.id;
 
