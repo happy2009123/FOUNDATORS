@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { getTokenVerifier } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -17,7 +17,7 @@ function clip(value, max) {
 
 async function verifyIdToken(token) {
   if (!token) return { error: 'missing-token' };
-  const supabase = getSupabaseAdmin();
+  const supabase = getTokenVerifier();
   if (!supabase) return { error: 'missing-key' };
   try {
     const { data, error } = await supabase.auth.getUser(token);

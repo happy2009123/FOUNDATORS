@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin, isSupabaseAdminConfigured } from '@/lib/supabase/server';
+import { getTokenVerifier, isAuthVerifierConfigured, isSupabaseAdminConfigured } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -9,6 +9,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   return NextResponse.json({
     adminConfigured: isSupabaseAdminConfigured(),
+    authVerifierConfigured: isAuthVerifierConfigured(),
     cloudinaryConfigured: Boolean(
       (process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) &&
         process.env.CLOUDINARY_API_KEY &&
@@ -17,10 +18,11 @@ export async function GET() {
   });
 }
 
-// Supabase access tokens are verified server-side with the admin client
-// (SUPABASE_SECRET_KEY); the verified user id scopes every upload path below.
+// Supabase access tokens are verified server-side (admin client when the
+// secret key is present, otherwise the anon client validates via GoTrue);
+// the verified user id scopes every upload path below.
 async function verifyUser(jwt) {
-  const supabase = getSupabaseAdmin();
+  const supabase = getTokenVerifier();
   if (!supabase) return null;
   const { data, error } = await supabase.auth.getUser(jwt);
   if (error || !data || !data.user) return null;
@@ -46,10 +48,10 @@ const UID_SCOPED_ROOTS = ['stories', 'reels'];
 
 export async function POST(req) {
   try {
-    // 0. Config check first: without SUPABASE_SECRET_KEY the admin client
-    //    is null and EVERY upload 401s with an unhelpful "Unauthorized".
-    if (!isSupabaseAdminConfigured()) {
-      console.error('[cloudinary-sign] missing SUPABASE_SECRET_KEY (or NEXT_PUBLIC_SUPABASE_URL) in server env');
+    // 0. Config check first: without any Supabase key the route cannot
+    //    verify the caller and every upload fails as a bare 401.
+    if (!isAuthVerifierConfigured()) {
+      console.error('[cloudinary-sign] no Supabase key available (need NEXT_PUBLIC_SUPABASE_URL + anon or secret key)');
       return NextResponse.json({ error: 'Unauthorized', reason: 'admin-not-configured' }, { status: 401 });
     }
     // 1. Require a Supabase access token from the client (Authorization header).
