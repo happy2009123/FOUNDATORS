@@ -11,6 +11,8 @@ import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
 import { startVoiceCall } from '@/lib/call';
+import { subscribeQuery } from '@/lib/supabase/realtime';
+import { parseChatMedia, chatMediaLabel, buildImageText, buildAudioText, uploadChatImage, uploadChatAudio } from '@/lib/chatMedia';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import ChatListPane from '@/components/ChatListPane';
 
@@ -50,8 +52,13 @@ export default function ChatPage() {
   const [ctxMenu, setCtxMenu] = useState(null);
   const [typing, setTyping] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
-  const [messageReactions, setMessageReactions] = useState({});
+  // Reactions: server rows (synced via realtime, requires the 0004
+  // migration) + a local optimistic overlay so taps still show even
+  // before the migration is run.
+  const [serverReactions, setServerReactions] = useState({});
+  const [localReactions, setLocalReactions] = useState({});
   const [showReactionPicker, setShowReactionPicker] = useState(null);
+  const [sendingImage, setSendingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [voiceMessages, setVoiceMessages] = useState({});
@@ -81,6 +88,11 @@ export default function ChatPage() {
   const inputRef = useRef(null);
   const recordingInterval = useRef(null);
   const fileInputRef = useRef(null);
+  const selectedFileRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef(null);
+  const recordingStreamRef = useRef(null);
+  const cancelledRecordingRef = useRef(false);
   const forwardUnsubRef = useRef(null);
   // Broadcast channel carrying the ephemeral "other person is typing" signal
   // (the chats table has no typing column — this replaces the Firestore
@@ -252,6 +264,56 @@ export default function ChatPage() {
       }
     };
     markRead();
+  }, [convId, profile?.id]);
+
+  // Live message reactions for this conversation (table from migration 0004).
+  // If the migration has not been run yet the query fails quietly and the
+  // local optimistic overlay keeps the user's own reactions visible.
+  useEffect(() => {
+    if (!convId || !profile?.id) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let cancelled = false;
+    let unsub = null;
+    try {
+      unsub = subscribeQuery({
+        key: `chat:reactions:${convId}`,
+        table: 'message_reactions',
+        filter: `chat_id=eq.${convId}`,
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from('message_reactions')
+            .select('*')
+            .eq('chat_id', convId);
+          if (error) throw new Error(error.message || 'reactions unavailable');
+          return data || [];
+        },
+        onData: (rows) => {
+          if (cancelled) return;
+          const built = {};
+          (rows || []).forEach((r) => {
+            if (!r || !r.message_id) return;
+            const entry =
+              built[r.message_id] || (built[r.message_id] = { counts: {}, total: 0, mineEmoji: null });
+            entry.counts[r.emoji] = (entry.counts[r.emoji] || 0) + 1;
+            entry.total += 1;
+            if (r.user_id === profile.id) entry.mineEmoji = r.emoji;
+          });
+          setServerReactions(built);
+        },
+      });
+    } catch (err) {
+      // table missing (0004 not run) - local overlay still works
+    }
+    return () => {
+      cancelled = true;
+      if (unsub) {
+        try {
+          unsub();
+        } catch (err) {}
+      }
+      setServerReactions({});
+    };
   }, [convId, profile?.id]);
 
   useEffect(() => {
@@ -550,54 +612,143 @@ export default function ChatPage() {
     }
   }, [convId, deleteChatFS, router, showToast]);
 
-  const handleReaction = useCallback((msgIndex, emoji) => {
+  const getDisplayReaction = (msgId) => {
+    const s = serverReactions[msgId];
+    const mine = Object.prototype.hasOwnProperty.call(localReactions, msgId)
+      ? localReactions[msgId]
+      : s?.mineEmoji || null;
+    const counts = s?.counts || {};
+    if (mine) return { emoji: mine, count: Math.max(1, counts[mine] || 1) };
+    let top = null;
+    Object.keys(counts).forEach((e) => {
+      if (!top || counts[e] > counts[top]) top = e;
+    });
+    return top ? { emoji: top, count: counts[top] } : null;
+  };
+
+  const handleReaction = useCallback((msgId, emoji) => {
     vibrate('light');
-    setMessageReactions((prev) => ({
-      ...prev,
-      [msgIndex]: prev[msgIndex] === emoji ? null : emoji,
-    }));
+    if (!msgId) return;
+    const mine = Object.prototype.hasOwnProperty.call(localReactions, msgId)
+      ? localReactions[msgId]
+      : serverReactions[msgId]?.mineEmoji || null;
+    const next = mine === emoji ? null : emoji;
+    setLocalReactions((prev) => ({ ...prev, [msgId]: next }));
     setShowReactionPicker(null);
-  }, [vibrate]);
+    const supabase = getSupabase();
+    const myId = profile?.id;
+    if (!supabase || !myId || !convId) return;
+    // Persist to message_reactions (migration 0004). If the table has not
+    // been created yet the write fails silently and the optimistic local
+    // state keeps the reaction visible until the migration is run.
+    if (next === null) {
+      supabase
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', msgId)
+        .eq('user_id', myId)
+        .then(() => {})
+        .catch(() => {});
+    } else {
+      supabase
+        .from('message_reactions')
+        .upsert(
+          { id: `${msgId}__${myId}`, chat_id: convId, message_id: msgId, user_id: myId, emoji: next },
+          { onConflict: 'message_id,user_id' }
+        )
+        .then(() => {})
+        .catch(() => {});
+    }
+  }, [vibrate, convId, profile?.id, localReactions, serverReactions]);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     vibrate('medium');
-    setIsRecording(true);
-    setRecordingTime(0);
-    recordingInterval.current = setInterval(() => {
-      setRecordingTime((prev) => prev + 1);
-    }, 1000);
-  }, [vibrate]);
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      showToast('Voice messages are not supported on this device');
+      return;
+    }
+    if (mediaRecorderRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let opts = null;
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) opts = { mimeType: 'audio/webm;codecs=opus' };
+      else if (MediaRecorder.isTypeSupported('audio/webm')) opts = { mimeType: 'audio/webm' };
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) opts = { mimeType: 'audio/mp4' };
+      const rec = opts ? new MediaRecorder(stream, opts) : new MediaRecorder(stream);
+      recordingChunksRef.current = [];
+      cancelledRecordingRef.current = false;
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size) recordingChunksRef.current.push(e.data);
+      };
+      rec.start();
+      mediaRecorderRef.current = rec;
+      recordingStreamRef.current = stream;
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingInterval.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      showToast('Microphone access denied');
+    }
+  }, [vibrate, showToast]);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async ({ send = true } = {}) => {
     vibrate('light');
     setIsRecording(false);
     clearInterval(recordingInterval.current);
-    if (recordingTime > 0) {
-      const voiceText = `🎤 Voice message (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, '0')})`;
-      const p = sendPayload();
-      if (p) {
-        nearBottomRef.current = true;
-        sendFS(p.convId, {
-          text: voiceText,
-          senderKey: profile.id,
-          senderName: profile.name,
-          senderAvatar: profile.avatar,
-          participants: p.participants,
-          participantNames: p.participantNames,
-          participantAvatars: p.participantAvatars,
-        }).catch(() => {});
-      }
-      notification('success');
-    }
+    const seconds = recordingTime;
     setRecordingTime(0);
-  }, [recordingTime, sendPayload, profile, sendFS, notification, vibrate]);
+    const rec = mediaRecorderRef.current;
+    const stream = recordingStreamRef.current;
+    mediaRecorderRef.current = null;
+    recordingStreamRef.current = null;
+    if (!rec) return;
+    const chunks = recordingChunksRef.current || [];
+    const blob = await new Promise((resolve) => {
+      const done = () => resolve(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+      rec.onstop = done;
+      try {
+        rec.stop();
+      } catch (err) {
+        done();
+      }
+    });
+    if (stream) {
+      stream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch (err) {}
+      });
+    }
+    const cancelled = cancelledRecordingRef.current;
+    cancelledRecordingRef.current = false;
+    recordingChunksRef.current = null;
+    if (!send || cancelled || !blob || !blob.size || seconds < 1) return;
+    const p = sendPayload();
+    if (!p) return;
+    nearBottomRef.current = true;
+    try {
+      const url = await uploadChatAudio(blob);
+      await sendFS(p.convId, {
+        text: buildAudioText(url, seconds),
+        senderKey: profile.id,
+        senderName: profile.name,
+        senderAvatar: profile.avatar,
+        participants: p.participants,
+        participantNames: p.participantNames,
+        participantAvatars: p.participantAvatars,
+      });
+      notification('success');
+    } catch (err) {
+      showToast('Voice message failed to send');
+    }
+  }, [recordingTime, sendPayload, profile, sendFS, notification, showToast, vibrate]);
 
   const cancelRecording = useCallback(() => {
-    vibrate('light');
-    setIsRecording(false);
-    clearInterval(recordingInterval.current);
-    setRecordingTime(0);
-  }, [vibrate]);
+    cancelledRecordingRef.current = true;
+    stopRecording({ send: false });
+  }, [stopRecording]);
 
   const handleImageSelect = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -606,30 +757,40 @@ export default function ChatPage() {
       showToast('Only images are allowed');
       return;
     }
+    selectedFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (ev) => setShowImagePreview(ev.target.result);
     reader.readAsDataURL(file);
     e.target.value = '';
   }, [showToast]);
 
-  const sendImage = useCallback(() => {
-    if (!showImagePreview) return;
-    setShowImagePreview(null);
+  const sendImage = useCallback(async () => {
+    const file = selectedFileRef.current;
+    if (!showImagePreview || !file || sendingImage) return;
     const p = sendPayload();
-    if (p) {
+    if (!p) return;
+    setSendingImage(true);
+    try {
+      const url = await uploadChatImage(file);
+      setShowImagePreview(null);
+      selectedFileRef.current = null;
       nearBottomRef.current = true;
-      sendFS(p.convId, {
-        text: '📷 Image',
+      await sendFS(p.convId, {
+        text: buildImageText(url),
         senderKey: profile.id,
         senderName: profile.name,
         senderAvatar: profile.avatar,
         participants: p.participants,
         participantNames: p.participantNames,
         participantAvatars: p.participantAvatars,
-      }).catch(() => {});
+      });
+      notification('success');
+    } catch (err) {
+      showToast('Image failed to upload - try again');
+    } finally {
+      setSendingImage(false);
     }
-    notification('success');
-  }, [showImagePreview, sendPayload, profile, sendFS, notification]);
+  }, [showImagePreview, sendingImage, sendPayload, profile, sendFS, notification, showToast]);
 
   const insertEmoji = useCallback((emoji) => {
     setInput((prev) => prev + emoji);
@@ -835,6 +996,8 @@ export default function ChatPage() {
           const m = item.msg;
           const isOut = m.who === 'out' || (!!profile?.id && m.senderKey === profile.id);
           const isFile = m.who === 'file' || !!m.isFile;
+          const media = m.id ? parseChatMedia(m.text) : null;
+          const reaction = m.id ? getDisplayReaction(m.id) : null;
 
           if (isFile) {
             return (
@@ -873,7 +1036,20 @@ export default function ChatPage() {
                   ? 'rounded-br-[4px] bg-gold-grad font-medium text-[#1a1300]'
                   : 'rounded-bl-[4px] border border-linesoft bg-card'
               }`}>
-                {m.text}
+                {media ? (
+                  media.kind === 'image' ? (
+                    <img
+                      src={media.url}
+                      alt="Photo"
+                      loading="lazy"
+                      className="mb-1 block max-h-[340px] w-full max-w-[280px] rounded-xl bg-black/20 object-cover"
+                    />
+                  ) : (
+                    <ChatAudioPlayer url={media.url} seconds={media.seconds} dark={isOut} />
+                  )
+                ) : (
+                  m.text
+                )}
                 <div className={`mt-0.5 flex items-center justify-end gap-1 ${isOut ? 'opacity-60' : ''}`}>
                   {m.edited && <span className="text-[9.5px] italic">Edited</span>}
                   <span className={`text-[9.5px] ${isOut ? 'text-[#1a1300]' : 'text-text3'}`}>{m.time}</span>
@@ -883,9 +1059,10 @@ export default function ChatPage() {
                     </span>
                   )}
                 </div>
-                {messageReactions[item.index] && (
+                {reaction && (
                   <div className={`absolute -bottom-2 ${isOut ? 'left-2' : 'right-2'} flex h-5 items-center justify-center rounded-full bg-card border border-linesoft px-1.5 text-[11px]`}>
-                    {messageReactions[item.index]}
+                    {reaction.emoji}
+                    {reaction.count > 1 && <span className="ml-0.5 text-[9px] text-text3">{reaction.count}</span>}
                   </div>
                 )}
               </div>
@@ -895,7 +1072,7 @@ export default function ChatPage() {
                   {['❤️', '🔥', '👏', '😂', '😮', '😢'].map((emoji) => (
                     <button
                       key={emoji}
-                      onClick={(e) => { e.stopPropagation(); handleReaction(item.index, emoji); }}
+                      onClick={(e) => { e.stopPropagation(); handleReaction(m.id, emoji); }}
                       className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 text-lg transition-transform hover:scale-125"
                       aria-label={`React with ${emoji}`}
                     >
@@ -930,10 +1107,10 @@ export default function ChatPage() {
             <button onClick={() => handleReply(messages[ctxMenu.index])} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Reply size={14} className="text-gold" /> Reply
             </button>
-            <button onClick={() => handleCopy(messages[ctxMenu.index].text || '')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
+            <button onClick={() => handleCopy(chatMediaLabel(messages[ctxMenu.index].text || ''))} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Copy size={14} className="text-gold" /> Copy
             </button>
-            {messages[ctxMenu.index]?.senderKey === profile?.id && (
+            {messages[ctxMenu.index]?.senderKey === profile?.id && !parseChatMedia(messages[ctxMenu.index]?.text) && (
               <button onClick={handleEdit} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
                 <Edit3 size={14} className="text-gold" /> Edit
               </button>
@@ -952,7 +1129,7 @@ export default function ChatPage() {
         <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
           <Reply size={14} className="flex-none text-gold" />
           <div className="min-w-0 flex-1 truncate text-[11.5px] text-text2">
-            Replying to: <span className="text-white">{replyTo.text?.slice(0, 60)}</span>
+            Replying to: <span className="text-white">{chatMediaLabel(replyTo.text || '').slice(0, 60)}</span>
           </div>
           <button onClick={() => setReplyTo(null)} className="flex-none text-text3">
             <X size={14} />
@@ -985,7 +1162,7 @@ export default function ChatPage() {
               </button>
             </div>
             <div className="mb-2 rounded-xl border border-linesoft bg-white/5 px-3 py-2 text-[12px] text-text2">
-              {forwardModal.text.slice(0, 120)}
+              {chatMediaLabel(forwardModal.text || '').slice(0, 120)}
             </div>
             <div className="no-scrollbar flex-1 overflow-y-auto">
               {forwardChats.length === 0 ? (
@@ -1037,13 +1214,18 @@ export default function ChatPage() {
         <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
           <div className="relative">
             <img src={showImagePreview} alt="Preview" className="h-20 rounded-xl object-cover" />
-            <button onClick={() => setShowImagePreview(null)} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Remove image">
+            <button onClick={() => { setShowImagePreview(null); selectedFileRef.current = null; }} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white" aria-label="Remove image">
               <X size={10} />
             </button>
           </div>
-          <div className="flex-1 text-[11px] text-text2">Image ready to send</div>
-          <button onClick={sendImage} className="rounded-full bg-gold px-4 py-2 text-[11px] font-bold text-[#1a1300]" aria-label="Send image">
-            Send
+          <div className="flex-1 text-[11px] text-text2">{sendingImage ? 'Uploading...' : 'Image ready to send'}</div>
+          <button
+            onClick={sendImage}
+            disabled={sendingImage}
+            className="rounded-full bg-gold px-4 py-2 text-[11px] font-bold text-[#1a1300] disabled:opacity-60"
+            aria-label="Send image"
+          >
+            {sendingImage ? 'Uploading...' : 'Send'}
           </button>
         </div>
       )}
@@ -1106,7 +1288,7 @@ export default function ChatPage() {
           </button>
         ) : (
           <button
-            onClick={isRecording ? stopRecording : startRecording}
+            onClick={isRecording ? () => stopRecording() : startRecording}
             className={`flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full transition-all duration-150 ${
               isRecording ? 'bg-brandred text-white animate-pulse' : 'bg-white/10 text-text3'
             }`}
@@ -1118,6 +1300,57 @@ export default function ChatPage() {
       </div>
 
         </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtAudioPos(s) {
+  const sec = Math.max(0, Math.floor(s || 0));
+  return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, '0')}`;
+}
+
+function ChatAudioPlayer({ url, seconds, dark }) {
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [pos, setPos] = useState(0);
+
+  const toggle = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+      setPlaying(false);
+    } else {
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+      setPlaying(true);
+    }
+  };
+
+  return (
+    <div className="my-0.5 flex min-w-[190px] items-center gap-2.5">
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="none"
+        onTimeUpdate={(e) => setPos(e.target.currentTime)}
+        onEnded={() => {
+          setPlaying(false);
+          setPos(0);
+        }}
+      />
+      <button
+        onClick={toggle}
+        className={`flex h-9 w-9 flex-none items-center justify-center rounded-full ${
+          dark ? 'bg-[#1a1300]/15 text-[#1a1300]' : 'bg-gold/15 text-gold'
+        }`}
+        aria-label={playing ? 'Pause voice message' : 'Play voice message'}
+      >
+        {playing ? <Pause size={15} /> : <Play size={15} />}
+      </button>
+      <div className={`flex-1 text-[11.5px] font-semibold tabular-nums ${dark ? 'text-[#1a1300]' : 'text-text2'}`}>
+        {fmtAudioPos(pos)} / {fmtAudioPos(seconds)}
       </div>
     </div>
   );

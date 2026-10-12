@@ -154,25 +154,6 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-linesoft" />
         </div>
 
-        <button
-          onClick={async () => {
-            setLoading(true);
-            try {
-              await signInWithEmail('demo@foundators.app', 'demo123');
-              notification('success');
-              showToast('Welcome to Foundators!');
-              router.push('/home');
-            } catch (err) {
-              showToast('Demo login failed');
-            } finally {
-              setLoading(false);
-            }
-          }}
-          className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/30 bg-gold/5 py-3.5 text-[14px] font-bold text-gold active:scale-[0.98]"
-        >
-          Quick Demo Login
-        </button>
-
         <div className="mb-[22px] flex justify-center gap-3.5">
           <SocialButton onClick={handleGoogleSignIn} aria-label="Sign in with Google">
             <span className="text-[15px] font-extrabold">G</span>
