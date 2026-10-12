@@ -17,6 +17,7 @@ import {
 import CallScreen from './CallScreen';
 import Avatar from '@/components/Avatar';
 import { initialsAvatar } from '@/lib/avatar';
+import { startIncomingRing, startRingbackTune } from '@/lib/ringtone';
 
 const RING_TIMEOUT_MS = 45000;
 const OFFER_STALE_MS = 45000;
@@ -86,6 +87,7 @@ export default function CallManager() {
 
     const controlSession = controlSessionFor(myUid);
     let stopRingFn = null;
+    let stopRingbackFn = null;
     let outgoingTimer = null;
 
     const updateCall = (next) => {
@@ -111,53 +113,23 @@ export default function CallManager() {
 
     const startRing = () => {
       stopRing();
-      try {
-        navigator.vibrate && navigator.vibrate([400, 250, 400]);
-      } catch (e) {}
-      // Two-tone ringtone via WebAudio (no asset needed). Browsers may keep
-      // the context suspended until the first gesture - resume on touch.
-      let cleanup = () => {};
-      try {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        const ctx = new Ctx();
-        const gain = ctx.createGain();
-        gain.gain.value = 0.05;
-        gain.connect(ctx.destination);
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = 440;
-        osc.connect(gain);
-        osc.start();
+      stopRingFn = startIncomingRing();
+    };
+
+    // The caller tune: plays from dial until the call is answered, declined,
+    // busy, cancelled or times out.
+    const stopRingback = () => {
+      if (stopRingbackFn) {
         try {
-          ctx.resume();
+          stopRingbackFn();
         } catch (e) {}
-        const resume = () => {
-          try {
-            ctx.resume();
-          } catch (e) {}
-        };
-        window.addEventListener('pointerdown', resume);
-        const toneIv = setInterval(() => {
-          osc.frequency.value = osc.frequency.value > 450 ? 420 : 480;
-        }, 400);
-        const vibrateIv = setInterval(() => {
-          try {
-            navigator.vibrate && navigator.vibrate([400, 250, 400]);
-          } catch (e) {}
-        }, 1400);
-        cleanup = () => {
-          clearInterval(toneIv);
-          clearInterval(vibrateIv);
-          window.removeEventListener('pointerdown', resume);
-          try {
-            osc.stop();
-          } catch (e) {}
-          try {
-            ctx.close();
-          } catch (e) {}
-        };
-      } catch (e) {}
-      stopRingFn = cleanup;
+        stopRingbackFn = null;
+      }
+    };
+
+    const startRingback = () => {
+      stopRingback();
+      stopRingbackFn = startRingbackTune();
     };
 
     const teardownMesh = () => {
@@ -246,6 +218,7 @@ export default function CallManager() {
         case CALL_KINDS.ACCEPT:
           if (c && c.mode === 'outgoing' && p.callId === c.callId) {
             clearOutgoingTimer();
+            stopRingback();
             updateCall({ ...c, mode: 'active' });
             startedAtRef.current = Date.now();
             startMedia(c.peer);
@@ -254,6 +227,7 @@ export default function CallManager() {
         case CALL_KINDS.DECLINE:
           if (c && c.mode === 'outgoing') {
             clearOutgoingTimer();
+            stopRingback();
             updateCall(null);
             logMissedCall(c.peer);
             showToastRef.current && showToastRef.current('Call declined');
@@ -262,6 +236,7 @@ export default function CallManager() {
         case CALL_KINDS.BUSY:
           if (c && c.mode === 'outgoing') {
             clearOutgoingTimer();
+            stopRingback();
             updateCall(null);
             showToastRef.current && showToastRef.current('They are busy');
           }
@@ -277,6 +252,7 @@ export default function CallManager() {
             showToastRef.current && showToastRef.current('Call ended');
           } else {
             clearOutgoingTimer();
+            stopRingback();
             updateCall(null);
           }
           return;
@@ -326,15 +302,18 @@ export default function CallManager() {
         // sendSignalFrom already retried 3x - a rejection here is fatal.
         const cur = callRef.current;
         if (cur && cur.mode === 'outgoing' && cur.callId === callId) {
+          stopRingback();
           updateCall(null);
           showToastRef.current && showToastRef.current('Could not start the call - check your connection');
         }
       });
+      startRingback();
       clearOutgoingTimer();
       outgoingTimer = setTimeout(() => {
         const cur = callRef.current;
         if (cur && cur.mode === 'outgoing' && cur.callId === callId) {
           sendControl(peerId, CALL_KINDS.HANGUP, { callId });
+          stopRingback();
           updateCall(null);
           logMissedCall(peer);
           showToastRef.current && showToastRef.current('No answer');
@@ -370,6 +349,7 @@ export default function CallManager() {
       vibrateRef.current && vibrateRef.current('medium');
       clearOutgoingTimer();
       stopRing();
+      stopRingback();
       const wasActive = c.mode === 'active';
       sendControl(c.peer.id, CALL_KINDS.HANGUP, { callId: c.callId });
       teardownMesh();
@@ -401,6 +381,7 @@ export default function CallManager() {
       unsubscribe();
       clearOutgoingTimer();
       stopRing();
+      stopRingback();
       const c = callRef.current;
       if (c) {
         // Page unloading or logging out mid-call - tell the peer.
