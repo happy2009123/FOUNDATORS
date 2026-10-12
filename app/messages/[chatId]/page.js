@@ -10,7 +10,7 @@ import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, 
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
-import CallScreen from '@/components/CallScreen';
+import { startVoiceCall } from '@/lib/call';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import ChatListPane from '@/components/ChatListPane';
 
@@ -56,7 +56,6 @@ export default function ChatPage() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [voiceMessages, setVoiceMessages] = useState({});
   const [showImagePreview, setShowImagePreview] = useState(null);
-  const [activeCall, setActiveCall] = useState(null);
   const [directions, setDirections] = useState(null);
   // True once the route param has been resolved (or definitively failed).
   // Until then the async reads below leave displayContact null - we must show
@@ -774,10 +773,24 @@ export default function ChatPage() {
           </div>
         </button>
         <div className="flex flex-none gap-1">
-          <button onClick={() => setActiveCall('voice')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Voice call">
+          <button
+            onClick={() => {
+              if (!otherUid || displayContact.isGroup) {
+                showToast('Group calls are coming soon - voice calls are 1:1 for now');
+              } else {
+                startVoiceCall(otherUid, { name: other?.name, avatar: other?.avatar });
+              }
+            }}
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi"
+            aria-label="Voice call"
+          >
             <Phone size={17} />
           </button>
-          <button onClick={() => setActiveCall('video')} className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi" aria-label="Video call">
+          <button
+            onClick={() => showToast('Video calling is coming soon')}
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi"
+            aria-label="Video call"
+          >
             <Video size={17} />
           </button>
           <div className="relative">
@@ -1104,15 +1117,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {activeCall && otherUid && (
-        <CallScreen
-          userId={otherUid}
-          type={activeCall}
-          name={other?.name}
-          avatar={other?.avatar}
-          onClose={() => setActiveCall(null)}
-        />
-      )}
         </div>
       </div>
     </div>
