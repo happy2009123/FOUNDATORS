@@ -771,7 +771,7 @@ export default function ChatPage() {
     if (!p) return;
     setSendingImage(true);
     try {
-      const url = await uploadChatImage(file);
+      const url = await uploadChatImage(file, profile.id);
       setShowImagePreview(null);
       selectedFileRef.current = null;
       nearBottomRef.current = true;
