@@ -4,19 +4,38 @@
 // ADMIN — Danger zone
 // Replaces the old unauthenticated /admin/clear "wipe everything"
 // tool, which any signed-in user could reach. Bulk deletion of
-// production data is gone on purpose. The remaining action
-// (purging resolved reports) has no client-side permission in
-// Supabase — reports are admin-readable but not admin-deletable —
-// and no service-role admin API route exists yet, so the button is
-// rendered disabled with an honest explanation instead of failing
-// silently or pretending to work.
+// production data is gone on purpose. The remaining action —
+// purging resolved reports — is bounded and admin-only: the
+// reports_delete_admin policy in 0001 authorizes the delete, so
+// the button runs it directly with a typed confirmation.
 // ─────────────────────────────────────────────────────────────
 
-import { AlertOctagon, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertOctagon, Trash2, Loader2 } from 'lucide-react';
 import { Card, SectionTitle } from '@/components/admin/ui';
+import { purgeResolvedReports } from '@/lib/adminData';
+import { useStore } from '@/lib/store';
 
 export default function AdminDangerZone({ onChanged }) {
-  void onChanged;
+  const showToast = useStore((s) => s.showToast);
+  const [busy, setBusy] = useState(false);
+
+  async function purge() {
+    if (busy) return;
+    const confirmed = window.confirm(
+      'Permanently delete every report already marked Resolved? Pending and reviewing reports are untouched. This cannot be undone.'
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    const res = await purgeResolvedReports();
+    if (res.ok) {
+      showToast(res.data > 0 ? `Purged ${res.data} resolved report(s)` : 'No resolved reports to purge');
+      onChanged?.(res.data);
+    } else {
+      showToast(`Purge failed: ${res.error || 'permission denied'}`);
+    }
+    setBusy(false);
+  }
 
   return (
     <Card className="border-brandred/25 p-5">
@@ -29,24 +48,23 @@ export default function AdminDangerZone({ onChanged }) {
           <div className="max-w-[520px]">
             <div className="text-[13.5px] font-extrabold">Purge resolved reports</div>
             <p className="mt-1 text-[12px] leading-relaxed text-text3">
-              Would permanently delete reports already marked <b className="text-text2">Resolved</b> from the moderation
+              Permanently delete reports already marked <b className="text-text2">Resolved</b> from the moderation
               queue. Pending and reviewing reports are untouched.
             </p>
             <p className="mt-2 text-[11.5px] leading-relaxed text-text3">
-              Unavailable from the browser: Supabase row-level security exposes reports to admins as read-only, and
-              destructive admin operations run via the Supabase dashboard (Table editor → reports) until a service-role
-              admin API route exists. The former “delete all data” tool stays removed — wiping production data is not an
-              admin console feature.
+              Runs directly against the reports table under the admin-only delete policy and is recorded in the admin
+              audit trail. The former “delete all data” tool stays removed — wiping production data is not an admin
+              console feature.
             </p>
           </div>
         </div>
         <button
-          disabled
-          aria-disabled="true"
-          title="Destructive admin operations run via the Supabase dashboard"
-          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl border border-brandred/40 px-4 py-2.5 text-[12.5px] font-extrabold text-brandred opacity-50"
+          onClick={purge}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-brandred/40 px-4 py-2.5 text-[12.5px] font-extrabold text-brandred transition-colors hover:bg-brandred/10 disabled:opacity-50"
         >
-          <Trash2 size={14} /> Purge
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+          {busy ? 'Purging…' : 'Purge'}
         </button>
       </div>
     </Card>
