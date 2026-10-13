@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
@@ -59,6 +59,45 @@ export default function ChatPage() {
   const [localReactions, setLocalReactions] = useState({});
   const [showReactionPicker, setShowReactionPicker] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
+  const [lightbox, setLightbox] = useState(null); // { url, name }
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLightbox(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
+
+  const openLightbox = (url) => {
+    let name = 'photo.jpg';
+    try {
+      const last = url.split('?')[0].split('/').filter(Boolean).pop() || '';
+      if (last.includes('.')) name = decodeURIComponent(last);
+    } catch (e) {}
+    setLightbox({ url, name });
+  };
+
+  const downloadLightboxImage = async () => {
+    if (!lightbox) return;
+    try {
+      const res = await fetch(lightbox.url);
+      if (!res.ok) throw new Error(`fetch ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = lightbox.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (e) {
+      // CORS or network blocked the blob download - open the raw asset.
+      window.open(lightbox.url, '_blank', 'noopener,noreferrer');
+    }
+  };
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [voiceMessages, setVoiceMessages] = useState({});
@@ -1043,7 +1082,11 @@ export default function ChatPage() {
                       src={media.url}
                       alt="Photo"
                       loading="lazy"
-                      className="mb-1 block max-h-[340px] w-full max-w-[280px] rounded-xl bg-black/20 object-cover"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openLightbox(media.url);
+                      }}
+                      className="mb-1 block max-h-[340px] w-full max-w-[280px] cursor-pointer rounded-xl bg-black/20 object-cover"
                     />
                   ) : (
                     <ChatAudioPlayer url={media.url} seconds={media.seconds} dark={isOut} />
@@ -1244,6 +1287,51 @@ export default function ChatPage() {
           <button onClick={stopRecording} className="rounded-full bg-gold px-4 py-1.5 text-[11px] font-bold text-[#1a1300]" aria-label="Send voice message">
             Send
           </button>
+        </div>
+      )}
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[550] flex flex-col bg-black/95"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-label="Image viewer"
+        >
+          <div className="flex items-center justify-between gap-3 px-4 pt-4">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-white/60">{lightbox.name}</span>
+            <div className="flex flex-none gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadLightboxImage();
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                aria-label="Download image"
+              >
+                <Download size={18} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightbox(null);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                aria-label="Close image"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          <div
+            className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={lightbox.url}
+              alt={lightbox.name}
+              className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            />
+          </div>
         </div>
       )}
 
