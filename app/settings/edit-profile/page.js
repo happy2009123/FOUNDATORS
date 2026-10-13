@@ -16,6 +16,17 @@ const BIO_MAX = 200;
 
 export default function EditProfilePage() {
   const ready = useRequireAuth();
+  const profileLoaded = useStore((s) => s.profileLoaded);
+
+  // Mount the form only after the profiles row has resolved. The auth
+  // bootstrap sets an empty placeholder profile first and fetches the row
+  // in a second set(); mounting before that lands seeds every input with
+  // blanks (useState never re-initializes), forcing the user to retype.
+  if (!ready || !profileLoaded) return <AuthSkeleton />;
+  return <EditProfileForm />;
+}
+
+function EditProfileForm() {
   const router = useRouter();
   const profile = useStore((s) => s.profile);
   const updateProfile = useStore((s) => s.updateProfile);
@@ -50,8 +61,6 @@ export default function EditProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef(null);
-
-  if (!ready) return <AuthSkeleton />;
 
   function compressImage(dataUrl, maxSize = 512, quality = 0.82) {
     return new Promise((resolve, reject) => {
