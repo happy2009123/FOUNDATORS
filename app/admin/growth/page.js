@@ -18,6 +18,7 @@ import {
   TrendingUp, UserPlus, Handshake, Award, Loader2,
 } from 'lucide-react';
 import { Card, PageHeader } from '@/components/admin/ui';
+import { fetchGrowthLoops } from '@/lib/adminData';
 
 const COUNTS = [
   { key: 'users', label: 'Founders', table: 'profiles', icon: Users, href: '/admin/users' },
@@ -39,6 +40,7 @@ async function countOf(table) {
 export default function AdminGrowthPage() {
   const router = useRouter();
   const [stats, setStats] = useState(null);
+  const [loops, setLoops] = useState(null);
 
   useEffect(() => {
     let on = true;
@@ -49,6 +51,10 @@ export default function AdminGrowthPage() {
       } catch (e) {
         if (on) setStats({ failed: true, error: e?.message });
       }
+      // Needs the 0006 admin read policies — degrade to the honest
+      // unavailable card if they have not run yet.
+      const res = await fetchGrowthLoops();
+      if (on) setLoops(res.ok ? res.data : null);
     })();
     return () => { on = false; };
   }, []);
@@ -98,20 +104,21 @@ export default function AdminGrowthPage() {
               <LoopCard
                 icon={UserPlus}
                 title="Referral invites"
-                value="Not available client-side"
-                hint="referral_invites rows are visible only to their own participants under row-level security — platform-wide issued/activated totals must be read from the Supabase dashboard."
+                value={loops ? `${loops.referralIssued} issued · ${loops.referralActivated} activated` : 'Not available — run migration 0006'}
+                hint={loops ? 'Platform-wide referral codes issued and the share that completed signup.' : 'The admin-wide read policy for referral_invites ships in migration 0006.'}
               />
               <LoopCard
                 icon={Handshake}
                 title="Collaboration requests"
-                value="Not available client-side"
-                hint="collab_requests rows are visible only to their own participants under row-level security — the platform pending total must be read from the Supabase dashboard."
+                value={loops ? `${loops.collabPending} pending` : 'Not available — run migration 0006'}
+                hint={loops ? 'Open collaboration requests waiting on a reply across the platform.' : 'The admin-wide read policy for collab_requests ships in migration 0006.'}
               />
               <LoopCard
                 icon={Award}
                 title="Founding 100"
-                value="Not in this schema"
-                hint="The Supabase schema ships no founding members table yet, so seats claimed cannot be counted or granted here."
+                value={loops ? `${loops.foundingGranted}/100 granted` : 'Loading…'}
+                hint="Numbers are granted only from the admin console — tap to manage the roster."
+                onClick={() => router.push('/admin/founding')}
               />
               <LoopCard
                 icon={FolderKanban}
@@ -127,14 +134,18 @@ export default function AdminGrowthPage() {
   );
 }
 
-function LoopCard({ icon: Icon, title, value, hint }) {
+function LoopCard({ icon: Icon, title, value, hint, onClick }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="rounded-2xl border border-linesoft bg-card p-4">
+    <Tag
+      onClick={onClick}
+      className={`w-full rounded-2xl border border-linesoft bg-card p-4 text-left ${onClick ? 'transition-colors hover:border-gold/40' : ''}`}
+    >
       <div className="flex items-center gap-2 text-[12px] font-extrabold">
         <Icon size={15} className="text-gold" /> {title}
       </div>
       <div className="mt-1.5 text-[15px] font-black text-gold-hi">{value}</div>
       <p className="mt-1 text-[11.5px] leading-relaxed text-text2">{hint}</p>
-    </div>
+    </Tag>
   );
 }
