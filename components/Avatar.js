@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -24,6 +24,13 @@ function hashName(name) {
 
 export default function Avatar({ src, name, size = 48, className = '' }) {
   const [error, setError] = useState(false);
+  // Reset a previous load failure when the avatar changes - otherwise a
+  // dead legacy URL (e.g. old Firebase avatars) permanently hides the
+  // photo the user just uploaded, because this component instance lives
+  // on in the header/sidebar across navigation.
+  useEffect(() => {
+    setError(false);
+  }, [src]);
   const isLegacyRandom = typeof src === 'string' && src.includes('pravatar');
   const showFallback = error || !src || isLegacyRandom;
   const gradient = GRADIENTS[hashName(name || '') % GRADIENTS.length];
