@@ -145,7 +145,10 @@ export default function CallManager() {
     };
 
     const sendControl = (to, kind, payload) => {
-      sendSignalFrom(controlSession, myUid, to, kind, payload || {}).catch(() => {});
+      // Control signals must land in the RECIPIENT's inbox (callctl:<to>) -
+      // both sides subscribe only to their OWN inbox, so writing into the
+      // sender's session meant offers/accepts never reached anyone.
+      sendSignalFrom(controlSessionFor(to), myUid, to, kind, payload || {}).catch(() => {});
     };
 
     const logMissedCall = (peer) => {
@@ -293,7 +296,7 @@ export default function CallManager() {
         }
       } catch (e) {}
       updateCall({ mode: 'outgoing', peer, callId, role: 'caller' });
-      sendSignalFrom(controlSession, myUid, peerId, CALL_KINDS.OFFER, {
+      sendSignalFrom(controlSessionFor(peerId), myUid, peerId, CALL_KINDS.OFFER, {
         callId,
         ts: Date.now(),
         name: profileRef.current?.name,
@@ -385,7 +388,7 @@ export default function CallManager() {
       const c = callRef.current;
       if (c) {
         // Page unloading or logging out mid-call - tell the peer.
-        sendSignalFrom(controlSession, myUid, c.peer.id, CALL_KINDS.HANGUP, { callId: c.callId }).catch(() => {});
+        sendSignalFrom(controlSessionFor(c.peer.id), myUid, c.peer.id, CALL_KINDS.HANGUP, { callId: c.callId }).catch(() => {});
       }
       teardownMesh();
       callRef.current = null;
