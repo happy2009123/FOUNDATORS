@@ -66,7 +66,7 @@ export default function SignupPage() {
       .then(({ data }) => {
         const token = data?.session?.access_token;
         if (!token) return;
-        return fetch('/api/email', {
+        return fetch('/api/email/', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

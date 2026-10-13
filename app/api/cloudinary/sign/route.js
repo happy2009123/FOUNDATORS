@@ -55,7 +55,9 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Unauthorized', reason: 'admin-not-configured' }, { status: 401 });
     }
     // 1. Require a Supabase access token from the client (Authorization header).
-    const authHeader = req.headers.authorization || '';
+    // Headers is a WHATWG object: property access (headers.authorization) is
+    // always undefined - must use .get().
+    const authHeader = req.headers.get('authorization') || '';
     const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!jwt) {
       return NextResponse.json({ error: 'Unauthorized', reason: 'no-token' }, { status: 401 });

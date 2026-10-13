@@ -70,7 +70,8 @@ export async function POST(req) {
   }
   const { idToken, type } = body || {};
 
-  const authHeader = req.headers.authorization || '';
+  // WHATWG Headers: property access is undefined - use .get().
+  const authHeader = req.headers.get('authorization') || '';
   const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const auth = await verifyIdToken(bearer || idToken || '');
   if (auth.error) {

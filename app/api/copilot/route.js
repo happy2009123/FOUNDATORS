@@ -432,7 +432,8 @@ export async function POST(req) {
     return NextResponse.json({ ok: false, error: 'Unknown mode' }, { status: 400 });
   }
 
-  const authHeader = req.headers.authorization || '';
+  // WHATWG Headers: property access is undefined - use .get().
+  const authHeader = req.headers.get('authorization') || '';
   const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const verified = await verifyIdToken(bearer || (body && body.idToken) || '');
   if (verified.error) {
