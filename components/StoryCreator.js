@@ -108,6 +108,9 @@ export default function StoryCreator() {
       }
 
       const payload = toRow({
+        // stories.id is text primary key with no default - the insert is
+        // rejected with "null value in column id" unless we supply one.
+        id: randomId(),
         userId: profile.id,
         mediaUrl: imageUrl,
         caption: mode === 'text' ? text.trim() : null,
