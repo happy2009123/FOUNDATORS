@@ -786,6 +786,7 @@ export default function ChatPage() {
       });
       notification('success');
     } catch (err) {
+      console.error('[chat] image send failed', err);
       showToast('Image failed to upload - try again');
     } finally {
       setSendingImage(false);

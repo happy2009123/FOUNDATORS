@@ -1,0 +1,15 @@
+-- 0005: drop the voice_signals -> voice_sessions foreign key.
+--
+-- Call signalling writes pseudo-sessions that are deliberately NOT rows in
+-- voice_sessions:
+--   callctl:<uid>      per-user call inbox
+--   call:<a~b>         1:1 WebRTC media session for a user pair
+-- Creating real rows for them would pollute the voice room lists (/voice
+-- "mine past" tab, scheduled tab), and a row owned by the callee could not
+-- be inserted by the caller under RLS anyway. The FK therefore made EVERY
+-- call control signal (offer/accept/decline/hangup) and every WebRTC
+-- sdp/ice signal fail its insert - calls never reached the receiver.
+--
+-- Signal reads are already time-gated (5 min) and rows are deleted after
+-- processing, so dropping the FK leaves no unbounded growth.
+alter table public.voice_signals drop constraint if exists voice_signals_session_id_fkey;
