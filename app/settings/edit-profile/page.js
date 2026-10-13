@@ -101,9 +101,11 @@ export default function EditProfilePage() {
   async function uploadDp(file) {
     try {
       const publicId = `${uid}-${Date.now()}`;
-      return await uploadToCloudinary(file, 'image', 'profile-photos', publicId);
+      const url = await uploadToCloudinary(file, 'image', 'profile-photos', publicId);
+      console.log('[profile] photo uploaded', url);
+      return url;
     } catch (err) {
-      console.error('Upload failed:', err);
+      console.error('[profile] photo upload failed:', err);
       return null;
     }
   }
@@ -142,19 +144,25 @@ export default function EditProfilePage() {
     setSaving(true);
     try {
       let finalAvatarUrl = avatarUrl;
+      let photoFailed = false;
 
       if (avatarPreview) {
         setUploading(true);
-        const response = await fetch(avatarPreview);
-        const blob = await response.blob();
-        const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-        const uploadedUrl = await uploadDp(file);
-        setUploading(false);
-
-        if (uploadedUrl) {
-          finalAvatarUrl = uploadedUrl;
-        } else {
-          showToast('Photo upload failed - saving other changes');
+        try {
+          const response = await fetch(avatarPreview);
+          const blob = await response.blob();
+          const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+          const uploadedUrl = await uploadDp(file);
+          if (uploadedUrl) {
+            finalAvatarUrl = uploadedUrl;
+          } else {
+            photoFailed = true;
+          }
+        } catch (err) {
+          console.error('[profile] photo upload step failed', err);
+          photoFailed = true;
+        } finally {
+          setUploading(false);
         }
       }
 
@@ -175,14 +183,24 @@ export default function EditProfilePage() {
         avatar: finalAvatarUrl,
       };
 
-      await updateUserProfile(uid, data);
+      // updateUserProfile returns { success:false } instead of throwing -
+      // without this check a failed DB write showed a success toast while
+      // the photo silently never persisted.
+      const res = await updateUserProfile(uid, data);
+      if (!res || res.success === false) {
+        throw new Error((res && res.error) || 'Could not save profile');
+      }
       updateProfile(data);
 
       notification('success');
-      showToast('Profile updated successfully');
+      showToast(
+        photoFailed
+          ? 'Photo failed to upload - other changes were saved'
+          : 'Profile updated successfully'
+      );
       router.back();
     } catch (err) {
-      console.error('Save failed:', err);
+      console.error('[profile] save failed:', err);
       showToast('Failed to save profile. Try again.');
     } finally {
       setSaving(false);
