@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PenSquare, MessageCircle, AtSign, Users, Plus, Send, Pin, Archive, ArchiveRestore, Trash2, Clock, Star } from 'lucide-react';
+import { PenSquare, MessageCircle, AtSign, Users, Plus, Send, Pin, Archive, ArchiveRestore, Trash2, Clock, Star, X } from 'lucide-react';
 import Logo, { Wordmark } from '@/components/Logo';
 import MainScreenShell from '@/components/MainScreenShell';
 import ScrollToTop from '@/components/ScrollToTop';
@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
-import { subscribeToChats, deleteChat as deleteChatFS } from '@/lib/firestore';
+import { subscribeToChats, deleteChat as deleteChatFS, createChat } from '@/lib/firestore';
 import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
 import { useHaptics } from '@/lib/useHaptics';
 
@@ -45,6 +45,11 @@ export default function MessagesPage() {
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [fsChats, setFsChats] = useState([]);
   const scrollRef = useRef(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [groupSelected, setGroupSelected] = useState([]);
+  const [groupName, setGroupName] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -231,6 +236,70 @@ export default function MessagesPage() {
 
     ensureContactForUser(matchedUser.id, matchedUser);
     router.push(`/messages/${matchedUser.id}`);
+  }
+
+  function toggleGroupMember(uid) {
+    setGroupSelected((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+    );
+  }
+
+  const filteredGroupUsers = useMemo(() => {
+    if (!groupSearch.trim()) return allUsers.filter((u) => u.id !== profile?.id);
+    const q = groupSearch.toLowerCase();
+    return allUsers.filter(
+      (u) =>
+        u.id !== profile?.id &&
+        (u.uniqueId?.toLowerCase().includes(q) ||
+          u.name?.toLowerCase().includes(q) ||
+          u.handle?.toLowerCase().includes(q))
+    );
+  }, [allUsers, groupSearch, profile?.id]);
+
+  async function handleCreateGroup() {
+    const name = groupName.trim();
+    if (!name) {
+      showToast('Give the group a name');
+      return;
+    }
+    if (groupSelected.length < 1) {
+      showToast('Pick at least one member');
+      return;
+    }
+    if (!profile?.id) return;
+    setCreatingGroup(true);
+    try {
+      const members = [profile.id, ...groupSelected];
+      const participantNames = { [profile.id]: profile.name || 'Me' };
+      const participantAvatars = { [profile.id]: profile.avatar || null };
+      groupSelected.forEach((uid) => {
+        const u = allUsers.find((x) => x.id === uid);
+        participantNames[uid] = u?.name || 'Member';
+        participantAvatars[uid] = u?.avatar || null;
+      });
+      const result = await createChat({
+        participants: members,
+        participantNames,
+        participantAvatars,
+        isGroup: true,
+        groupName: name,
+      });
+      if (!result.success) {
+        showToast(`Could not create group: ${result.error}`);
+        return;
+      }
+      setShowGroupModal(false);
+      setGroupName('');
+      setGroupSelected([]);
+      setGroupSearch('');
+      showToast(`Group "${name}" created`);
+      router.push(`/messages/${result.data}`);
+    } catch (err) {
+      console.error('Create group failed:', err);
+      showToast('Could not create group');
+    } finally {
+      setCreatingGroup(false);
+    }
   }
 
   function togglePin(key) {
@@ -525,6 +594,13 @@ export default function MessagesPage() {
 
         {/* New conversation input */}
         <div className="mx-[18px] mb-4 flex items-center gap-2.5 rounded-2xl border border-linesoft bg-card px-3.5 py-2.5">
+          <button
+            onClick={() => setShowGroupModal(true)}
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-gold text-gold transition-colors hover:bg-gold hover:text-[#1a1300]"
+            aria-label="New group"
+          >
+            <Users size={15} />
+          </button>
           <div className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-gold-grad text-[#1a1300]">
             <Plus size={16} />
           </div>
@@ -544,6 +620,74 @@ export default function MessagesPage() {
           </button>
         </div>
       </div>
+
+      {showGroupModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <div className="flex h-[75vh] w-full max-w-md flex-col rounded-t-3xl border border-linesoft bg-card p-4 sm:rounded-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[14px] font-extrabold">New group</span>
+              <button onClick={() => setShowGroupModal(false)} className="text-text3" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="Group name"
+              className="mb-3 rounded-xl border border-linesoft bg-white/5 px-3.5 py-2.5 text-[13px] text-white placeholder:text-text3 focus:border-gold focus:outline-none"
+            />
+            <input
+              type="text"
+              value={groupSearch}
+              onChange={(e) => setGroupSearch(e.target.value)}
+              placeholder="Search people..."
+              className="mb-2 rounded-xl border border-linesoft bg-white/5 px-3.5 py-2.5 text-[13px] text-white placeholder:text-text3 focus:border-gold focus:outline-none"
+            />
+            <div className="no-scrollbar mb-3 flex-1 overflow-y-auto">
+              {filteredGroupUsers.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-[12px] text-text3">
+                  No people found
+                </div>
+              ) : (
+                filteredGroupUsers.map((u) => {
+                  const selected = groupSelected.includes(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => toggleGroupMember(u.id)}
+                      className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-white/5"
+                    >
+                      <Avatar src={u.avatar} name={u.name} size={36} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-bold">{u.name}</div>
+                        <div className="truncate text-[11px] text-text3">{u.uniqueId || u.handle}</div>
+                      </div>
+                      <div
+                        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full border ${
+                          selected ? 'border-gold bg-gold text-[#1a1300]' : 'border-text3'
+                        }`}
+                      >
+                        {selected && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11.5px] text-text3">{groupSelected.length} selected</span>
+              <button
+                onClick={handleCreateGroup}
+                disabled={creatingGroup || groupSelected.length < 1 || !groupName.trim()}
+                className="rounded-full bg-gold-grad px-5 py-2 text-[12.5px] font-bold text-[#1a1300] disabled:opacity-40"
+              >
+                {creatingGroup ? 'Creating...' : 'Create group'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ScrollToTop scrollRef={scrollRef} />
     </MainScreenShell>
   );

@@ -132,6 +132,7 @@ export default function ChatPage() {
   const recordingChunksRef = useRef(null);
   const recordingStreamRef = useRef(null);
   const cancelledRecordingRef = useRef(false);
+const recordingSecondsRef = useRef(0);
   const forwardUnsubRef = useRef(null);
   // Broadcast channel carrying the ephemeral "other person is typing" signal
   // (the chats table has no typing column — this replaces the Firestore
@@ -550,27 +551,53 @@ export default function ChatPage() {
     inputRef.current?.focus();
   }, []);
 
+  const msgTimeMs = useCallback((m) => {
+    if (!m?.createdAt) return 0;
+    return m.createdAt?.toMillis ? m.createdAt.toMillis() : new Date(m.createdAt).getTime();
+  }, []);
+
+  const canEditMessage = useCallback((m) => {
+    if (!m?.id || m.senderKey !== profile?.id) return false;
+    if (parseChatMedia(m.text)) return false;
+    return Date.now() - msgTimeMs(m) <= 15 * 60 * 1000;
+  }, [profile?.id, msgTimeMs]);
+
+  const canDeleteMessage = useCallback((m) => {
+    if (!m?.id || m.senderKey !== profile?.id) return false;
+    return Date.now() - msgTimeMs(m) <= 5 * 60 * 60 * 1000;
+  }, [profile?.id, msgTimeMs]);
+
   const handleDelete = useCallback(() => {
     if (ctxMenu) {
       const msg = messages[ctxMenu.index];
       if (msg?.id && convId) {
+        if (!canDeleteMessage(msg)) {
+          showToast('Delete window is 5 hours');
+          setCtxMenu(null);
+          return;
+        }
         deleteFS(convId, msg.id).catch(() => {});
       }
       vibrate('light');
     }
     setCtxMenu(null);
-  }, [ctxMenu, convId, messages, vibrate]);
+  }, [ctxMenu, convId, messages, vibrate, canDeleteMessage, showToast]);
 
   const handleEdit = useCallback(() => {
     if (ctxMenu && messages[ctxMenu.index]) {
       const msg = messages[ctxMenu.index];
+      if (!canEditMessage(msg)) {
+        showToast('Edit window is 15 minutes');
+        setCtxMenu(null);
+        return;
+      }
       setEditingMsg({ index: ctxMenu.index, id: msg.id, text: msg.text || '' });
       setInput(msg.text || '');
       setCtxMenu(null);
       inputRef.current?.focus();
       vibrate('light');
     }
-  }, [ctxMenu, messages, vibrate]);
+  }, [ctxMenu, messages, vibrate, canEditMessage, showToast]);
 
   const handleOpenForward = useCallback(() => {
     if (ctxMenu && messages[ctxMenu.index]) {
@@ -651,6 +678,39 @@ export default function ChatPage() {
     }
   }, [convId, deleteChatFS, router, showToast]);
 
+  const handleLeaveGroup = useCallback(() => {
+    setShowHeaderMenu(false);
+    if (!convId || !profile?.id) return;
+    if (!window.confirm('Leave this group? You will stop receiving messages here.')) return;
+    (async () => {
+      try {
+        const chat = await getChat(convId);
+        if (!chat) return;
+        const remaining = (chat.participants || []).filter((p) => p !== profile.id);
+        const supabase = getSupabase();
+        if (!supabase) return;
+        if (remaining.length === 0) {
+          await deleteChatFS(convId);
+        } else {
+          const names = { ...(chat.participantNames || {}) };
+          const avatars = { ...(chat.participantAvatars || {}) };
+          delete names[profile.id];
+          delete avatars[profile.id];
+          const { error } = await supabase
+            .from('chats')
+            .update({ participants: remaining, participant_names: names, participant_avatars: avatars })
+            .eq('id', convId);
+          if (error) throw error;
+        }
+        showToast('Left group');
+        router.push('/messages');
+      } catch (err) {
+        console.error('Leave group failed:', err);
+        showToast('Could not leave group');
+      }
+    })();
+  }, [convId, profile?.id, router, showToast]);
+
   const getDisplayReaction = (msgId) => {
     const s = serverReactions[msgId];
     const mine = Object.prototype.hasOwnProperty.call(localReactions, msgId)
@@ -724,8 +784,10 @@ export default function ChatPage() {
       recordingStreamRef.current = stream;
       setIsRecording(true);
       setRecordingTime(0);
+      recordingSecondsRef.current = 0;
       recordingInterval.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
+        recordingSecondsRef.current += 1;
+        setRecordingTime(recordingSecondsRef.current);
       }, 1000);
     } catch (err) {
       showToast('Microphone access denied');
@@ -736,7 +798,8 @@ export default function ChatPage() {
     vibrate('light');
     setIsRecording(false);
     clearInterval(recordingInterval.current);
-    const seconds = recordingTime;
+    const seconds = recordingSecondsRef.current;
+    recordingSecondsRef.current = 0;
     setRecordingTime(0);
     const rec = mediaRecorderRef.current;
     const stream = recordingStreamRef.current;
@@ -782,7 +845,7 @@ export default function ChatPage() {
     } catch (err) {
       showToast('Voice message failed to send');
     }
-  }, [recordingTime, sendPayload, profile, sendFS, notification, showToast, vibrate]);
+  }, [sendPayload, profile, sendFS, notification, showToast, vibrate]);
 
   const cancelRecording = useCallback(() => {
     cancelledRecordingRef.current = true;
@@ -1002,9 +1065,15 @@ export default function ChatPage() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowHeaderMenu(false)} />
                 <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] rounded-2xl border border-linesoft bg-card p-1.5 shadow-xl">
-                  <button onClick={handleDeleteChat} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
-                    <Trash2 size={14} /> Delete chat
-                  </button>
+                  {displayContact.isGroup ? (
+                    <button onClick={handleLeaveGroup} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
+                      <Trash2 size={14} /> Leave group
+                    </button>
+                  ) : (
+                    <button onClick={handleDeleteChat} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
+                      <Trash2 size={14} /> Delete chat
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -1076,6 +1145,9 @@ export default function ChatPage() {
                   ? 'rounded-br-[4px] bg-gold-grad font-medium text-[#1a1300]'
                   : 'rounded-bl-[4px] border border-linesoft bg-card'
               }`}>
+                {!isOut && displayContact.isGroup && m.senderName && (
+                  <div className="mb-0.5 text-[10.5px] font-bold text-gold/80">{m.senderName}</div>
+                )}
                 {media ? (
                   media.kind === 'image' ? (
                     <img
@@ -1154,7 +1226,7 @@ export default function ChatPage() {
             <button onClick={() => handleCopy(chatMediaLabel(messages[ctxMenu.index].text || ''))} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Copy size={14} className="text-gold" /> Copy
             </button>
-            {messages[ctxMenu.index]?.senderKey === profile?.id && !parseChatMedia(messages[ctxMenu.index]?.text) && (
+            {canEditMessage(messages[ctxMenu.index]) && (
               <button onClick={handleEdit} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
                 <Edit3 size={14} className="text-gold" /> Edit
               </button>
@@ -1162,9 +1234,11 @@ export default function ChatPage() {
             <button onClick={handleOpenForward} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-white hover:bg-white/5">
               <Forward size={14} className="text-gold" /> Forward
             </button>
-            <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
-              <Trash2 size={14} /> Delete
-            </button>
+            {canDeleteMessage(messages[ctxMenu.index]) && (
+              <button onClick={handleDelete} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] text-brandred hover:bg-brandred/10">
+                <Trash2 size={14} /> Delete
+              </button>
+            )}
           </div>
         </>
       )}
