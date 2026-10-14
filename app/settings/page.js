@@ -1,12 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
+import { submitFeedback } from '@/lib/feedback';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const NOTIF_ROWS = [
@@ -25,6 +27,10 @@ export default function SettingsPage() {
   const settings = useStore((s) => s.settings);
   const toggleSetting = useStore((s) => s.toggleSetting);
   const showToast = useStore((s) => s.showToast);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [fbCategory, setFbCategory] = useState('general');
+  const [fbMessage, setFbMessage] = useState('');
+  const [fbSending, setFbSending] = useState(false);
 
   if (!ready) return <AuthSkeleton />;
 
@@ -32,6 +38,21 @@ export default function SettingsPage() {
     await signOutFully();
     showToast('Logged out');
     router.push('/login');
+  }
+
+  async function handleFeedbackSubmit() {
+    if (!fbMessage.trim() || fbSending) return;
+    setFbSending(true);
+    const result = await submitFeedback({ category: fbCategory, message: fbMessage });
+    setFbSending(false);
+    if (result.success) {
+      showToast('Feedback sent — thank you!');
+      setShowFeedback(false);
+      setFbMessage('');
+      setFbCategory('general');
+    } else {
+      showToast(result.error || 'Could not send feedback');
+    }
   }
 
   return (
@@ -71,6 +92,15 @@ export default function SettingsPage() {
           <ChevronRight className="h-4 w-4 text-text3" />
         </button>
 
+        <SectionLabel>Support</SectionLabel>
+        <button
+          onClick={() => setShowFeedback(true)}
+          className="flex w-full items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold"
+        >
+          <span>Send feedback</span>
+          <ChevronRight className="h-4 w-4 text-text3" />
+        </button>
+
         <SectionLabel>Appearance</SectionLabel>
         <div className="flex items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold">
           <span>Theme</span>
@@ -104,6 +134,52 @@ export default function SettingsPage() {
           <ChevronRight className="h-4 w-4 text-text3" />
         </button>
       </div>
+
+      {showFeedback && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <div className="flex w-full max-w-md flex-col rounded-t-3xl border border-linesoft bg-card p-4 sm:rounded-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[14px] font-extrabold">Send feedback</span>
+              <button onClick={() => setShowFeedback(false)} className="text-text3" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mb-3 flex gap-2">
+              {[['bug', 'Bug'], ['idea', 'Idea'], ['general', 'General']].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setFbCategory(key)}
+                  className={`rounded-full border px-3.5 py-1.5 text-[11.5px] font-bold transition-colors ${
+                    fbCategory === key
+                      ? 'border-gold bg-gold/15 text-gold-hi'
+                      : 'border-linesoft text-text2 hover:bg-white/5'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={fbMessage}
+              onChange={(e) => setFbMessage(e.target.value)}
+              placeholder="Tell us what's on your mind..."
+              rows={5}
+              maxLength={2000}
+              className="mb-3 resize-none rounded-xl border border-linesoft bg-white/5 px-3.5 py-2.5 text-[13px] text-white placeholder:text-text3 focus:border-gold focus:outline-none"
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-text3">{fbMessage.length}/2000</span>
+              <button
+                onClick={handleFeedbackSubmit}
+                disabled={fbSending || !fbMessage.trim()}
+                className="rounded-full bg-gold-grad px-5 py-2 text-[12.5px] font-bold text-[#1a1300] disabled:opacity-40"
+              >
+                {fbSending ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

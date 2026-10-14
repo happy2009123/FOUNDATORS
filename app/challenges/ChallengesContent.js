@@ -122,12 +122,12 @@ export default function ChallengesContent() {
         if (rows.length) {
           const { data: entries, error: entriesError } = await supabase
             .from('challenge_entries')
-            .select('challenge_id, user_id')
+            .select('id, challenge_id, user_id, payment_status, paid_amount')
             .in('challenge_id', rows.map((r) => r.id));
           if (entriesError) throw entriesError;
           (entries || []).forEach((e) => {
             if (!entryMap[e.challenge_id]) entryMap[e.challenge_id] = [];
-            entryMap[e.challenge_id].push(e.user_id);
+            entryMap[e.challenge_id].push(e);
           });
         }
         setChallenges(rows.map((row) => ({
@@ -140,7 +140,13 @@ export default function ChallengesContent() {
           points: row.points || 100,
           creatorKey: row.creatorKey || '',
           creatorName: row.creatorName || '',
-          participants: entryMap[row.id] || [],
+          isOfficial: !!row.isOfficial,
+          isPaid: !!row.isPaid,
+          price: Number(row.price) || 0,
+          status: row.status || 'active',
+          endsAt: row.endsAt || null,
+          entries: entryMap[row.id] || [],
+          participants: (entryMap[row.id] || []).map((e) => e.user_id),
           createdAt: row.createdAt,
         })));
       } catch (err) {
@@ -274,9 +280,71 @@ export default function ChallengesContent() {
   }, [showToast]);
 
   const filteredChallenges = useMemo(() => {
-    if (activeCategory === 'all') return challenges;
-    return challenges.filter((c) => c.category === activeCategory);
+    const local = challenges.filter((c) => !c.isOfficial);
+    if (activeCategory === 'all') return local;
+    return local.filter((c) => c.category === activeCategory);
   }, [challenges, activeCategory]);
+
+  const officialChallenges = useMemo(
+    () => challenges.filter((c) => c.isOfficial),
+    [challenges]
+  );
+
+  async function handleOfficialJoin(challenge) {
+    if (!profile?.id) { showToast('Please sign in to join challenges'); return; }
+    vibrate('medium');
+    const mine = (challenge.entries || []).find((e) => e.user_id === profile.id);
+    const supabase = getSupabase();
+    if (!supabase) return;
+    try {
+      if (mine) {
+        if (mine.payment_status === 'approved') {
+          showToast('Paid entry approved — contact an admin to withdraw');
+          return;
+        }
+        const { error } = await supabase
+          .from('challenge_entries')
+          .delete()
+          .eq('id', mine.id);
+        if (error) throw error;
+        setChallenges((prev) => prev.map((c) => (c.id !== challenge.id ? c : {
+          ...c,
+          entries: (c.entries || []).filter((e) => e.user_id !== profile.id),
+          participants: (c.participants || []).filter((id) => id !== profile.id),
+        })));
+        showToast(`Left ${challenge.name}`);
+        return;
+      }
+      const payload = { id: randomId(), challengeId: challenge.id, userId: profile.id };
+      if (challenge.isPaid && challenge.price > 0) {
+        payload.paymentStatus = 'pending';
+        payload.paidAmount = challenge.price;
+      }
+      const { error } = await supabase.from('challenge_entries').insert(toRow(payload));
+      if (error) throw error;
+      const entry = {
+        id: payload.id,
+        challenge_id: challenge.id,
+        user_id: profile.id,
+        payment_status: payload.paymentStatus || null,
+        paid_amount: payload.paidAmount || null,
+      };
+      setChallenges((prev) => prev.map((c) => (c.id !== challenge.id ? c : {
+        ...c,
+        entries: [...(c.entries || []), entry],
+        participants: [...(c.participants || []), profile.id],
+      })));
+      notification('success');
+      if (challenge.isPaid && challenge.price > 0) {
+        showToast(`Payment pending admin approval for ${challenge.name}`);
+      } else {
+        showToast(`Joined ${challenge.name}!`);
+      }
+    } catch (err) {
+      console.error('Official join failed:', err);
+      showToast('Could not join challenge.');
+    }
+  }
 
   async function handleJoinChallenge(challenge) {
     if (!profile?.id) { showToast('Please sign in to join challenges'); return; }
@@ -488,6 +556,72 @@ export default function ChallengesContent() {
               <Stat n={String(joinedCount)} l="Joined" icon={Trophy} />
               <Stat n={String(createdCount)} l="Created" icon={Flame} />
             </div>
+
+            {officialChallenges.length > 0 && (
+              <>
+                <div className="mt-6 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-[15px] font-extrabold">Official challenges</h2>
+                    <p className="text-[10px] text-text3">Posted by the FOUNDATORS team. Free & paid to enter.</p>
+                  </div>
+                  <Award size={18} className="text-gold" />
+                </div>
+                <div className="mt-3 space-y-2.5">
+                  {officialChallenges.map((c) => {
+                    const mine = (c.entries || []).find((e) => e.user_id === profile?.id);
+                    const entryCount = (c.entries || []).length;
+                    const pay = mine?.payment_status;
+                    return (
+                      <div key={c.id} className="glass-card border-gold/25 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-gold/40 bg-gold/10 text-gold">
+                            <Trophy size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-[12.5px] font-extrabold">{c.name}</div>
+                              {c.isPaid ? (
+                                <span className="flex-none rounded-full bg-gold/15 px-2 py-0.5 text-[9px] font-black text-gold-hi">
+                                  ${c.price} entry
+                                </span>
+                              ) : (
+                                <span className="flex-none rounded-full bg-brandgreen/15 px-2 py-0.5 text-[9px] font-black text-brandgreen">
+                                  Free
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-[10.5px] text-text2">{c.description}</div>
+                            <div className="mt-1 text-[9.5px] text-text3">{entryCount} entered{c.endsAt ? ` · ends ${new Date(c.endsAt).toLocaleDateString()}` : ''}</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          {mine ? (
+                            pay === 'approved' ? (
+                              <span className="flex-1 rounded-xl bg-brandgreen/15 py-2.5 text-center text-[10.5px] font-bold text-brandgreen">Entry approved ✓</span>
+                            ) : pay === 'pending' ? (
+                              <button onClick={() => handleOfficialJoin(c)} className="flex-1 rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-center text-[10.5px] font-bold text-gold-hi">
+                                Payment pending — tap to cancel
+                              </button>
+                            ) : (
+                              <button onClick={() => handleOfficialJoin(c)} className="flex-1 rounded-xl border border-brandgreen/40 bg-brandgreen/10 py-2.5 text-center text-[10.5px] font-bold text-brandgreen">
+                                Joined ✓ — leave
+                              </button>
+                            )
+                          ) : (
+                            <button
+                              onClick={() => handleOfficialJoin(c)}
+                              className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]"
+                            >
+                              {c.isPaid && c.price > 0 ? `Pay $${c.price} & join` : 'Join free'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {activeId && activeChallenge && activeProgress === 'in-progress' && (
               <div className="mt-5 glass-card border-gold/30 p-4">
