@@ -3,4 +3,4 @@ Allow: /
 Disallow: /api/
 Disallow: /settings/
 
-Sitemap: https://foundators.app/sitemap.xml
+Sitemap: https://foundators-flame.vercel.app/sitemap.xml

@@ -12,7 +12,6 @@ import {
   Sparkles,
   Send,
   Mic,
-  Paperclip,
   ChevronDown,
 } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -205,6 +204,53 @@ export default function AIContent() {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  // Dictation: Web Speech API (Chrome/Edge/Safari). Text lands in the input
+  // for review before sending — never auto-sends.
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  const toggleVoice = () => {
+    const SR = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+    if (!SR) {
+      showToast('Voice input is not supported in this browser');
+      return;
+    }
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    try {
+      const rec = new SR();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+      rec.onresult = (e) => {
+        const text = Array.from(e.results).map((r) => r[0].transcript).join('');
+        setInput(text);
+        inputRef.current?.focus();
+      };
+      rec.onend = () => setListening(false);
+      rec.onerror = () => setListening(false);
+      recognitionRef.current = rec;
+      rec.start();
+      setListening(true);
+      vibrate('light');
+    } catch {
+      setListening(false);
+      showToast('Could not start voice input');
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // already stopped
+      }
+    };
+  }, []);
+
   const getResponse = (text) => {
     const lower = text.toLowerCase();
 
@@ -321,9 +367,14 @@ export default function AIContent() {
       <div className="sticky bottom-0 border-t border-linesoft bg-[#020202] px-[18px] py-3">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => showToast('Voice input coming soon')}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-text3 transition-colors hover:text-gold"
-            aria-label="Voice input"
+            onClick={toggleVoice}
+            aria-label={listening ? 'Stop voice input' : 'Voice input'}
+            aria-pressed={listening}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+              listening
+                ? 'animate-pulse bg-gold text-[#171100]'
+                : 'bg-card text-text3 hover:text-gold'
+            }`}
           >
             <Mic size={16} />
           </button>
@@ -334,17 +385,10 @@ export default function AIContent() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything..."
+              placeholder={listening ? 'Listening...' : 'Ask anything...'}
               disabled={isTyping}
-              className="w-full rounded-full border border-linesoft bg-card px-4 py-2.5 pr-10 text-[12px] text-white placeholder:text-text3 focus:border-gold/40 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-full border border-linesoft bg-card px-4 py-2.5 text-[12px] text-white placeholder:text-text3 focus:border-gold/40 focus:outline-none disabled:opacity-50"
             />
-            <button
-              onClick={() => showToast('Attach file coming soon')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text3 transition-colors hover:text-gold"
-              aria-label="Attach file"
-            >
-              <Paperclip size={14} />
-            </button>
           </div>
           <button
             onClick={handleSend}

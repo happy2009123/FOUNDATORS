@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
+import { sendPasswordReset } from '@/lib/supabase/auth';
 import { submitFeedback } from '@/lib/feedback';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
@@ -109,7 +110,17 @@ export default function SettingsPage() {
 
         <SectionLabel>Account</SectionLabel>
         <button
-          onClick={() => showToast('Password reset link sent to your email')}
+          onClick={async () => {
+            const email = useStore.getState().profile?.email;
+            if (!email) {
+              showToast('No email on this account');
+              return;
+            }
+            showToast('Sending reset link...');
+            const { error } = await sendPasswordReset(email);
+            if (error) showToast(`Could not send reset link: ${error}`);
+            else showToast(`Password reset link sent to ${email}`);
+          }}
           className="w-full py-3.5 text-left text-[13.5px] font-semibold text-text2"
         >
           Change password

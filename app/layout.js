@@ -17,8 +17,13 @@ const inter = localFont({
   display: 'swap',
 });
 
+// Canonical/OG base: must match the domain users can actually open.
+// Swap both this and app/sitemap.js to https://foundators.app once the
+// custom domain is attached in Vercel.
+const SITE_URL = 'https://foundators-flame.vercel.app';
+
 export const metadata = {
-  metadataBase: new URL('https://foundators.app'),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'Foundators — Social Network for Founders',
     template: '%s | Foundators',
@@ -30,17 +35,17 @@ export const metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://foundators.app',
+    url: SITE_URL,
     siteName: 'Foundators',
     title: 'Foundators — Social Network for Founders',
     description: 'Connect with founders, builders, and creators.',
-    images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    images: [{ url: '/foundators-intro.jpg', width: 899, height: 1600, alt: 'Foundators' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Foundators — Social Network for Founders',
     description: 'Connect with founders, builders, and creators.',
-    images: ['/og-image.png'],
+    images: ['/foundators-intro.jpg'],
   },
   robots: {
     index: true,
