@@ -53,7 +53,10 @@ export default function CallScreen({
     <div className="dark-surface fixed inset-0 z-[500] flex flex-col bg-gradient-to-b from-zinc-900 to-black">
       {videoLive ? (
         <div className="relative flex-1 bg-black">
-          <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
+          {/* muted: audio plays exactly once through CallManager's <audio>
+              element - an unmuted <video> playing the same stream double-
+              renders the audio track (phasing/garble/perceived lag). */}
+          <video ref={remoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
           <video
             ref={localVideoRef}
             autoPlay
