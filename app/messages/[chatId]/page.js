@@ -10,7 +10,7 @@ import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, 
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
-import { startVoiceCall } from '@/lib/call';
+import { startVoiceCall, startVideoCall } from '@/lib/call';
 import { subscribeQuery } from '@/lib/supabase/realtime';
 import { parseChatMedia, chatMediaLabel, buildImageText, buildAudioText, uploadChatImage, uploadChatAudio } from '@/lib/chatMedia';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -1051,7 +1051,13 @@ const recordingSecondsRef = useRef(0);
             <Phone size={17} />
           </button>
           <button
-            onClick={() => showToast('Video calling is coming soon')}
+            onClick={() => {
+              if (!otherUid || displayContact.isGroup) {
+                showToast('Group calls are coming soon - video calls are 1:1 for now');
+              } else {
+                startVideoCall(otherUid, { name: other?.name, avatar: other?.avatar });
+              }
+            }}
             className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi"
             aria-label="Video call"
           >

@@ -10,6 +10,10 @@ import { subscribeQuery } from '@/lib/supabase/realtime';
 import { mapRows } from '@/lib/supabase/db';
 import { initialsAvatar } from '@/lib/avatar';
 
+// One purge per session is plenty - expired rows are filtered everywhere
+// anyway; this just stops them piling up forever in the table.
+let purgeRan = false;
+
 export default function StoriesBar() {
   const router = useRouter();
   const scrollRef = useRef(null);
@@ -23,6 +27,14 @@ export default function StoriesBar() {
       setStories([]);
       setLoading(false);
       return;
+    }
+
+    if (!purgeRan) {
+      purgeRan = true;
+      getSupabase()
+        .rpc('purge_expired_stories')
+        .then(() => {})
+        .catch(() => {});
     }
 
     const key = 'stories:bar';

@@ -1,8 +1,10 @@
 'use client';
 
+import { useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Home, Film, Plus, MessageCircle, User } from 'lucide-react';
 import { useHaptics } from '@/lib/useHaptics';
+import { useStore } from '@/lib/store';
 
 const TABS = [
   { href: '/home', icon: Home, label: 'Home' },
@@ -16,6 +18,11 @@ export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { vibrate } = useHaptics();
+  const unreadByContact = useStore((s) => s.unreadByContact);
+  const totalUnread = useMemo(
+    () => Object.values(unreadByContact || {}).reduce((a, b) => a + (Number(b) || 0), 0),
+    [unreadByContact]
+  );
 
   return (
     <nav
@@ -42,13 +49,20 @@ export default function BottomNav() {
           <button
             key={tab.href}
             onClick={() => router.push(tab.href)}
-            aria-label={tab.label}
+            aria-label={tab.href === '/messages' && totalUnread > 0 ? `${tab.label}, ${totalUnread} unread` : tab.label}
             aria-current={active ? 'page' : undefined}
             className={`flex flex-1 flex-col items-center gap-1 py-1.5 text-[10.5px] font-bold ${
               active ? 'text-gold drop-shadow-[0_0_6px_rgba(217,172,61,0.6)]' : 'text-text3'
             }`}
           >
-            <Icon size={22} strokeWidth={2} />
+            <span className="relative">
+              <Icon size={22} strokeWidth={2} />
+              {tab.href === '/messages' && totalUnread > 0 && (
+                <span className="absolute -right-2 -top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-brandred px-[3px] text-[9px] font-black leading-none text-white">
+                  {totalUnread > 9 ? '9+' : totalUnread}
+                </span>
+              )}
+            </span>
             {tab.label}
           </button>
         );

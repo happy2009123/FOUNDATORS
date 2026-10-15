@@ -36,8 +36,8 @@ export default function CallManager() {
   const showToast = useStore((s) => s.showToast);
   const { vibrate } = useHaptics();
 
-  const [call, setCall] = useState(null); // { mode: 'incoming'|'outgoing'|'active', peer, callId, role }
-  const [audioState, setAudioState] = useState({ peers: 'idle', mic: 'off', peerCount: 0 });
+  const [call, setCall] = useState(null); // { mode, peer, callId, role, type: 'voice'|'video' }
+  const [audioState, setAudioState] = useState({ peers: 'idle', mic: 'off', video: 'off', peerCount: 0 });
   const [remoteStream, setRemoteStream] = useState(null);
   const [micIssue, setMicIssue] = useState(null);
   const [, forceTick] = useState(0);
@@ -54,6 +54,8 @@ export default function CallManager() {
   const startedAtRef = useRef(0);
   const handlersRef = useRef({});
   const audioElRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const localVideoRef = useRef(null);
 
   // Re-render every second while connected so the timer advances.
   useEffect(() => {
@@ -80,6 +82,30 @@ export default function CallManager() {
       });
     }
   }, [remoteStream]);
+
+  // Remote video element (video calls). Re-runs when the CallScreen video
+  // layout mounts (call.type/mode change) so srcObject lands on the el.
+  useEffect(() => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    el.srcObject = remoteStream || null;
+    if (!remoteStream) return;
+    const attempt = el.play && el.play();
+    if (attempt && typeof attempt.catch === 'function') attempt.catch(() => {});
+  }, [remoteStream, call?.type, call?.mode]);
+
+  // Local camera preview: pull the live video track from the mesh.
+  useEffect(() => {
+    const el = localVideoRef.current;
+    if (!el) return;
+    const mesh = meshRef.current;
+    const s = mesh && mesh.getVideoStream ? mesh.getVideoStream() : null;
+    el.srcObject = s || null;
+    if (s) {
+      const attempt = el.play && el.play();
+      if (attempt && typeof attempt.catch === 'function') attempt.catch(() => {});
+    }
+  }, [call?.type, call?.mode, audioState]);
 
   const myUid = profile?.id;
   useEffect(() => {
@@ -140,7 +166,7 @@ export default function CallManager() {
         meshRef.current = null;
       }
       setRemoteStream(null);
-      setAudioState({ peers: 'idle', mic: 'off', peerCount: 0 });
+      setAudioState({ peers: 'idle', mic: 'off', video: 'off', peerCount: 0 });
       setMicIssue(null);
     };
 
@@ -151,13 +177,13 @@ export default function CallManager() {
       sendSignalFrom(controlSessionFor(to), myUid, to, kind, payload || {}).catch(() => {});
     };
 
-    const logMissedCall = (peer) => {
+    const logMissedCall = (peer, type) => {
       const me = profileRef.current;
       if (!me?.id || !peer?.id) return;
       try {
         Promise.resolve(
           sendFS(conversationIdFor(me.id, peer.id), {
-            text: 'Missed voice call',
+            text: type === 'video' ? 'Missed video call' : 'Missed voice call',
             senderKey: me.id,
             senderName: me.name || 'User',
             senderAvatar: me.avatar || null,
@@ -169,11 +195,12 @@ export default function CallManager() {
       } catch (e) {}
     };
 
-    const startMedia = async (peer) => {
+    const startMedia = async (peer, wantVideo) => {
       teardownMesh();
       const mesh = new VoiceMesh({
         roomId: mediaSessionFor(myUid, peer.id),
         selfId: myUid,
+        enableVideo: !!wantVideo,
         onStateChange: setAudioState,
         onRemoteStream: (uid, stream) => setRemoteStream(stream),
         onActiveSpeakers: () => {},
@@ -187,6 +214,21 @@ export default function CallManager() {
         setMicIssue(mic.ok ? null : mic.reason || 'unavailable');
       } catch (e) {
         setMicIssue('unavailable');
+      }
+      if (wantVideo) {
+        // Camera prompt also needs the gesture context. Fall back to a
+        // voice call (keeping audio) if the camera is unavailable/denied.
+        try {
+          const v = await mesh.ensureVideo();
+          if (!v.ok) {
+            showToastRef.current && showToastRef.current('Camera unavailable - continuing as voice call');
+            updateCall({ ...callRef.current, type: 'voice' });
+          }
+        } catch (e) {
+          showToastRef.current && showToastRef.current('Camera unavailable - continuing as voice call');
+          updateCall({ ...callRef.current, type: 'voice' });
+        }
+        forceTick((t) => t + 1);
       }
       mesh.setParticipants([
         { uid: myUid, status: 'joined', role: 'speaker' },
@@ -214,6 +256,7 @@ export default function CallManager() {
             peer: { id: sig.from, name: p.name || 'Someone', avatar: p.avatar || null },
             callId: p.callId,
             role: 'callee',
+            type: p.video ? 'video' : 'voice',
           });
           startRing();
           return;
@@ -224,7 +267,7 @@ export default function CallManager() {
             stopRingback();
             updateCall({ ...c, mode: 'active' });
             startedAtRef.current = Date.now();
-            startMedia(c.peer);
+            startMedia(c.peer, c.type === 'video');
           }
           return;
         case CALL_KINDS.DECLINE:
@@ -232,7 +275,7 @@ export default function CallManager() {
             clearOutgoingTimer();
             stopRingback();
             updateCall(null);
-            logMissedCall(c.peer);
+            logMissedCall(c.peer, c.type === 'video' ? 'video' : 'voice');
             showToastRef.current && showToastRef.current('Call declined');
           }
           return;
@@ -277,28 +320,31 @@ export default function CallManager() {
       });
     };
 
-    const startCall = (peerId, meta = {}) => {
+    const startCall = (peerId, meta = {}, opts = {}) => {
       if (callRef.current) {
         showToastRef.current && showToastRef.current('You are already in a call');
         return;
       }
+      const video = !!(opts && opts.video);
       const peer = { id: peerId, name: meta.name || 'User', avatar: meta.avatar || null };
       const callId = newCallId();
-      // Unlock the microphone inside the tap gesture so the callee's accept
-      // (and the caller's own prompt on stricter browsers) never hits a
-      // gesture block. Result is discarded; ensureMic re-acquires later.
+      // Unlock the microphone (and camera for video calls) inside the tap
+      // gesture so the callee's accept (and the caller's own prompt on
+      // stricter browsers) never hits a gesture block. Result is discarded;
+      // ensureMic/ensureVideo re-acquire later.
       try {
         const g = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
         if (g) {
-          Promise.resolve(g.call(navigator.mediaDevices, { audio: true }))
+          Promise.resolve(g.call(navigator.mediaDevices, { audio: true, video }))
             .then((s) => s.getTracks().forEach((t) => t.stop()))
             .catch(() => {});
         }
       } catch (e) {}
-      updateCall({ mode: 'outgoing', peer, callId, role: 'caller' });
+      updateCall({ mode: 'outgoing', peer, callId, role: 'caller', type: video ? 'video' : 'voice' });
       sendSignalFrom(controlSessionFor(peerId), myUid, peerId, CALL_KINDS.OFFER, {
         callId,
         ts: Date.now(),
+        video: video || undefined,
         name: profileRef.current?.name,
         avatar: profileRef.current?.avatar,
       }).catch(() => {
@@ -318,7 +364,7 @@ export default function CallManager() {
           sendControl(peerId, CALL_KINDS.HANGUP, { callId });
           stopRingback();
           updateCall(null);
-          logMissedCall(peer);
+          logMissedCall(peer, video ? 'video' : 'voice');
           showToastRef.current && showToastRef.current('No answer');
         }
       }, RING_TIMEOUT_MS);
@@ -333,7 +379,7 @@ export default function CallManager() {
       sendControl(c.peer.id, CALL_KINDS.ACCEPT, { callId: c.callId });
       updateCall({ ...c, mode: 'active' });
       startedAtRef.current = Date.now();
-      startMedia(c.peer);
+      startMedia(c.peer, c.type === 'video');
     };
 
     const declineCall = () => {
@@ -374,7 +420,15 @@ export default function CallManager() {
         .catch(() => setMicIssue('unavailable'));
     };
 
-    handlersRef.current = { startCall, acceptCall, declineCall, hangupCall, toggleMute, retryMic };
+    const toggleCamera = () => {
+      const m = meshRef.current;
+      if (!m || !m.videoTrack) return;
+      const on = m.videoState === 'on';
+      m.setVideoEnabled(!on);
+      forceTick((t) => t + 1);
+    };
+
+    handlersRef.current = { startCall, acceptCall, declineCall, hangupCall, toggleMute, toggleCamera, retryMic };
 
     const unregister = registerCallController({ startCall });
     const unsubscribe = subscribeSignals(controlSession, myUid, handleRows);
@@ -405,7 +459,9 @@ export default function CallManager() {
         <div className="fixed inset-0 z-[600] flex flex-col items-center justify-center bg-gradient-to-b from-zinc-900 to-black px-6 text-white">
           <Avatar src={call.peer.avatar || initialsAvatar(call.peer.name || '?')} name={call.peer.name || '?'} size={104} />
           <h2 className="mt-5 text-[22px] font-black">{call.peer.name}</h2>
-          <p className="mt-1 text-[13px] text-white/60">Incoming voice call</p>
+          <p className="mt-1 text-[13px] text-white/60">
+            Incoming {call.type === 'video' ? 'video' : 'voice'} call
+          </p>
           <div className="mt-10 flex items-center gap-10">
             <button
               onClick={() => handlersRef.current?.declineCall()}
@@ -428,7 +484,7 @@ export default function CallManager() {
         <CallScreen
           name={call.peer.name}
           avatar={call.peer.avatar}
-          type="voice"
+          type={call.type || 'voice'}
           mode={call.mode}
           duration={
             call.mode === 'active' && startedAtRef.current
@@ -437,7 +493,10 @@ export default function CallManager() {
           }
           audioState={audioState}
           micIssue={micIssue}
+          remoteVideoRef={remoteVideoRef}
+          localVideoRef={localVideoRef}
           onToggleMute={() => handlersRef.current?.toggleMute()}
+          onToggleCamera={() => handlersRef.current?.toggleCamera()}
           onHangup={() => handlersRef.current?.hangupCall()}
           onRetryMic={() => handlersRef.current?.retryMic()}
         />
