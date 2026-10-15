@@ -11,6 +11,8 @@ import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
 import { startVoiceCall, startVideoCall } from '@/lib/call';
+import { createVoiceRoom } from '@/lib/voice';
+import { notifyUser } from '@/lib/notify';
 import { subscribeQuery } from '@/lib/supabase/realtime';
 import { parseChatMedia, chatMediaLabel, buildImageText, buildAudioText, uploadChatImage, uploadChatAudio } from '@/lib/chatMedia';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -60,6 +62,7 @@ export default function ChatPage() {
   const [showReactionPicker, setShowReactionPicker] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
   const [lightbox, setLightbox] = useState(null); // { url, name }
+  const [startingGroupCall, setStartingGroupCall] = useState(false);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -917,6 +920,52 @@ const recordingSecondsRef = useRef(0);
     if (pid) router.push(`/profile/${pid}`);
   }
 
+  // Group audio calls run on the voice-room stack: create a private room
+  // seeded with every member (they pass the private-room join gate),
+  // notify them, then jump in. Group video stays 1:1 for now.
+  async function startGroupVoiceCall() {
+    if (startingGroupCall || !profile || !chatData) return;
+    setStartingGroupCall(true);
+    try {
+      const title = String(chatData.groupName || chatData.name || 'Group').slice(0, 120);
+      const me = profile.id;
+      const uids = (chatData.participants || []).filter((u) => u && u !== me);
+      const names = chatData.participantNames || {};
+      const avatars = chatData.participantAvatars || {};
+      const roomId = await createVoiceRoom(profile, {
+        title,
+        description: `Group voice call in ${title}`,
+        type: 'private',
+        mode: 'now',
+        talkMode: 'open',
+        maxSpeakers: 12,
+        allowRaiseHand: false,
+        tags: ['group-call'],
+        seedParticipants: uids.map((u) => ({
+          uid: u,
+          name: names[u] || 'Member',
+          avatar: avatars[u] || '',
+        })),
+      });
+      uids.forEach((u) => {
+        notifyUser(u, {
+          type: 'voice_invite',
+          actorKey: me,
+          actorName: profile.name || 'A founder',
+          text: `${profile.name || 'A founder'} started a group voice call in ${title}. Tap to join.`,
+          linkType: 'voice_room',
+          linkId: roomId,
+        }).catch(() => {});
+      });
+      showToast('Call started - waiting for others to join');
+      router.push(`/voice/room/${roomId}`);
+    } catch (e) {
+      showToast(e.message || 'Could not start the call');
+    } finally {
+      setStartingGroupCall(false);
+    }
+  }
+
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1039,9 +1088,9 @@ const recordingSecondsRef = useRef(0);
         <div className="flex flex-none gap-1">
           <button
             onClick={() => {
-              if (!otherUid || displayContact.isGroup) {
-                showToast('Group calls are coming soon - voice calls are 1:1 for now');
-              } else {
+              if (displayContact.isGroup) {
+                startGroupVoiceCall();
+              } else if (otherUid) {
                 startVoiceCall(otherUid, { name: other?.name, avatar: other?.avatar });
               }
             }}
@@ -1053,7 +1102,7 @@ const recordingSecondsRef = useRef(0);
           <button
             onClick={() => {
               if (!otherUid || displayContact.isGroup) {
-                showToast('Group calls are coming soon - video calls are 1:1 for now');
+                showToast('Group video is coming soon - use the voice call button for now');
               } else {
                 startVideoCall(otherUid, { name: other?.name, avatar: other?.avatar });
               }

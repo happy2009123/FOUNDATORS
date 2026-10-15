@@ -15,7 +15,6 @@ import MobileBottomNav from '@/components/MobileBottomNav';
 import Toast from '@/components/Toast';
 import Drawer from '@/components/Drawer';
 import OfflineBanner from '@/components/OfflineBanner';
-import PushRegistrar from '@/components/PushRegistrar';
 import CookieBanner from '@/components/CookieBanner';
 import SkipToContent from '@/components/SkipToContent';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
@@ -75,7 +74,6 @@ export default function Providers({ children }) {
         <EmailVerificationBanner />
         <KeyboardShortcuts />
         <OfflineBanner />
-        <PushRegistrar />
         <DesktopShell />
         <MobileBottomNav />
         <div id="main-content">{children}</div>

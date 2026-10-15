@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getTokenVerifier } from '@/lib/supabase/server';
+import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -420,6 +421,11 @@ function rateLimited(uid) {
 }
 
 export async function POST(req) {
+  // AI calls cost real money: cap per-IP before parsing/auth, per-user after.
+  const rlIp = rateLimit(`copilot:ip:${clientIp(req)}`, { limit: 60, windowMs: 60000 });
+  if (!rlIp.ok) {
+    return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rlIp) });
+  }
   let body;
   try {
     body = await req.json();

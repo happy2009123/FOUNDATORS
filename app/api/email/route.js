@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
 
@@ -62,6 +63,12 @@ function welcomeHtml(name) {
 }
 
 export async function POST(req) {
+  // Email abuse = burned Resend quota + spam complaints. IP cap first,
+  // per-user cap after token verification (see below).
+  const rlIp = rateLimit(`email:ip:${clientIp(req)}`, { limit: 20, windowMs: 3600000 });
+  if (!rlIp.ok) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rlIp) });
+  }
   let body = {};
   try {
     body = await req.json();
@@ -76,6 +83,10 @@ export async function POST(req) {
   const auth = await verifyIdToken(bearer || idToken || '');
   if (auth.error) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
+  }
+  const rlUser = rateLimit(`email:u:${auth.user.uid}`, { limit: 10, windowMs: 3600000 });
+  if (!rlUser.ok) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rlUser) });
   }
   if (type !== 'welcome') {
     return NextResponse.json({ error: 'unknown-type' }, { status: 400 });
