@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { getTokenVerifier, isAuthVerifierConfigured, isSupabaseAdminConfigured } from '@/lib/supabase/server';
+import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
 
@@ -47,6 +48,12 @@ const ALLOWED_ROOTS = [
 const UID_SCOPED_ROOTS = ['stories', 'reels'];
 
 export async function POST(req) {
+  // Signed upload URLs gate paid Cloudinary bandwidth - cap per-IP before
+  // any token/crypto work.
+  const rl = rateLimit(`cloudinary:ip:${clientIp(req)}`, { limit: 60, windowMs: 60000 });
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rl) });
+  }
   try {
     // 0. Config check first: without any Supabase key the route cannot
     //    verify the caller and every upload fails as a bare 401.

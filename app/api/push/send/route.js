@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,12 @@ function linkPathFor(n) {
 }
 
 export async function POST(request) {
+  // Called once per created notification by whichever client triggered it -
+  // keep a single client from spiking the fan-out queue.
+  const rl = rateLimit(`push:ip:${clientIp(request)}`, { limit: 60, windowMs: 60000 });
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rl) });
+  }
   let body;
   try {
     body = await request.json();
