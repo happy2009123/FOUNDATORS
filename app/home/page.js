@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, BriefcaseBusiness, Code2, Coins, Lightbulb, MapPin, MessageCircle, Mic, Plus, Rocket, Sparkles, Target, UserPlus, Users, Zap } from 'lucide-react';
+import { ArrowRight, BriefcaseBusiness, Code2, Coins, Lightbulb, MapPin, MessageCircle, Mic, Plus, Rocket, Sparkles, Target, Trophy, UserPlus, Users, Zap } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import TopBar from '@/components/TopBar';
 import StoriesBar from '@/components/StoriesBar';
@@ -16,7 +16,7 @@ import { subscribeVoiceByStatus } from '@/lib/voice';
 
 const quick = [
   ['idea','Start a business',Lightbulb,'/ideas'], ['cofounder','Co-founder',UserPlus,'/match/find_cofounder'], ['programmer','Programmer',Code2,'/programmers'], ['funding','Funding',Coins,'/opportunities'],
-  ['work','Find work',BriefcaseBusiness,'/opportunities'], ['mentor','Mentor',Users,'/match/find_mentor'], ['project','Join project',Rocket,'/projects'], ['voice','Voice Rooms',Mic,'/voice'], ['learn','Learn',Zap,'/challenges'],
+  ['work','Find work',BriefcaseBusiness,'/opportunities'], ['mentor','Mentor',Users,'/match/find_mentor'], ['project','Join project',Rocket,'/projects'], ['voice','Voice Rooms',Mic,'/voice'], ['challenges','Challenges',Trophy,'/challenges'],
 ];
 
  export default function HomePage(){

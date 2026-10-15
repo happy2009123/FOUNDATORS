@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Code2, Coins, Filter, Search, Sparkles, UserPlus, Users } from 'lucide-react';
+import { Code2, Coins, Filter, Search, Sparkles, Trophy, UserPlus, Users } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import TopBar from '@/components/TopBar';
 import PullToRefresh from '@/components/PullToRefresh';
@@ -139,6 +139,7 @@ export default function DiscoverPage(){
     <Action icon={Code2} title="Find programmer" onClick={()=>router.push('/match/find_programmer')}/>
     <Action icon={Coins} title="Find investor" onClick={()=>router.push('/opportunities')}/>
     <Action icon={Users} title="Find mentor" onClick={()=>router.push('/match/find_mentor')}/>
+    <Action icon={Trophy} title="Challenges" onClick={()=>router.push('/challenges')}/>
    </div>
   </div>
   </PullToRefresh>
