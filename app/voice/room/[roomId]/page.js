@@ -41,6 +41,8 @@ import {
   approveSpeaker,
   rejectSpeaker,
   setParticipantRole,
+  allowSpeaker,
+  revokeSpeaker,
   removeParticipant,
   setSelfMuted,
   inviteSpeaker,
@@ -287,7 +289,18 @@ export default function VoiceRoomPage() {
       return;
     }
     joinedRef.current = true;
-    joinVoiceRoom(roomId, profile, isHost ? 'host' : undefined)
+    // Talk modes: 'open' rooms let every joiner use the mic right away
+    // (they join as speakers, up to maxSpeakers); 'host' rooms keep new
+    // joiners as listeners until the host allows them.
+    const liveSpeakers = participants.filter(
+      (p) => p && p.status === 'joined' && isRoomSpeaker(p.role)
+    ).length;
+    const joinRole = isHost
+      ? 'host'
+      : room.talkMode === 'open' && liveSpeakers < (room.maxSpeakers || 12)
+      ? 'speaker'
+      : undefined;
+    joinVoiceRoom(roomId, profile, joinRole)
       .then((role) => {
         joinedAtRef.current = Date.now();
         setJoined(true);
@@ -510,10 +523,10 @@ export default function VoiceRoomPage() {
         try {
           const req = requests.find((r) => r.uid === targetUid);
           if (req) await approveSpeaker(room, targetUid, profile);
-          else await setParticipantRole(roomId, targetUid, 'speaker');
-          showToast('Speaker approved');
+          else await allowSpeaker(room, targetUid, profile);
+          showToast('Allowed to talk - they can turn on their mic now');
         } catch (e) {
-          showToast('Could not approve speaker');
+          showToast('Could not allow speaker');
         }
         setBusy(false);
       },
@@ -527,7 +540,8 @@ export default function VoiceRoomPage() {
       },
       demote: async (targetUid) => {
         try {
-          await setParticipantRole(roomId, targetUid, 'listener');
+          await revokeSpeaker(room, targetUid);
+          showToast('Speaking access removed');
         } catch (e) {
           showToast('Could not move speaker');
         }
@@ -1061,6 +1075,17 @@ export default function VoiceRoomPage() {
     <div className="mx-3.5 mb-2 rounded-2xl border border-line bg-card px-3.5 py-3">
       <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-text3">
         <Mic size={11} className="text-gold" /> Microphone
+        {room ? (
+          <span
+            className={`rounded-full px-1.5 py-0.5 text-[8.5px] font-black ${
+              room.talkMode === 'open'
+                ? 'bg-brandgreen/15 text-brandgreen'
+                : 'bg-gold/15 text-gold-hi'
+            }`}
+          >
+            {room.talkMode === 'open' ? 'OPEN MIC' : 'HOST-CONTROLLED'}
+          </span>
+        ) : null}
         <span className="h-px flex-1 bg-linesoft" />
       </div>
       <div className="flex items-center gap-3">
@@ -1095,7 +1120,11 @@ export default function VoiceRoomPage() {
           </div>
           <div className="truncate text-[10.5px] text-text3">
             {!mySpeaker
-              ? 'Raise your hand to request the mic'
+              ? room.talkMode === 'open'
+                ? 'The stage is full - you are listening for now'
+                : room.allowRaiseHand === false
+                ? 'Only people the host allows can talk here'
+                : 'Raise your hand to request the mic'
               : audioState.mic === 'on' && !muted
               ? 'Others can hear you right now'
               : audioState.mic === 'on' && muted
