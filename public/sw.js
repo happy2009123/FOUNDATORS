@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foundators-v7';
+const CACHE_NAME = 'foundators-v8';
 const PRECACHE = ['/', '/home', '/discover', '/messages', '/login', '/copilot', '/voice', '/icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -34,6 +34,49 @@ function offlinePage() {
 function assetError() {
   return new Response('', { status: 504, statusText: 'Gateway Timeout' });
 }
+
+// ─── Web Push ────────────────────────────────────────────────────────────
+// Payload from /api/push/send: { title, body, url }. Always show through
+// the Notifications API (the permission was granted explicitly via
+// lib/push.js, so userVisibleOnly is satisfied).
+
+self.addEventListener('push', (e) => {
+  let data = {};
+  try {
+    data = e.data ? e.data.json() : {};
+  } catch (err) {
+    try {
+      data = { body: e.data ? e.data.text() : '' };
+    } catch (err2) {
+      data = {};
+    }
+  }
+  const title = data.title || 'Foundators';
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      icon: '/icon-192x192.png',
+      badge: '/icon-96x96.png',
+      data: { url: data.url || '/notifications' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || '/notifications';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ('focus' in client) {
+          client.navigate(target);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});
 
 self.addEventListener('fetch', (e) => {
   const { request } = e;

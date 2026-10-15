@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, X } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
@@ -10,10 +10,10 @@ import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
 import { sendPasswordReset } from '@/lib/supabase/auth';
 import { submitFeedback } from '@/lib/feedback';
+import { isPushSupported, enablePushNotifications, disablePushNotifications } from '@/lib/push';
 import AuthSkeleton from '@/components/AuthSkeleton';
 
 const NOTIF_ROWS = [
-  { key: 'pushNotifications', label: 'Push notifications' },
   { key: 'emailDigest', label: 'Email digest' },
   { key: 'commentAlerts', label: 'Comment alerts' },
 ];
@@ -32,6 +32,42 @@ export default function SettingsPage() {
   const [fbCategory, setFbCategory] = useState('general');
   const [fbMessage, setFbMessage] = useState('');
   const [fbSending, setFbSending] = useState(false);
+  const [pushState, setPushState] = useState('unknown'); // unknown | on | off | denied | unsupported
+  const [pushBusy, setPushBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isPushSupported()) {
+      setPushState('unsupported');
+      return;
+    }
+    if (Notification.permission === 'granted') setPushState('on');
+    else if (Notification.permission === 'denied') setPushState('denied');
+    else setPushState('off');
+  }, []);
+
+  async function handlePushToggle() {
+    if (pushBusy) return;
+    if (pushState === 'on') {
+      setPushBusy(true);
+      await disablePushNotifications();
+      setPushBusy(false);
+      setPushState('off');
+      return;
+    }
+    if (pushState !== 'off') return;
+    setPushBusy(true);
+    const r = await enablePushNotifications();
+    setPushBusy(false);
+    if (r.ok) {
+      setPushState('on');
+      showToast('Push notifications enabled on this device');
+    } else if (r.error === 'denied') {
+      setPushState('denied');
+      showToast('Notifications are blocked - allow them in your browser settings');
+    } else {
+      showToast('Could not enable push notifications');
+    }
+  }
 
   if (!ready) return <AuthSkeleton />;
 
@@ -77,6 +113,11 @@ export default function SettingsPage() {
         </button>
 
         <SectionLabel>Notifications</SectionLabel>
+        <SettingRow
+          label={pushState === 'denied' ? 'Push notifications (blocked)' : pushState === 'unsupported' ? 'Push notifications (unsupported)' : 'Push notifications'}
+          on={pushState === 'on'}
+          onToggle={handlePushToggle}
+        />
         {NOTIF_ROWS.map((r) => (
           <SettingRow key={r.key} label={r.label} on={settings[r.key]} onToggle={() => toggleSetting(r.key)} />
         ))}
