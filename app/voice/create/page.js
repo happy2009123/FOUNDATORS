@@ -66,6 +66,7 @@ function CreateRoomInner() {
   const [time, setTime] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [maxSpeakers, setMaxSpeakers] = useState(String(VOICE_MAX_SPEAKERS_DEFAULT));
+  const [talkMode, setTalkMode] = useState('open');
   const [allowRaiseHand, setAllowRaiseHand] = useState(true);
   const [allowReactions, setAllowReactions] = useState(true);
   const [allowQuestions, setAllowQuestions] = useState(true);
@@ -159,6 +160,7 @@ function CreateRoomInner() {
           .map((t) => t.trim())
           .filter(Boolean),
         maxSpeakers: parseInt(maxSpeakers, 10),
+        talkMode,
         allowRaiseHand,
         allowReactions,
         allowQuestions,
@@ -325,6 +327,32 @@ function CreateRoomInner() {
                   </div>
                 </Field>
               </div>
+
+              <Field label="Who can talk" hint="you can allow or stop speakers anytime">
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {[
+                    { key: 'open', label: 'Everyone can talk', hint: 'Host and everyone who joins can use their mic' },
+                    { key: 'host', label: 'Host picks speakers', hint: 'Only people you allow can talk' },
+                  ].map((m) => (
+                    <button
+                      type="button"
+                      key={m.key}
+                      onClick={() => setTalkMode(m.key)}
+                      className={`flex w-full flex-col items-start rounded-xl border px-3 py-2.5 text-left transition-all ${
+                        talkMode === m.key ? 'border-gold/70 bg-gold/10' : 'border-line bg-white/[0.03] active:bg-white/5'
+                      }`}
+                    >
+                      <span className="text-[12.5px] font-bold text-text1">{m.label}</span>
+                      <span className="text-[10.5px] text-text3">{m.hint}</span>
+                    </button>
+                  ))}
+                </div>
+                {talkMode === 'host' ? (
+                  <div className="mt-1.5 text-[10.5px] text-text3">
+                    Listeners can raise a hand, or you can allow anyone directly from People.
+                  </div>
+                ) : null}
+              </Field>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Topic tags" hint="comma separated">

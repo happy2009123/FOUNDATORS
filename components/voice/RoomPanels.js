@@ -243,12 +243,12 @@ export function PeoplePanel({ participants, requests, canModerate, meId, actions
             </button>
           </>
         ) : null}
-        {!isHostRow && p.role !== 'speaker' && p.raisedHand ? (
+        {!isHostRow && p.role === 'listener' && !pending.some((r) => r.uid === p.uid) ? (
           <button
             onClick={() => actions.approve(p.uid)}
             className="rounded-lg bg-brandgreen/15 px-2 py-1 text-[9.5px] font-black text-brandgreen"
           >
-            Make speaker
+            {p.raisedHand ? 'Make speaker' : 'Allow to talk'}
           </button>
         ) : null}
         {!isHostRow && p.role === 'speaker' ? (
@@ -256,7 +256,7 @@ export function PeoplePanel({ participants, requests, canModerate, meId, actions
             onClick={() => actions.demote(p.uid)}
             className="rounded-lg border border-line px-2 py-1 text-[9.5px] font-bold text-text2"
           >
-            To listener
+            Stop talking
           </button>
         ) : null}
         {!isHostRow ? (
