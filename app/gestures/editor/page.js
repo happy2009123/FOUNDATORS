@@ -63,7 +63,7 @@ export default function EditorPage() {
   const [activeTab, setActiveTab] = useState('html');
   const [htmlCode, setHtmlCode] = useState(DEFAULT_HTML);
   const [cssCode, setCssCode] = useState(DEFAULT_CSS);
-  const [jsCode] = useState('');
+  const [jsCode, setJsCode] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
   const [copied, setCopied] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
@@ -75,16 +75,20 @@ export default function EditorPage() {
 
   const htmlRef = useRef(null);
   const cssRef = useRef(null);
+  const jsRef = useRef(null);
   const debounceRef = useRef(null);
 
   const lineCount = useMemo(() => {
-    const code = activeTab === 'html' ? htmlCode : cssCode;
+    const code = activeTab === 'html' ? htmlCode : activeTab === 'css' ? cssCode : jsCode;
     return code.split('\n').length;
-  }, [activeTab, htmlCode, cssCode]);
+  }, [activeTab, htmlCode, cssCode, jsCode]);
 
-  const buildPreview = useCallback((html, css) => {
+  const buildPreview = useCallback((html, css, js = '') => {
     const processed = replaceVariables(html);
-    const full = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#020202;color:#fff;width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}${css}</style></head><body>${processed}</body></html>`;
+    const scriptTag = js && js.trim()
+      ? `<script>try{${js.replace(/<\/script>/gi, '<\\/script>')}}catch(e){console.error(e)}</script>`
+      : '';
+    const full = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#020202;color:#fff;width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}${css}</style></head><body>${processed}${scriptTag}</body></html>`;
     setPreviewHtml(full);
   }, []);
 
@@ -95,6 +99,7 @@ export default function EditorPage() {
         const draft = JSON.parse(saved);
         if (draft.htmlCode) setHtmlCode(draft.htmlCode);
         if (draft.cssCode) setCssCode(draft.cssCode);
+        if (draft.jsCode) setJsCode(draft.jsCode);
       } catch {}
     }
   }, []);
@@ -102,13 +107,14 @@ export default function EditorPage() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      buildPreview(htmlCode, cssCode);
+      buildPreview(htmlCode, cssCode, jsCode);
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [htmlCode, cssCode, buildPreview]);
+  }, [htmlCode, cssCode, jsCode, buildPreview]);
 
   useEffect(() => {
-    buildPreview(htmlCode, cssCode);
+    buildPreview(htmlCode, cssCode, jsCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -158,7 +164,7 @@ export default function EditorPage() {
 
   const handleSave = () => {
     vibrate('light');
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ htmlCode, cssCode, savedAt: Date.now() }));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ htmlCode, cssCode, jsCode, savedAt: Date.now() }));
     showToast('Draft saved');
   };
 
@@ -175,6 +181,7 @@ export default function EditorPage() {
         category: pubCategory.toLowerCase(),
         code: htmlCode,
         css: cssCode,
+        js: jsCode,
       });
       vibrate('light');
       showToast('Published to community!');
@@ -193,6 +200,7 @@ export default function EditorPage() {
     vibrate('light');
     setHtmlCode(DEFAULT_HTML);
     setCssCode(DEFAULT_CSS);
+    setJsCode('');
     localStorage.removeItem(DRAFT_KEY);
     showToast('Reset to defaults');
   };
@@ -212,7 +220,7 @@ export default function EditorPage() {
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-bold text-white truncate">Template Editor</h1>
-            <p className="text-[10px] text-gray-500 truncate">Write HTML/CSS. See it live. Share with the world.</p>
+            <p className="text-[10px] text-gray-500 truncate">Write HTML/CSS/JS. See it live. Share with the world.</p>
           </div>
         </div>
 
@@ -225,12 +233,10 @@ export default function EditorPage() {
               {['html', 'css', 'js'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => tab !== 'js' && setActiveTab(tab)}
+                  onClick={() => setActiveTab(tab)}
                   className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-semibold uppercase transition-colors relative ${
                     activeTab === tab
                       ? 'text-[#D9AC3D]'
-                      : tab === 'js'
-                      ? 'text-gray-600 cursor-not-allowed'
                       : 'text-gray-500 hover:text-gray-300'
                   }`}
                 >
@@ -238,9 +244,6 @@ export default function EditorPage() {
                   {tab === 'css' && <Palette size={12} />}
                   {tab === 'js' && <Play size={12} />}
                   {tab}
-                  {tab === 'js' && (
-                    <span className="text-[8px] ml-1 bg-[#2a2a2a] px-1 rounded text-gray-600">soon</span>
-                  )}
                   {activeTab === tab && (
                     <div
                       className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#D9AC3D]"
@@ -286,12 +289,15 @@ export default function EditorPage() {
                   />
                 )}
                 {activeTab === 'js' && (
-                  <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-                    <div className="text-center">
-                      <Play size={24} className="mx-auto mb-2 opacity-30" />
-                      <p>JavaScript support coming soon</p>
-                    </div>
-                  </div>
+                  <textarea
+                    ref={jsRef}
+                    value={jsCode}
+                    onChange={(e) => setJsCode(e.target.value)}
+                    onKeyDown={(e) => handleTabKeyDown(e, jsRef, setJsCode)}
+                    spellCheck={false}
+                    className="w-full h-full min-h-full bg-transparent text-[#e6edf3] font-mono text-xs leading-[1.6] p-3 resize-none outline-none placeholder-gray-600"
+                    placeholder="Write your JavaScript here..."
+                  />
                 )}
               </div>
             </div>
@@ -303,7 +309,7 @@ export default function EditorPage() {
               <Eye size={14} className="text-[#D9AC3D]" />
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Preview</span>
               <button
-                onClick={() => buildPreview(htmlCode, cssCode)}
+                onClick={() => buildPreview(htmlCode, cssCode, jsCode)}
                 className="ml-auto p-1.5 rounded-md hover:bg-[#111] transition-colors"
                 title="Refresh preview"
               >

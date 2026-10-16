@@ -1249,6 +1249,14 @@ export default function VoiceRoomPage() {
   const bottomBars = (
     <div className="border-t border-linesoft bg-[#0a0a0a] px-3 pb-3 pt-2.5">
       {joined && !kicked && !joinError ? micSection : null}
+      {joined && !kicked && !joinError && mySpeaker && !cameraOn && remoteVideoList.length > 0 ? (
+        <button
+          onClick={onCameraPress}
+          className="mb-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/50 bg-gold/10 py-2.5 text-[12px] font-extrabold text-gold-hi active:bg-white/5"
+        >
+          <Camera size={14} /> Someone is on camera — tap to show yours
+        </button>
+      ) : null}
       <div className="mb-2 flex gap-2">
         <button
           onClick={() => {

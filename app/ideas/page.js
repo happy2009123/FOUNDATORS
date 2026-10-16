@@ -4,15 +4,21 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight, Eye, Lock, Plus, Users, ChevronUp, ChevronDown,
-  MessageCircle, Share2, TrendingUp, Clock, CheckCircle, Lightbulb, Star, X, Send, Heart,
+  MessageCircle, Share2, TrendingUp, Clock, CheckCircle, Lightbulb, Star, X, Send, Heart, Save, RotateCcw, UserPlus,
 } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
+import Avatar from '@/components/Avatar';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { formatPostTime } from '@/lib/timeago';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows, randomId, toRow } from '@/lib/supabase/db';
+import {
+  saveIdeaVersion, fetchIdeaVersions, fetchVaultMembers,
+  addVaultMember, removeVaultMember, restoreIdeaVersion,
+} from '@/lib/ideasVault';
+import { fetchUsersByIds } from '@/lib/projects';
 
 const STAGE_COLORS = { MVP: '#22c55e', Concept: '#3b82f6', Prototype: '#f59e0b', Launched: '#a855f7' };
 
@@ -21,7 +27,7 @@ const FILTER_TABS = [
   { key: 'recent', label: 'Recent', icon: Clock },
 ];
 
-const EMPTY_FORM = { name: '', tagline: '', stage: 'Concept', description: '', problem: '', solution: '', audience: '', tech: '' };
+const EMPTY_FORM = { name: '', tagline: '', stage: 'Concept', description: '', problem: '', solution: '', audience: '', tech: '', isPrivate: false };
 
 export default function Ideas() {
   const router = useRouter();
@@ -41,6 +47,13 @@ export default function Ideas() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
   const [commenting, setCommenting] = useState(false);
+  const [vault, setVault] = useState({ versions: [], members: [], loaded: false });
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteSearch, setInviteSearch] = useState('');
+  const [inviteUsers, setInviteUsers] = useState([]);
+  const [inviteLoaded, setInviteLoaded] = useState(false);
+  const [memberProfiles, setMemberProfiles] = useState([]);
 
   useEffect(() => {
     async function fetchIdeas() {
@@ -77,6 +90,7 @@ export default function Ideas() {
           authorKey: row.authorKey,
           authorName: row.authorName,
           authorAvatar: row.authorAvatar,
+          isPrivate: !!row.isPrivate,
           upvotedBy: row.upvotes || [],
           votes: 0,
           createdAt: row.createdAt,
@@ -103,8 +117,180 @@ export default function Ideas() {
     fetchIdeas();
   }, []);
 
+  // Load vault versions + members when the author opens their own idea.
+  useEffect(() => {
+    if (!openId || !profile?.id) {
+      setVault({ versions: [], members: [], loaded: false });
+      setInviteUsers([]);
+      setInviteLoaded(false);
+      setInviteOpen(false);
+      return undefined;
+    }
+    const idea = ideas.find((i) => i.id === openId);
+    if (!idea || idea.authorKey !== profile.id) {
+      setVault({ versions: [], members: [], loaded: true });
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = getSupabase();
+        if (!s) return;
+        const [vr, mr] = await Promise.all([
+          s.from('idea_versions').select('*').eq('idea_id', openId).order('version', { ascending: false }).limit(20),
+          s.from('idea_vault_members').select('*').eq('idea_id', openId).order('created_at', { ascending: false }).limit(50),
+        ]);
+        if (cancelled) return;
+        setVault({
+          versions: mapRows(vr.data || []),
+          members: mapRows(mr.data || []),
+          loaded: true,
+        });
+      } catch (e) {
+        if (!cancelled) setVault((v) => ({ ...v, loaded: true }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openId, profile?.id, ideas]);
+
+  // Resolve display names for vault members.
+  useEffect(() => {
+    if (!vault.members?.length) {
+      setMemberProfiles([]);
+      return;
+    }
+    let cancelled = false;
+    fetchUsersByIds(vault.members.map((m) => m.userId)).then((list) => {
+      if (!cancelled) setMemberProfiles(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [vault.members]);
+
+  // Load the invite picker list once.
+  useEffect(() => {
+    if (!inviteOpen || inviteLoaded) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = getSupabase();
+        if (!s) return;
+        const { data, error } = await s
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (cancelled) return;
+        setInviteUsers(mapRows(data || []).filter((u) => u && u.status !== 'suspended'));
+      } catch {
+      } finally {
+        if (!cancelled) setInviteLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteOpen, inviteLoaded]);
+
   const openIdea = useCallback((id) => { vibrate('light'); setOpenId(id); }, [vibrate]);
-  const closeIdea = useCallback(() => { vibrate('light'); setOpenId(null); setNewComment(''); }, [vibrate]);
+  const closeIdea = useCallback(() => {
+    vibrate('light');
+    setOpenId(null);
+    setNewComment('');
+    setVault({ versions: [], members: [], loaded: false });
+    setInviteOpen(false);
+    setInviteSearch('');
+  }, [vibrate]);
+
+  async function handleSaveVersion() {
+    if (!openIdeaData || !profile?.id || vaultBusy) return;
+    setVaultBusy(true);
+    try {
+      const v = await saveIdeaVersion(openIdeaData, profile.id);
+      showToast(`Version ${v} saved`);
+      const list = await fetchIdeaVersions(openIdeaData.id);
+      setVault((prev) => ({ ...prev, versions: list }));
+    } catch (e) {
+      showToast(e?.message?.includes('relation') || e?.message?.includes('column')
+        ? 'Run migration 0012 in Supabase first'
+        : 'Could not save version');
+    } finally {
+      setVaultBusy(false);
+    }
+  }
+
+  async function handleRestoreVersion(versionRow) {
+    if (!openIdeaData || !profile?.id || vaultBusy) return;
+    if (!window.confirm(`Restore version ${versionRow.version}? This overwrites the current idea fields.`)) return;
+    setVaultBusy(true);
+    try {
+      await restoreIdeaVersion(openIdeaData, versionRow);
+      setIdeas((prev) => prev.map((i) => {
+        if (i.id !== openIdeaData.id) return i;
+        const body = versionRow.body || {};
+        return {
+          ...i,
+          name: versionRow.title || i.name,
+          tagline: versionRow.summary || i.tagline,
+          description: body.description || i.description,
+          problem: body.problem || i.problem,
+          solution: body.solution || i.solution,
+          audience: body.audience || i.audience,
+          tech: body.tech || i.tech,
+          stage: body.stage || i.stage,
+        };
+      }));
+      showToast(`Restored version ${versionRow.version}`);
+    } catch (e) {
+      showToast('Could not restore version');
+    } finally {
+      setVaultBusy(false);
+    }
+  }
+
+  async function handleInviteMember(u) {
+    if (!openIdeaData || !profile?.id || vaultBusy) return;
+    if (vault.members.some((m) => m.userId === u.id)) {
+      showToast('Already has access');
+      return;
+    }
+    setVaultBusy(true);
+    try {
+      await addVaultMember(openIdeaData.id, u.id, profile.id);
+      setVault((prev) => ({
+        ...prev,
+        members: [{ ideaId: openIdeaData.id, userId: u.id, addedBy: profile.id }, ...prev.members],
+      }));
+      showToast(`${u.name || 'Member'} can now see this idea`);
+      setInviteOpen(false);
+      setInviteSearch('');
+    } catch (e) {
+      showToast(e?.message?.includes('relation') ? 'Run migration 0012 in Supabase first' : 'Could not invite member');
+    } finally {
+      setVaultBusy(false);
+    }
+  }
+
+  async function handleRemoveMember(userId) {
+    if (!openIdeaData || !profile?.id || vaultBusy) return;
+    setVaultBusy(true);
+    try {
+      await removeVaultMember(openIdeaData.id, userId);
+      setVault((prev) => ({
+        ...prev,
+        members: prev.members.filter((m) => m.userId !== userId),
+      }));
+      showToast('Access removed');
+    } catch (e) {
+      showToast('Could not remove member');
+    } finally {
+      setVaultBusy(false);
+    }
+  }
 
   const handleVote = useCallback(async (ideaId) => {
     if (!profile?.id) { showToast('Please sign in to vote'); return; }
@@ -201,6 +387,7 @@ export default function Ideas() {
           authorKey: profile.id,
           authorName: profile.name,
           authorAvatar: profile.avatar || null,
+          isPrivate: !!form.isPrivate,
           upvotes: [],
         }));
       if (error) throw error;
@@ -217,6 +404,7 @@ export default function Ideas() {
         authorKey: profile.id,
         authorName: profile.name,
         authorAvatar: profile.avatar,
+        isPrivate: !!form.isPrivate,
         upvotedBy: [],
         votes: 0,
         comments: [],
@@ -224,7 +412,8 @@ export default function Ideas() {
       };
       vibrate('medium');
       setIdeas((prev) => [newIdea, ...prev]);
-      setForm(EMPTY_FORM); setShowForm(false); showToast('Idea published!');
+      setForm(EMPTY_FORM); setShowForm(false);
+      showToast(form.isPrivate ? 'Idea saved to your vault (private)' : 'Idea published!');
     } catch (err) {
       console.error('Failed to submit idea:', err);
       showToast('Failed to publish idea.');
@@ -305,6 +494,7 @@ export default function Ideas() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
+                        {idea.isPrivate ? <Lock size={12} className="flex-none text-gold" /> : null}
                         <span className="text-[14px] font-extrabold">{idea.name}</span>
                         <span className="rounded-full border px-2 py-0.5 text-[9px] font-bold" style={{ borderColor: STAGE_COLORS[idea.stage], color: STAGE_COLORS[idea.stage] }}>{idea.stage}</span>
                       </div>
@@ -340,7 +530,7 @@ export default function Ideas() {
         <div className="mt-5 rounded-2xl border border-line bg-[rgba(217,172,61,.05)] p-4">
           <div className="flex items-center gap-2 text-[12px] font-extrabold"><Lock size={15} className="text-gold" /> Idea Vault</div>
           <p className="mt-1 text-[10.5px] leading-5 text-text2">Keep ideas private, track versions and invite only the people you trust.</p>
-          <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-gold">Coming soon</div>
+          <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-gold">Live — toggle "Private" when submitting</div>
         </div>
 
         {showForm && (
@@ -371,6 +561,19 @@ export default function Ideas() {
               <input type="text" value={form.audience} onChange={(e) => updateField('audience', e.target.value)} placeholder="Who will use this?" className="mt-1 w-full rounded-xl border border-line bg-[rgba(255,255,255,.03)] px-3 py-2.5 text-[11px] text-text placeholder:text-text2 focus:border-gold/50 focus:outline-none" />
               <label className="mt-3 block text-[10px] font-bold text-text2">Tech Stack</label>
               <input type="text" value={form.tech} onChange={(e) => updateField('tech', e.target.value)} placeholder="Technologies you plan to use" className="mt-1 w-full rounded-xl border border-line bg-[rgba(255,255,255,.03)] px-3 py-2.5 text-[11px] text-text placeholder:text-text2 focus:border-gold/50 focus:outline-none" />
+              <button
+                onClick={() => { vibrate('light'); updateField('isPrivate', !form.isPrivate); }}
+                className={`mt-4 flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${form.isPrivate ? 'border-gold/40 bg-gold/10' : 'border-line bg-[rgba(255,255,255,.03)]'}`}
+              >
+                <Lock size={16} className={`flex-none ${form.isPrivate ? 'text-gold' : 'text-text3'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-bold">Private (Idea Vault)</div>
+                  <div className="text-[10px] text-text2">Only you and founders you invite can see it</div>
+                </div>
+                <div className={`h-5 w-9 flex-none rounded-full transition-all ${form.isPrivate ? 'bg-gold' : 'bg-line'}`}>
+                  <div className={`h-4 w-4 rounded-full bg-white transition-transform ${form.isPrivate ? 'translate-x-4.5 ml-0.5 mt-0.5' : 'ml-0.5 mt-0.5'}`} />
+                </div>
+              </button>
             </div>
           </div>
         )}
@@ -384,6 +587,11 @@ export default function Ideas() {
             </div>
             <div className="no-scrollbar px-4 py-4">
               <div className="flex items-center gap-2">
+                {openIdeaData.isPrivate ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-gold">
+                    <Lock size={10} /> Private
+                  </span>
+                ) : null}
                 <span className="text-[18px] font-black">{openIdeaData.name}</span>
                 <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: STAGE_COLORS[openIdeaData.stage], color: STAGE_COLORS[openIdeaData.stage] }}>{openIdeaData.stage}</span>
               </div>
@@ -402,6 +610,102 @@ export default function Ideas() {
                 <button onClick={() => handleShareIdea(openIdeaData)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={15} /></button>
                 <button onClick={() => { vibrate('light'); router.push('/match/find_programmer'); }} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[11px] font-black text-[#171100]">Build team <ArrowRight size={13} /></button>
               </div>
+
+              {profile?.id && openIdeaData.authorKey === profile.id ? (
+                <div className="mt-5 rounded-2xl border border-gold/25 bg-gold/[0.04] p-3.5">
+                  <div className="flex items-center gap-2 text-[12px] font-extrabold text-gold-hi">
+                    <Lock size={13} /> Idea Vault
+                    {openIdeaData.isPrivate ? <span className="ml-auto rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-gold">Private</span> : null}
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    <button
+                      onClick={handleSaveVersion}
+                      disabled={vaultBusy}
+                      className="flex items-center gap-1.5 rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-[11px] font-bold text-gold-hi disabled:opacity-50"
+                    >
+                      <Save size={12} /> Save version
+                    </button>
+                    <button
+                      onClick={() => { setInviteOpen((v) => !v); setInviteSearch(''); }}
+                      className="flex items-center gap-1.5 rounded-xl border border-line bg-card px-3 py-2 text-[11px] font-bold text-text2"
+                    >
+                      <UserPlus size={12} /> Invite
+                    </button>
+                  </div>
+                  {inviteOpen ? (
+                    <div className="mt-2.5">
+                      <input
+                        autoFocus
+                        value={inviteSearch}
+                        onChange={(e) => setInviteSearch(e.target.value)}
+                        placeholder="Search founders to invite..."
+                        className="w-full rounded-xl border border-line bg-white/[0.04] px-3 py-2 text-[11px] text-text1 outline-none placeholder:text-text3 focus:border-gold/40"
+                      />
+                      <div className="mt-1.5 max-h-36 space-y-1 overflow-y-auto">
+                        {inviteUsers
+                          .filter((u) => {
+                            if (!u || u.id === profile?.id) return false;
+                            if (vault.members.some((m) => m.userId === u.id)) return false;
+                            if (inviteSearch && !(u.name || '').toLowerCase().includes(inviteSearch.toLowerCase())) return false;
+                            return true;
+                          })
+                          .slice(0, 12)
+                          .map((u) => (
+                            <button
+                              key={u.id}
+                              onClick={() => handleInviteMember(u)}
+                              disabled={vaultBusy}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left active:bg-white/5 disabled:opacity-50"
+                            >
+                              <Avatar src={u.avatar || null} name={u.name || 'Member'} size={28} />
+                              <span className="min-w-0 flex-1 truncate text-[12px] font-bold">{u.name || 'Member'}</span>
+                              <span className="flex-none text-[10px] font-bold text-gold">Add</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {vault.members.length ? (
+                    <div className="mt-2.5 space-y-1">
+                      {vault.members.map((m) => {
+                        const mp = memberProfiles.find((p) => p.id === m.userId);
+                        return (
+                          <div key={m.userId} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+                            <Avatar src={mp?.avatar || null} name={mp?.name || 'Member'} size={26} />
+                            <span className="min-w-0 flex-1 truncate text-[11.5px] font-bold">{mp?.name || m.userId}</span>
+                            <button
+                              onClick={() => handleRemoveMember(m.userId)}
+                              disabled={vaultBusy}
+                              className="flex-none text-[10px] font-bold text-brandred disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {vault.versions.length ? (
+                    <div className="mt-2.5 space-y-1 border-t border-gold/15 pt-2.5">
+                      {vault.versions.map((v) => (
+                        <div key={v.id} className="flex items-center gap-2 rounded-xl px-2 py-1.5">
+                          <span className="flex-none rounded-full border border-line bg-card px-2 py-0.5 text-[9px] font-bold text-text2">v{v.version}</span>
+                          <span className="min-w-0 flex-1 truncate text-[11px] text-text2">{v.title || '(untitled)'}</span>
+                          <button
+                            onClick={() => handleRestoreVersion(v)}
+                            disabled={vaultBusy}
+                            className="flex flex-none items-center gap-1 text-[10px] font-bold text-gold-hi disabled:opacity-50"
+                          >
+                            <RotateCcw size={10} /> Restore
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : vault.loaded ? (
+                    <p className="mt-2 text-[10px] text-text3">No versions yet — save one to snapshot this idea.</p>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="mt-5 border-t border-line pt-4">
                 <h3 className="flex items-center gap-1.5 text-[12px] font-extrabold text-gold-hi"><MessageCircle size={13} /> Comments ({openIdeaData.comments?.length || 0})</h3>
