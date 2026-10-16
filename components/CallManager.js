@@ -304,11 +304,18 @@ export default function CallManager() {
           return;
         case CALL_KINDS.VIDEO_ON:
           // Peer turned their camera on mid-call - switch to the video
-          // layout. Our own camera stays off until the user taps theirs;
-          // the remote track arrives via normal renegotiation.
+          // layout and silently mirror our own camera if permission was
+          // already granted (silent no-op when blocked; user can still
+          // tap the camera button).
           if (c && c.mode === 'active' && c.type !== 'video') {
             updateCall({ ...c, type: 'video' });
             forceTick((t) => t + 1);
+            const m = meshRef.current;
+            if (m && (!m.videoTrack || m.videoState === 'off')) {
+              m.ensureVideo().then((res) => {
+                if (res && res.ok) forceTick((t2) => t2 + 1);
+              }).catch(() => {});
+            }
           }
           return;
         case CALL_KINDS.SYNC:

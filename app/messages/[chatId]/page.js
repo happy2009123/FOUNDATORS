@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download, ArrowLeft, UserPlus, Search } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download, ArrowLeft, UserPlus, Search, Pencil } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile, addChatMember } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile, addChatMember, updateGroupMeta, removeChatMember } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
@@ -126,6 +126,12 @@ export default function ChatPage() {
   const [addUsers, setAddUsers] = useState([]);
   const [addUsersLoaded, setAddUsersLoaded] = useState(false);
   const [addingUid, setAddingUid] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const groupAvatarInputRef = useRef(null);
+  const isGroupOwner = !!(chatData?.isGroup && (chatData.participants || [])[0] === profile?.id);
   const [forwardModal, setForwardModal] = useState(null); // { index, text } | null
   const [forwardChats, setForwardChats] = useState([]);
   const scrollRef = useRef(null);
@@ -416,10 +422,11 @@ const recordingSecondsRef = useRef(0);
             ? chat.groupName
             : (uidField && chat.participantNames && chat.participantNames[uidField]) || other?.name || 'Chat',
           avatar: chat.isGroup
-            ? null
+            ? (chat.groupAvatar || null)
             : (uidField && chat.participantAvatars && chat.participantAvatars[uidField]) || other?.avatar || null,
           isGroup: !!chat.isGroup,
           groupName: chat.groupName || '',
+          groupAvatar: chat.groupAvatar || null,
           participants,
           participantNames: chat.participantNames || {},
           participantAvatars: chat.participantAvatars || {},
@@ -1031,6 +1038,75 @@ const recordingSecondsRef = useRef(0);
     }
   }
 
+  async function handleRenameGroup() {
+    const name = renameText.trim();
+    if (!name || !convId || renameBusy) return;
+    setRenameBusy(true);
+    try {
+      const res = await updateGroupMeta(convId, { groupName: name });
+      if (!res.success) throw new Error(res.error);
+      setChatData((d) => (d ? { ...d, groupName: name, name } : d));
+      showToast('Group renamed');
+      setRenaming(false);
+    } catch (e) {
+      showToast(e?.message?.includes('column') ? 'Run the latest migration first' : 'Could not rename group');
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
+  async function handleGroupAvatar(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !convId || !profile?.id || avatarBusy) return;
+    setAvatarBusy(true);
+    try {
+      const url = await uploadChatImage(file, profile.id);
+      const res = await updateGroupMeta(convId, { groupAvatar: url });
+      if (!res.success) throw new Error(res.error);
+      setChatData((d) => (d ? { ...d, groupAvatar: url, avatar: url } : d));
+      showToast('Group photo updated');
+    } catch (err) {
+      showToast(err?.message?.includes('column') ? 'Run the latest migration first' : 'Could not update group photo');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function handleRemoveMember(memberUid) {
+    if (!convId || !isGroupOwner || !memberUid) return;
+    const memberName =
+      (chatData?.participantNames && chatData.participantNames[memberUid]) || 'this member';
+    if (!window.confirm(`Remove ${memberName} from the group?`)) return;
+    try {
+      const res = await removeChatMember(convId, memberUid);
+      if (!res.success) {
+        showToast(res.error === 'cannot-remove-owner' ? 'Cannot remove the group owner' : 'Could not remove member');
+        return;
+      }
+      setChatData((d) => {
+        if (!d) return d;
+        const participants = (d.participants || []).filter((p) => p !== memberUid);
+        const participantNames = { ...(d.participantNames || {}) };
+        const participantAvatars = { ...(d.participantAvatars || {}) };
+        delete participantNames[memberUid];
+        delete participantAvatars[memberUid];
+        return { ...d, participants, participantNames, participantAvatars };
+      });
+      notifyUser(memberUid, {
+        type: 'message',
+        actorKey: profile?.id,
+        actorName: profile?.name || 'A founder',
+        text: `${profile?.name || 'A founder'} removed you from "${chatData?.groupName || chatData?.name || 'a group'}".`,
+        linkType: 'message',
+        linkId: convId,
+      }).catch(() => {});
+      showToast(`${memberName} removed`);
+    } catch (e) {
+      showToast('Could not remove member');
+    }
+  }
+
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1130,9 +1206,7 @@ const recordingSecondsRef = useRef(0);
             </button>
             <button onClick={openContactProfile} className="relative flex-none">
               {displayContact.isGroup ? (
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-[rgba(217,172,61,0.1)] text-gold">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-            </div>
+            <Avatar src={displayContact.groupAvatar || displayContact.avatar || null} name={displayContact.name} size={40} />
           ) : (
             <>
               <Avatar src={displayContact.avatar} name={displayContact.name} size={40} />
@@ -1617,6 +1691,71 @@ const recordingSecondsRef = useRef(0);
               </>
             ) : (
               <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                <div className="mb-2 flex items-center gap-3 px-2.5 pt-1 pb-2">
+                  <div className="relative flex-none">
+                    <Avatar
+                      src={chatData.groupAvatar || null}
+                      name={chatData.groupName || chatData.name || 'Group'}
+                      size={52}
+                    />
+                    <button
+                      onClick={() => groupAvatarInputRef.current?.click()}
+                      disabled={avatarBusy}
+                      aria-label="Change group photo"
+                      className="absolute -bottom-1 -right-1 rounded-full border border-line bg-card p-1.5 text-gold-hi disabled:opacity-50"
+                    >
+                      <Camera size={12} />
+                    </button>
+                    <input
+                      ref={groupAvatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleGroupAvatar}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    {renaming ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={renameText}
+                          onChange={(e) => setRenameText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameGroup();
+                            if (e.key === 'Escape') setRenaming(false);
+                          }}
+                          maxLength={80}
+                          className="min-w-0 flex-1 rounded-xl border border-line bg-white/[0.04] px-2.5 py-2 text-[13px] font-bold text-text1 outline-none focus:border-gold/50"
+                        />
+                        <button
+                          onClick={handleRenameGroup}
+                          disabled={renameBusy || !renameText.trim()}
+                          className="flex-none rounded-xl bg-gold-grad px-3 py-2 text-[11px] font-black text-[#171100] disabled:opacity-50"
+                        >
+                          {renameBusy ? 'Saving...' : 'Save'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setRenameText(chatData.groupName || chatData.name || '');
+                          setRenaming(true);
+                        }}
+                        className="flex max-w-full items-center gap-1.5 text-left"
+                      >
+                        <span className="min-w-0 truncate text-[13.5px] font-black">
+                          {chatData.groupName || chatData.name || 'Group'}
+                        </span>
+                        <Pencil size={12} className="flex-none text-text3" />
+                      </button>
+                    )}
+                    <div className="mt-0.5 text-[11px] font-semibold text-text3">
+                      {chatData.participants?.length || 0} members
+                      {isGroupOwner ? ' · You are the owner' : ''}
+                    </div>
+                  </div>
+                </div>
                 <button
                   onClick={() => setGroupInfoView('add')}
                   className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
@@ -1631,25 +1770,34 @@ const recordingSecondsRef = useRef(0);
                   const memberName =
                     (chatData.participantNames && chatData.participantNames[memberUid]) || 'Member';
                   return (
-                    <button
-                      key={memberUid}
-                      onClick={() => {
-                        if (isMe) return;
-                        setShowGroupInfo(false);
-                        router.push(`/profile/${memberUid}`);
-                      }}
-                      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
-                    >
-                      <Avatar
-                        src={(chatData.participantAvatars && chatData.participantAvatars[memberUid]) || null}
-                        name={memberName}
-                        size={38}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
-                        {memberName}
-                        {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
-                      </span>
-                    </button>
+                    <div key={memberUid} className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 active:bg-white/5">
+                      <button
+                        onClick={() => {
+                          if (isMe) return;
+                          setShowGroupInfo(false);
+                          router.push(`/profile/${memberUid}`);
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      >
+                        <Avatar
+                          src={(chatData.participantAvatars && chatData.participantAvatars[memberUid]) || null}
+                          name={memberName}
+                          size={38}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
+                          {memberName}
+                          {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
+                        </span>
+                      </button>
+                      {isGroupOwner && !isMe ? (
+                        <button
+                          onClick={() => handleRemoveMember(memberUid)}
+                          className="flex-none px-2 py-1 text-[11px] font-bold text-brandred"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
                   );
                 })}
                 {!chatData.participants?.length ? (
