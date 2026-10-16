@@ -302,6 +302,15 @@ export default function CallManager() {
             updateCall(null);
           }
           return;
+        case CALL_KINDS.VIDEO_ON:
+          // Peer turned their camera on mid-call - switch to the video
+          // layout. Our own camera stays off until the user taps theirs;
+          // the remote track arrives via normal renegotiation.
+          if (c && c.mode === 'active' && c.type !== 'video') {
+            updateCall({ ...c, type: 'video' });
+            forceTick((t) => t + 1);
+          }
+          return;
         case CALL_KINDS.SYNC:
           // Another tab of mine handled this call - stop my duplicate UI.
           if (c && c.mode === 'incoming' && p.callId === c.callId) {
@@ -420,9 +429,30 @@ export default function CallManager() {
         .catch(() => setMicIssue('unavailable'));
     };
 
-    const toggleCamera = () => {
+    const toggleCamera = async () => {
       const m = meshRef.current;
-      if (!m || !m.videoTrack) return;
+      if (!m) return;
+      const c = callRef.current;
+      if (!c || c.mode !== 'active') return;
+      if (!m.videoTrack || m.videoState === 'off') {
+        // No live camera yet (voice call, or denied at start): acquire it
+        // inside the tap gesture and promote the call to video on both
+        // sides. The track publish renegotiates automatically.
+        const res = await m.ensureVideo();
+        if (!res || !res.ok) {
+          showToastRef.current &&
+            showToastRef.current(
+              res && res.reason === 'denied'
+                ? 'Camera blocked - allow camera access in your browser'
+                : 'No camera found on this device'
+            );
+          return;
+        }
+        updateCall({ ...c, type: 'video' });
+        sendControl(c.peer.id, CALL_KINDS.VIDEO_ON, { callId: c.callId });
+        forceTick((t) => t + 1);
+        return;
+      }
       const on = m.videoState === 'on';
       m.setVideoEnabled(!on);
       forceTick((t) => t + 1);

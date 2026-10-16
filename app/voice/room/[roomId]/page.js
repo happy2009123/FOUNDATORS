@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Bell,
+  Camera,
+  CameraOff,
   Hand,
   Link2,
   Loader2,
@@ -88,6 +90,27 @@ function RemoteAudio({ stream }) {
     }
   }, [stream]);
   return <audio ref={ref} autoPlay playsInline />;
+}
+
+// One camera feed per participant (self or remote). Muted: the same merged
+// stream's audio already plays once through RemoteAudio - an unmuted <video>
+// would double-render it.
+function RoomVideoTile({ stream, name, isMe }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream || null;
+    if (stream) attemptPlay(el);
+  }, [stream]);
+  return (
+    <div className="relative aspect-video overflow-hidden rounded-2xl border border-linesoft bg-black">
+      <video ref={ref} autoPlay playsInline muted className="h-full w-full object-cover" />
+      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
+        {isMe ? 'You' : name}
+      </span>
+    </div>
+  );
 }
 
 // iOS/Safari block programmatic play() that did not start from a user
@@ -199,8 +222,10 @@ export default function VoiceRoomPage() {
   const [joinError, setJoinError] = useState('');
 
   const [streams, setStreams] = useState({});
-  const [audioState, setAudioState] = useState({ peers: 'idle', mic: 'off', peerCount: 0 });
+  const [audioState, setAudioState] = useState({ peers: 'idle', mic: 'off', video: 'off', peerCount: 0 });
   const [muted, setMuted] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const camAutoTriedRef = useRef(false);
   const [micIssue, setMicIssue] = useState('');
   const [activeSpeakers, setActiveSpeakers] = useState([]);
 
@@ -339,6 +364,7 @@ export default function VoiceRoomPage() {
     const mesh = new VoiceMesh({
       roomId,
       selfId: uid,
+      enableVideo: true,
       onStateChange: setAudioState,
       onRemoteStream: (peerId, stream) =>
         setStreams((prev) => {
@@ -401,11 +427,28 @@ export default function VoiceRoomPage() {
       }
     } else {
       mesh.releaseMic();
+      // Demoted to listener: the camera goes with the mic.
+      Promise.resolve(mesh.releaseVideo && mesh.releaseVideo()).catch(() => {});
+      setCameraOn(false);
       setMuted(false);
       setMicIssue('');
       if (myP && myP.isMuted) setSelfMuted(roomId, uid, false).catch(() => {});
     }
   }, [mySpeaker, joined, myRole]);
+
+  // Group video calls arrive as /voice/room/<id>?cam=1 - turn the camera on
+  // as soon as the mesh is up and we are on stage (once per page load).
+  useEffect(() => {
+    if (!joined || !mySpeaker || camAutoTriedRef.current) return;
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('cam') !== '1') return;
+    camAutoTriedRef.current = true;
+    const mesh = meshRef.current;
+    if (!mesh || mesh.videoState === 'on') return;
+    mesh.ensureVideo().then((res) => {
+      if (res && res.ok) setCameraOn(true);
+    }).catch(() => {});
+  }, [joined, mySpeaker]);
 
   useEffect(() => {
     if (!ready || !joined || !room || room.status !== 'live') return;
@@ -489,6 +532,33 @@ export default function VoiceRoomPage() {
     setMuted(next);
     mesh.setMicEnabled(!next);
     setSelfMuted(roomId, uid, next).catch(() => {});
+  };
+
+  // Camera toggle for speakers. First tap acquires the camera inside the
+  // real gesture (iOS/Android prompt rules); later taps mute/unmute the
+  // already-acquired track.
+  const onCameraPress = () => {
+    const mesh = meshRef.current;
+    if (!mesh || !mySpeaker) return;
+    const live = mesh.videoTrack && mesh.videoState !== 'off';
+    if (!live) {
+      mesh.ensureVideo().then((res) => {
+        if (res && res.ok) {
+          setCameraOn(true);
+          showToast('Camera on');
+        } else {
+          showToast(
+            res && res.reason === 'denied'
+              ? 'Camera blocked. Allow camera access in your browser, then tap again.'
+              : 'No camera found on this device.'
+          );
+        }
+      });
+      return;
+    }
+    const next = !cameraOn;
+    mesh.setVideoEnabled(next);
+    setCameraOn(next);
   };
 
   const onRaise = async () => {
@@ -977,6 +1047,15 @@ export default function VoiceRoomPage() {
     />
   );
 
+  // Live camera feeds: mine (if on) + any remote track that is live and
+  // not muted. Rendered as a tile grid above the speaker list.
+  const remoteVideoList = Object.entries(streams)
+    .map(([peerUid, s]) => ({ uid: peerUid, stream: s }))
+    .filter(({ stream }) => stream && stream.getVideoTracks().some((t) => t.readyState === 'live' && t.enabled));
+  const selfStream =
+    cameraOn && meshRef.current && meshRef.current.getVideoStream ? meshRef.current.getVideoStream() : null;
+  const videoCount = remoteVideoList.length + (selfStream ? 1 : 0);
+
   const stage = (
     <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="px-3.5 pt-3">
@@ -991,6 +1070,18 @@ export default function VoiceRoomPage() {
             <div className="text-[9.5px] font-black uppercase tracking-widest text-gold-hi">Pinned question</div>
             <div className="mt-0.5 text-[12.5px] font-semibold text-text1">{pinnedQuestion.text}</div>
             <div className="text-[10.5px] text-text3">asked by {pinnedQuestion.authorName}</div>
+          </div>
+        ) : null}
+        {videoCount > 0 ? (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {selfStream ? <RoomVideoTile stream={selfStream} isMe /> : null}
+            {remoteVideoList.map(({ uid: peerUid, stream }) => (
+              <RoomVideoTile
+                key={peerUid}
+                stream={stream}
+                name={(participants.find((p) => p.uid === peerUid) || {}).name || 'Speaker'}
+              />
+            ))}
           </div>
         ) : null}
       </div>
@@ -1225,6 +1316,17 @@ export default function VoiceRoomPage() {
             {myP && myP.raisedHand ? 'Hand raised' : 'Raise Hand'}
           </button>
         )}
+        {mySpeaker ? (
+          <button
+            onClick={onCameraPress}
+            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+            className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg active:scale-95 ${
+              cameraOn ? 'bg-gold-grad text-[#171100]' : 'border border-gold/50 bg-gold/10 text-gold-hi'
+            }`}
+          >
+            {cameraOn ? <Camera size={20} /> : <CameraOff size={20} />}
+          </button>
+        ) : null}
         {mySpeaker ? (
           <div className="hidden min-w-0 flex-1 flex-col sm:flex">
             <span className="truncate text-[11.5px] font-bold text-text1">

@@ -119,6 +119,7 @@ export default function ChatPage() {
   const [fsMessages, setFsMessages] = useState(null);
   const [editingMsg, setEditingMsg] = useState(null); // { index, id, text }
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [forwardModal, setForwardModal] = useState(null); // { index, text } | null
   const [forwardChats, setForwardChats] = useState([]);
   const scrollRef = useRef(null);
@@ -913,7 +914,7 @@ const recordingSecondsRef = useRef(0);
 
   function openContactProfile() {
     if (chatData?.isGroup) {
-      showToast('Group info coming soon');
+      setShowGroupInfo(true);
       return;
     }
     const pid = otherUid || chatId;
@@ -922,8 +923,9 @@ const recordingSecondsRef = useRef(0);
 
   // Group audio calls run on the voice-room stack: create a private room
   // seeded with every member (they pass the private-room join gate),
-  // notify them, then jump in. Group video stays 1:1 for now.
-  async function startGroupVoiceCall() {
+  // notify them, then jump in. withCam=true joins with ?cam=1 so the
+  // caller's camera auto-enables on the room page (group video call).
+  async function startGroupVoiceCall(withCam) {
     if (startingGroupCall || !profile || !chatData) return;
     setStartingGroupCall(true);
     try {
@@ -934,7 +936,7 @@ const recordingSecondsRef = useRef(0);
       const avatars = chatData.participantAvatars || {};
       const roomId = await createVoiceRoom(profile, {
         title,
-        description: `Group voice call in ${title}`,
+        description: `Group ${withCam ? 'video' : 'voice'} call in ${title}`,
         type: 'private',
         mode: 'now',
         talkMode: 'open',
@@ -952,13 +954,13 @@ const recordingSecondsRef = useRef(0);
           type: 'voice_invite',
           actorKey: me,
           actorName: profile.name || 'A founder',
-          text: `${profile.name || 'A founder'} started a group voice call in ${title}. Tap to join.`,
+          text: `${profile.name || 'A founder'} started a group ${withCam ? 'video' : 'voice'} call in ${title}. Tap to join.`,
           linkType: 'voice_room',
           linkId: roomId,
         }).catch(() => {});
       });
-      showToast('Call started - waiting for others to join');
-      router.push(`/voice/room/${roomId}`);
+      showToast(withCam ? 'Video call started - waiting for others to join' : 'Call started - waiting for others to join');
+      router.push(`/voice/room/${roomId}${withCam ? '?cam=1' : ''}`);
     } catch (e) {
       showToast(e.message || 'Could not start the call');
     } finally {
@@ -1089,7 +1091,7 @@ const recordingSecondsRef = useRef(0);
           <button
             onClick={() => {
               if (displayContact.isGroup) {
-                startGroupVoiceCall();
+                startGroupVoiceCall(false);
               } else if (otherUid) {
                 startVoiceCall(otherUid, { name: other?.name, avatar: other?.avatar });
               }
@@ -1101,9 +1103,9 @@ const recordingSecondsRef = useRef(0);
           </button>
           <button
             onClick={() => {
-              if (!otherUid || displayContact.isGroup) {
-                showToast('Group video is coming soon - use the voice call button for now');
-              } else {
+              if (displayContact.isGroup) {
+                startGroupVoiceCall(true);
+              } else if (otherUid) {
                 startVideoCall(otherUid, { name: other?.name, avatar: other?.avatar });
               }
             }}
@@ -1463,6 +1465,65 @@ const recordingSecondsRef = useRef(0);
           </div>
         </div>
       )}
+
+      {showGroupInfo && chatData ? (
+        <div className="fixed inset-0 z-[420] flex items-end sm:items-center sm:justify-center" onClick={() => setShowGroupInfo(false)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative flex max-h-[76vh] w-full flex-col rounded-t-3xl border-t border-line bg-[#0b0b0d] pb-4 sm:max-w-sm sm:rounded-3xl sm:border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-linesoft px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-[14px] font-black">
+                  {chatData.groupName || chatData.name || 'Group'}
+                </div>
+                <div className="text-[11px] font-semibold text-text3">
+                  {chatData.participants?.length || 0} members
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGroupInfo(false)}
+                aria-label="Close group info"
+                className="rounded-lg border border-line p-1.5 text-text2"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              {(chatData.participants || []).map((memberUid) => {
+                const isMe = memberUid === profile?.id;
+                const memberName =
+                  (chatData.participantNames && chatData.participantNames[memberUid]) || 'Member';
+                return (
+                  <button
+                    key={memberUid}
+                    onClick={() => {
+                      if (isMe) return;
+                      setShowGroupInfo(false);
+                      router.push(`/profile/${memberUid}`);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
+                  >
+                    <Avatar
+                      src={(chatData.participantAvatars && chatData.participantAvatars[memberUid]) || null}
+                      name={memberName}
+                      size={38}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
+                      {memberName}
+                      {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
+                    </span>
+                  </button>
+                );
+              })}
+              {!chatData.participants?.length ? (
+                <div className="px-3 py-6 text-center text-[12px] text-text3">No members found.</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-none items-end gap-2 border-t border-linesoft px-3 pt-2.5 chat-input-pad">
         <div className="relative">
