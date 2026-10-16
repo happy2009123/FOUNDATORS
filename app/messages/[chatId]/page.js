@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download, ArrowLeft, UserPlus, Search } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile } from '@/lib/firestore';
+import { mapRows } from '@/lib/supabase/db';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile, addChatMember } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
@@ -120,6 +121,11 @@ export default function ChatPage() {
   const [editingMsg, setEditingMsg] = useState(null); // { index, id, text }
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [groupInfoView, setGroupInfoView] = useState('info'); // 'info' | 'add'
+  const [addSearch, setAddSearch] = useState('');
+  const [addUsers, setAddUsers] = useState([]);
+  const [addUsersLoaded, setAddUsersLoaded] = useState(false);
+  const [addingUid, setAddingUid] = useState(null);
   const [forwardModal, setForwardModal] = useState(null); // { index, text } | null
   const [forwardChats, setForwardChats] = useState([]);
   const scrollRef = useRef(null);
@@ -912,9 +918,39 @@ const recordingSecondsRef = useRef(0);
     return result;
   }, []);
 
+  // Group "add member" picker: load a bounded user list once when the
+  // picker opens (same pattern as the create-group page).
+  useEffect(() => {
+    if (!showGroupInfo || groupInfoView !== 'add' || addUsersLoaded) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        if (!supabase) return;
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        if (cancelled) return;
+        setAddUsers(mapRows(data || []).filter((u) => u && u.status !== 'suspended'));
+      } catch (e) {
+        console.error('Failed to load users to add:', e);
+      } finally {
+        if (!cancelled) setAddUsersLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showGroupInfo, groupInfoView, addUsersLoaded]);
+
   function openContactProfile() {
     if (chatData?.isGroup) {
       setShowGroupInfo(true);
+      setGroupInfoView('info');
+      setAddSearch('');
       return;
     }
     const pid = otherUid || chatId;
@@ -965,6 +1001,33 @@ const recordingSecondsRef = useRef(0);
       showToast(e.message || 'Could not start the call');
     } finally {
       setStartingGroupCall(false);
+    }
+  }
+
+  async function handleAddMember(u) {
+    if (!convId || !u || addingUid) return;
+    setAddingUid(u.id);
+    try {
+      const res = await addChatMember(convId, { id: u.id, name: u.name, avatar: u.avatar });
+      if (!res.success) {
+        showToast(res.error === 'already-in-group' ? 'Already in this group' : 'Could not add member');
+        return;
+      }
+      notifyUser(u.id, {
+        type: 'message',
+        actorKey: profile?.id,
+        actorName: profile?.name || 'A founder',
+        text: `${profile?.name || 'A founder'} added you to "${chatData?.groupName || chatData?.name || 'a group'}".`,
+        linkType: 'message',
+        linkId: convId,
+      }).catch(() => {});
+      showToast(`${u.name || 'Member'} added`);
+      setGroupInfoView('info');
+      setAddSearch('');
+    } catch (e) {
+      showToast('Could not add member');
+    } finally {
+      setAddingUid(null);
     }
   }
 
@@ -1473,54 +1536,127 @@ const recordingSecondsRef = useRef(0);
             className="relative flex max-h-[76vh] w-full flex-col rounded-t-3xl border-t border-line bg-[#0b0b0d] pb-4 sm:max-w-sm sm:rounded-3xl sm:border"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-linesoft px-4 py-3">
-              <div className="min-w-0">
+            <div className="flex items-center gap-2 border-b border-linesoft px-4 py-3">
+              {groupInfoView === 'add' ? (
+                <button
+                  onClick={() => {
+                    setGroupInfoView('info');
+                    setAddSearch('');
+                  }}
+                  aria-label="Back to group info"
+                  className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-line text-text2"
+                >
+                  <ArrowLeft size={15} />
+                </button>
+              ) : null}
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-[14px] font-black">
-                  {chatData.groupName || chatData.name || 'Group'}
+                  {groupInfoView === 'add' ? 'Add members' : chatData.groupName || chatData.name || 'Group'}
                 </div>
                 <div className="text-[11px] font-semibold text-text3">
-                  {chatData.participants?.length || 0} members
+                  {groupInfoView === 'add'
+                    ? 'Founders you can add to this chat'
+                    : `${chatData.participants?.length || 0} members`}
                 </div>
               </div>
               <button
                 onClick={() => setShowGroupInfo(false)}
                 aria-label="Close group info"
-                className="rounded-lg border border-line p-1.5 text-text2"
+                className="flex-none rounded-lg border border-line p-1.5 text-text2"
               >
                 <X size={14} />
               </button>
             </div>
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
-              {(chatData.participants || []).map((memberUid) => {
-                const isMe = memberUid === profile?.id;
-                const memberName =
-                  (chatData.participantNames && chatData.participantNames[memberUid]) || 'Member';
-                return (
-                  <button
-                    key={memberUid}
-                    onClick={() => {
-                      if (isMe) return;
-                      setShowGroupInfo(false);
-                      router.push(`/profile/${memberUid}`);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
-                  >
-                    <Avatar
-                      src={(chatData.participantAvatars && chatData.participantAvatars[memberUid]) || null}
-                      name={memberName}
-                      size={38}
+            {groupInfoView === 'add' ? (
+              <>
+                <div className="border-b border-linesoft px-3 py-2.5">
+                  <div className="flex items-center gap-2 rounded-xl border border-linesoft bg-white/[0.04] px-3 py-2">
+                    <Search size={14} className="shrink-0 text-text3" />
+                    <input
+                      autoFocus
+                      value={addSearch}
+                      onChange={(e) => setAddSearch(e.target.value)}
+                      placeholder="Search founders..."
+                      className="min-w-0 flex-1 bg-transparent text-[13px] text-text1 outline-none placeholder:text-text3"
                     />
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
-                      {memberName}
-                      {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
-                    </span>
-                  </button>
-                );
-              })}
-              {!chatData.participants?.length ? (
-                <div className="px-3 py-6 text-center text-[12px] text-text3">No members found.</div>
-              ) : null}
-            </div>
+                  </div>
+                </div>
+                <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                  {addUsers
+                    .filter((u) => {
+                      if (!u || u.id === profile?.id) return false;
+                      if ((chatData.participants || []).includes(u.id)) return false;
+                      if (addSearch && !(u.name || '').toLowerCase().includes(addSearch.toLowerCase())) return false;
+                      return true;
+                    })
+                    .slice(0, 50)
+                    .map((u) => (
+                      <div key={u.id} className="flex items-center gap-3 rounded-xl px-2.5 py-2">
+                        <Avatar src={u.avatar || null} name={u.name || 'Member'} size={38} />
+                        <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">{u.name || 'Member'}</span>
+                        <button
+                          onClick={() => handleAddMember(u)}
+                          disabled={addingUid === u.id}
+                          className="flex-none rounded-full bg-gold-grad px-3.5 py-1.5 text-[11px] font-black text-[#171100] disabled:opacity-50"
+                        >
+                          {addingUid === u.id ? 'Adding...' : 'Add'}
+                        </button>
+                      </div>
+                    ))}
+                  {addUsersLoaded &&
+                  !addUsers.some(
+                    (u) =>
+                      u &&
+                      u.id !== profile?.id &&
+                      !(chatData.participants || []).includes(u.id) &&
+                      (!addSearch || (u.name || '').toLowerCase().includes(addSearch.toLowerCase()))
+                  ) ? (
+                    <div className="px-3 py-6 text-center text-[12px] text-text3">No founders found.</div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                <button
+                  onClick={() => setGroupInfoView('add')}
+                  className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
+                >
+                  <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-full bg-gold/10 text-gold-hi">
+                    <UserPlus size={16} />
+                  </span>
+                  <span className="text-[13.5px] font-bold">Add members</span>
+                </button>
+                {(chatData.participants || []).map((memberUid) => {
+                  const isMe = memberUid === profile?.id;
+                  const memberName =
+                    (chatData.participantNames && chatData.participantNames[memberUid]) || 'Member';
+                  return (
+                    <button
+                      key={memberUid}
+                      onClick={() => {
+                        if (isMe) return;
+                        setShowGroupInfo(false);
+                        router.push(`/profile/${memberUid}`);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left active:bg-white/5"
+                    >
+                      <Avatar
+                        src={(chatData.participantAvatars && chatData.participantAvatars[memberUid]) || null}
+                        name={memberName}
+                        size={38}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
+                        {memberName}
+                        {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
+                      </span>
+                    </button>
+                  );
+                })}
+                {!chatData.participants?.length ? (
+                  <div className="px-3 py-6 text-center text-[12px] text-text3">No members found.</div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
