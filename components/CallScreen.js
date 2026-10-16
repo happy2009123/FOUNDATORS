@@ -57,13 +57,15 @@ export default function CallScreen({
               element - an unmuted <video> playing the same stream double-
               renders the audio track (phasing/garble/perceived lag). */}
           <video ref={remoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="absolute bottom-4 right-4 h-36 w-24 rounded-2xl border border-white/20 object-cover bg-zinc-900 shadow-lg"
-          />
+          {cameraOn ? (
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute bottom-4 right-4 h-36 w-24 rounded-2xl border border-white/20 object-cover bg-zinc-900 shadow-lg"
+            />
+          ) : null}
           <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/70 via-transparent to-transparent px-6 pt-12">
             <h2 className="text-[20px] font-black text-white drop-shadow">{name || 'Unknown'}</h2>
             <p className="text-[12px] text-white/80 drop-shadow">{statusText}</p>
@@ -86,15 +88,16 @@ export default function CallScreen({
       )}
       <div className="pb-12 px-6">
         <div className="flex items-center justify-center gap-6">
-          {type === 'video' && (
-            <button
-              onClick={() => { vibrate('light'); onToggleCamera?.(); }}
-              className={`flex h-14 w-14 items-center justify-center rounded-full ${cameraOn ? 'bg-white/10' : 'bg-white/20'}`}
-              aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-            >
-              {cameraOn ? <Camera size={20} className="text-white" /> : <CameraOff size={20} className="text-white" />}
-            </button>
-          )}
+          {/* Camera toggle shows for every active call: on a voice call it
+              acquires the camera and promotes the call to video for both
+              sides (see CallManager.toggleCamera). */}
+          <button
+            onClick={() => { vibrate('light'); onToggleCamera?.(); }}
+            className={`flex h-14 w-14 items-center justify-center rounded-full ${cameraOn ? 'bg-white/10' : 'bg-white/20'}`}
+            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+          >
+            {cameraOn ? <Camera size={20} className="text-white" /> : <CameraOff size={20} className="text-white" />}
+          </button>
           <button
             onClick={() => { vibrate('light'); onToggleMute?.(); }}
             className={`flex h-14 w-14 items-center justify-center rounded-full ${muted ? 'bg-white/20' : 'bg-white/10'}`}
