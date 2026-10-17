@@ -27,6 +27,14 @@ import Avatar from './Avatar';
 import RichText from './RichText';
 import { deletePost as firestoreDeletePost, updatePost as firestoreUpdatePost, getUserProfile } from '@/lib/firestore';
 import { formatPostTime } from '@/lib/timeago';
+import { getSupabase } from '@/lib/supabase/client';
+
+const REPORT_REASONS = [
+  'Spam or misleading',
+  'Harassment or bullying',
+  'False information',
+  'Something else',
+];
 
 const TAG_META = {
   idea: { label: 'Idea', icon: Lightbulb, cls: 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)]' },
@@ -75,10 +83,18 @@ export default memo(function PostCard({ post }) {
     : (post.meta || displayPost.meta || '');
   const toggleBookmark = useStore((s) => s.toggleBookmark);
   const showToast = useStore((s) => s.showToast);
+  const hidePost = useStore((s) => s.hidePost);
+  const reportItem = useStore((s) => s.reportItem);
   const { vibrate, notification } = useHaptics();
   const [showMenu, setShowMenu] = useState(false);
+  const [showReportReasons, setShowReportReasons] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.text);
+  const [localShareCount, setLocalShareCount] = useState(displayPost.shares || 0);
+
+  useEffect(() => {
+    setLocalShareCount(displayPost.shares || 0);
+  }, [displayPost.shares]);
 
   useEffect(() => {
     setEditText(post.text);
@@ -201,7 +217,7 @@ export default memo(function PostCard({ post }) {
           {!post.noActions && (
             <div className="relative">
               <button
-                onClick={() => setShowMenu(!showMenu)}
+                onClick={() => { setShowMenu(!showMenu); setShowReportReasons(false); }}
                 className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-text2"
                 aria-label="More options"
                 aria-expanded={showMenu}
@@ -219,12 +235,59 @@ export default memo(function PostCard({ post }) {
                         <Trash2 size={14} /> Delete post
                       </button>
                     </>
+                  ) : showReportReasons ? (
+                    <>
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-bold uppercase tracking-wide text-text3">
+                        Why are you reporting?
+                      </div>
+                      {REPORT_REASONS.map((reason) => (
+                        <button
+                          key={reason}
+                          onClick={() => {
+                            vibrate('light');
+                            reportItem({
+                              type: 'post',
+                              targetUserId: post.authorKey,
+                              reason,
+                              details: `Post ${post.id}: ${(post.text || '').slice(0, 140)}`,
+                            });
+                            notification('success');
+                            showToast('Report submitted — thanks for flagging');
+                            setShowReportReasons(false);
+                            setShowMenu(false);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5"
+                        >
+                          <Flag size={14} /> {reason}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setShowReportReasons(false)}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text3 hover:bg-white/5"
+                      >
+                        Cancel
+                      </button>
+                    </>
                   ) : (
                     <>
-                      <button onClick={() => { showToast('Post hidden'); setShowMenu(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5">
+                      <button
+                        onClick={() => {
+                          vibrate('medium');
+                          hidePost(post.id, {
+                            text: (post.text || '').slice(0, 90),
+                            authorName: author?.name || post.authorName || '',
+                          });
+                          showToast('Post hidden — find it under Settings → Blocked & Muted');
+                          setShowMenu(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5"
+                      >
                         <EyeOff size={14} /> Hide post
                       </button>
-                      <button onClick={() => { showToast('Reported'); setShowMenu(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5">
+                      <button
+                        onClick={() => { setShowReportReasons(true); }}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5"
+                      >
                         <Flag size={14} /> Report post
                       </button>
                       <button onClick={() => { navigator.clipboard?.writeText(window.location.origin + '/post/' + post.id); showToast('Link copied'); setShowMenu(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-text2 hover:bg-white/5">
@@ -350,6 +413,12 @@ export default memo(function PostCard({ post }) {
           <button
             onClick={async () => {
               notification('success');
+              // Persist the share (RPC needs migration 0013; the UI bump is
+              // kept either way so the count still moves in-session).
+              setLocalShareCount((n) => n + 1);
+              try {
+                getSupabase()?.rpc('increment_post_share', { p_post_id: post.id })?.catch?.(() => {});
+              } catch {}
               const url = typeof window !== 'undefined' ? window.location.origin + '/post/' + post.id : '';
               if (navigator.share) {
                 try {
@@ -370,7 +439,7 @@ export default memo(function PostCard({ post }) {
             className="flex h-[44px] items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-text2"
           >
             <Share size={19} />
-            {displayPost.shares}
+            {localShareCount}
           </button>
           <span className="flex-1" />
           <button

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download, ArrowLeft, UserPlus, Search, Pencil } from 'lucide-react';
+import { Phone, Video, Plus, Smile, Send, FileText, Check, CheckCheck, Copy, Reply, Trash2, X, Image, Mic, Sticker, Pause, Play, Camera, MoreHorizontal, Edit3, Forward, Download, ArrowLeft, UserPlus, Search, Pencil, Paperclip } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
@@ -15,7 +15,7 @@ import { startVoiceCall, startVideoCall } from '@/lib/call';
 import { createVoiceRoom } from '@/lib/voice';
 import { notifyUser } from '@/lib/notify';
 import { subscribeQuery } from '@/lib/supabase/realtime';
-import { parseChatMedia, chatMediaLabel, buildImageText, buildAudioText, uploadChatImage, uploadChatAudio } from '@/lib/chatMedia';
+import { parseChatMedia, chatMediaLabel, buildImageText, buildAudioText, buildFileText, uploadChatImage, uploadChatAudio, uploadChatFile, fmtFileSize } from '@/lib/chatMedia';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import ChatListPane from '@/components/ChatListPane';
 
@@ -106,6 +106,8 @@ export default function ChatPage() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [voiceMessages, setVoiceMessages] = useState({});
   const [showImagePreview, setShowImagePreview] = useState(null);
+  const [docPreview, setDocPreview] = useState(null); // { name, size } - pending file send
+  const [sendingDoc, setSendingDoc] = useState(false);
   const [directions, setDirections] = useState(null);
   // True once the route param has been resolved (or definitively failed).
   // Until then the async reads below leave displayContact null - we must show
@@ -144,6 +146,8 @@ export default function ChatPage() {
   const recordingInterval = useRef(null);
   const fileInputRef = useRef(null);
   const selectedFileRef = useRef(null);
+  const docInputRef = useRef(null);
+  const selectedDocRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordingChunksRef = useRef(null);
   const recordingStreamRef = useRef(null);
@@ -876,12 +880,61 @@ const recordingSecondsRef = useRef(0);
       showToast('Only images are allowed');
       return;
     }
+    setDocPreview(null);
+    selectedDocRef.current = null;
     selectedFileRef.current = file;
     const reader = new FileReader();
     reader.onload = (ev) => setShowImagePreview(ev.target.result);
     reader.readAsDataURL(file);
     e.target.value = '';
   }, [showToast]);
+
+  const handleDocSelect = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+      showToast('Photos go via the camera button, voice via the mic');
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      showToast('Max file size is 25 MB');
+      return;
+    }
+    setShowImagePreview(null);
+    selectedFileRef.current = null;
+    selectedDocRef.current = file;
+    setDocPreview({ name: file.name || 'file', size: file.size });
+    e.target.value = '';
+  }, [showToast]);
+
+  const sendDoc = useCallback(async () => {
+    const file = selectedDocRef.current;
+    if (!docPreview || !file || sendingDoc) return;
+    const p = sendPayload();
+    if (!p) return;
+    setSendingDoc(true);
+    try {
+      const url = await uploadChatFile(file, profile.id);
+      setDocPreview(null);
+      selectedDocRef.current = null;
+      nearBottomRef.current = true;
+      await sendFS(p.convId, {
+        text: buildFileText(url, file.name),
+        senderKey: profile.id,
+        senderName: profile.name,
+        senderAvatar: profile.avatar,
+        participants: p.participants,
+        participantNames: p.participantNames,
+        participantAvatars: p.participantAvatars,
+      });
+      notification('success');
+    } catch (err) {
+      console.error('[chat] file send failed', err);
+      showToast('File failed to upload - try again');
+    } finally {
+      setSendingDoc(false);
+    }
+  }, [docPreview, sendingDoc, sendPayload, profile, sendFS, notification, showToast]);
 
   const sendImage = useCallback(async () => {
     const file = selectedFileRef.current;
@@ -1376,6 +1429,24 @@ const recordingSecondsRef = useRef(0);
                       }}
                       className="mb-1 block max-h-[340px] w-full max-w-[280px] cursor-pointer rounded-xl bg-black/20 object-cover"
                     />
+                  ) : media.kind === 'file' ? (
+                    <a
+                      href={media.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      onClick={(e) => e.stopPropagation()}
+                      className="mb-1 flex min-w-[190px] max-w-[280px] items-center gap-2.5 rounded-xl border border-linesoft bg-black/10 px-3 py-2.5"
+                    >
+                      <div className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-gold-grad text-[#1a1300]">
+                        <FileText size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className={`truncate text-[12.5px] font-bold ${isOut ? 'text-[#1a1300]' : 'text-white'}`}>{media.name}</div>
+                        <div className={`text-[10px] ${isOut ? 'text-[#1a1300]/60' : 'text-text3'}`}>Tap to open</div>
+                      </div>
+                      <Download size={15} className={`flex-none ${isOut ? 'text-[#1a1300]/70' : 'text-text2'}`} />
+                    </a>
                   ) : (
                     <ChatAudioPlayer url={media.url} seconds={media.seconds} dark={isOut} />
                   )
@@ -1560,6 +1631,33 @@ const recordingSecondsRef = useRef(0);
             aria-label="Send image"
           >
             {sendingImage ? 'Uploading...' : 'Send'}
+          </button>
+        </div>
+      )}
+
+      {docPreview && (
+        <div className="flex items-center gap-2 border-t border-linesoft bg-card px-4 py-2">
+          <div className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-gold-grad text-[#1a1300]">
+            <FileText size={17} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-bold text-white">{docPreview.name}</div>
+            <div className="text-[10px] text-text3">{sendingDoc ? 'Uploading...' : `${fmtFileSize(docPreview.size)} - ready to send`}</div>
+          </div>
+          <button
+            onClick={() => { setDocPreview(null); selectedDocRef.current = null; }}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white"
+            aria-label="Remove file"
+          >
+            <X size={12} />
+          </button>
+          <button
+            onClick={sendDoc}
+            disabled={sendingDoc}
+            className="rounded-full bg-gold px-4 py-2 text-[11px] font-bold text-[#1a1300] disabled:opacity-60"
+            aria-label="Send file"
+          >
+            {sendingDoc ? 'Uploading...' : 'Send'}
           </button>
         </div>
       )}
@@ -1852,6 +1950,22 @@ const recordingSecondsRef = useRef(0);
             <Camera size={17} strokeWidth={2.2} />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+        </div>
+        <div className="relative">
+          <button
+            onClick={() => docInputRef.current?.click()}
+            className="flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full border border-line text-gold"
+            aria-label="Attach file"
+          >
+            <Paperclip size={17} strokeWidth={2.2} />
+          </button>
+          <input
+            ref={docInputRef}
+            type="file"
+            accept="application/pdf,text/*,.zip,.rar,.7z,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.md,.psd,.ai,.sketch,.fig"
+            className="hidden"
+            onChange={handleDocSelect}
+          />
         </div>
         <div className="flex flex-1 items-end gap-2 rounded-2xl border border-linesoft bg-card px-3.5 py-2">
           <button onClick={() => setShowEmoji(!showEmoji)} className={`mb-0.5 flex-none ${showEmoji ? 'text-gold' : 'text-text3'}`} aria-label="Toggle emoji picker">

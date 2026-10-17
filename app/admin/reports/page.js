@@ -21,6 +21,7 @@ import {
 const CATEGORIES = [
   { value: 'all', label: 'All' },
   { value: 'post', label: 'Posts' },
+  { value: 'reel', label: 'Reels' },
   { value: 'user', label: 'Users' },
   { value: 'comment', label: 'Comments' },
   { value: 'message', label: 'Messages' },

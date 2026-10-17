@@ -76,7 +76,10 @@ export async function POST(req) {
     }
     const uid = user.id;
 
-    const { resourceType = 'auto', folder = '' } = await req.json();
+    const { resourceType = 'auto', folder = '', fileName = '' } = await req.json();
+    const safeResourceType = ['auto', 'image', 'video', 'raw'].includes(String(resourceType))
+      ? String(resourceType)
+      : 'auto';
 
     // 2. Validate folder: first segment allowlist + uid binding for
     //    personal spaces. Never trust client-controlled paths verbatim.
@@ -94,7 +97,15 @@ export async function POST(req) {
 
     // 3. public_id is derived server-side from the authenticated uid —
     //    the client cannot overwrite anyone else's assets.
-    const serverPublicId = `${uid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    //    Raw uploads (PDFs, zips, docs in chat) REQUIRE an extension on
+    //    public_id — derive it from the provided file name (sanitized).
+    let serverPublicId = `${uid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (safeResourceType === 'raw') {
+      const ext = (String(fileName).split('.').pop() || 'bin')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .slice(0, 8);
+      serverPublicId += `.${ext || 'bin'}`;
+    }
 
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
@@ -123,7 +134,7 @@ export async function POST(req) {
       signature,
       folder: safeFolder,
       publicId: serverPublicId,
-      resourceType: 'auto',
+      resourceType: safeResourceType,
     });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Sign failed' }, { status: 500 });
