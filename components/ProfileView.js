@@ -30,6 +30,9 @@ import {
   ThumbsUp,
   UserCheck,
   Clock,
+  Briefcase,
+  GraduationCap,
+  Heart,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -62,6 +65,7 @@ import { notifyUser } from '@/lib/notify';
 
 const TABS = [
   { key: 'about', label: 'About' },
+  { key: 'highlights', label: 'Highlights' },
   { key: 'skills', label: 'Skills' },
   { key: 'projects', label: 'Projects' },
   { key: 'build', label: 'Build With Me' },
@@ -412,6 +416,22 @@ export default function ProfileView({ userId = null }) {
                 {p.role}
               </div>
             )}
+            {(p?.openToWork || p?.hiring) && (
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {p?.openToWork && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-brandgreen/15 px-2.5 py-1 text-[10px] font-bold text-brandgreen">
+                    <span className="h-1.5 w-1.5 rounded-full bg-brandgreen" aria-hidden="true" />
+                    Open to work
+                  </span>
+                )}
+                {p?.hiring && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-brandblue/15 px-2.5 py-1 text-[10px] font-bold text-brandblue">
+                    <span className="h-1.5 w-1.5 rounded-full bg-brandblue" aria-hidden="true" />
+                    Hiring
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ─── Bio ─── */}
@@ -604,6 +624,7 @@ export default function ProfileView({ userId = null }) {
                 onEdit={() => router.push('/settings/edit-profile')}
               />
             )}
+            {tab === 'highlights' && <HighlightsSection uid={uid} isOwn={isOwn} onEdit={() => router.push('/create')} />}
             {tab === 'skills' && (
               <SkillsSection skills={skills} isOwn={isOwn} uid={uid} myId={ownUid} onEdit={() => router.push('/settings/edit-profile')} />
             )}
@@ -733,6 +754,61 @@ function Row({ icon: Icon, label, value, href }) {
   return <div className="block rounded-xl px-3 py-3">{inner}</div>;
 }
 
+function HighlightsSection({ uid, isOwn, onEdit }) {
+  const [posts, setPosts] = useState(null);
+
+  useEffect(() => {
+    if (!uid) return undefined;
+    let cancelled = false;
+    setPosts(null);
+    getSupabase()
+      ?.from('posts')
+      .select('*')
+      .eq('author_key', uid)
+      .order('likes', { ascending: false })
+      .limit(3)
+      .then(({ data }) => {
+        if (!cancelled) setPosts(mapRows(data || []));
+      })
+      .catch(() => {
+        if (!cancelled) setPosts([]);
+      });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  if (posts === null) {
+    return (
+      <div className="space-y-3">
+        <div className="skeleton h-24 w-full rounded-2xl" />
+        <div className="skeleton h-24 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (!posts.length) {
+    return (
+      <TabEmpty
+        icon={Heart}
+        title="No highlights yet"
+        body={isOwn ? 'Your most-liked posts will be featured here.' : "They haven't posted anything to highlight yet."}
+        action={isOwn ? 'Create a post' : null}
+        onAction={isOwn ? onEdit : null}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-3 px-1 text-[11.5px] text-text2">Top posts by likes — the best of this profile.</p>
+      <div className="flex flex-col gap-4">
+        {posts.map((post) => (
+          <PostCard key={post.id} post={post} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AboutSection({ p, joined, website, isOwn, onEdit }) {
   return (
     <div className="rounded-2xl border border-linesoft bg-card">
@@ -766,6 +842,65 @@ function AboutSection({ p, joined, website, isOwn, onEdit }) {
       {joined && (
         <div className="border-b border-linesoft px-3 py-3">
           <Row icon={Sparkles} label="Member since" value={String(joined)} />
+        </div>
+      )}
+      {Array.isArray(p?.interests) && p.interests.length > 0 && (
+        <div className="border-b border-linesoft px-3 py-3">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-text2">
+            <Sparkles size={12} className="text-gold" /> Interests
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {p.interests.map((interest) => (
+              <span key={interest} className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-text2">
+                {interest}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {Array.isArray(p?.experience) && p.experience.length > 0 && (
+        <div className="border-b border-linesoft px-3 py-3">
+          <div className="mb-2.5 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-text2">
+            <Briefcase size={12} className="text-gold" /> Experience
+          </div>
+          <div className="space-y-3.5">
+            {p.experience.map((exp, i) => (
+              <div key={i}>
+                <div className="text-[12.5px] font-bold">
+                  {exp?.title || 'Role'}
+                  {exp?.company ? ` · ${exp.company}` : ''}
+                </div>
+                {(exp?.start || exp?.end) && (
+                  <div className="mt-0.5 text-[10.5px] text-text3">
+                    {[exp.start, exp.end || 'Present'].filter(Boolean).join(' – ')}
+                  </div>
+                )}
+                {exp?.description && (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-text2">{exp.description}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {Array.isArray(p?.education) && p.education.length > 0 && (
+        <div className="border-b border-linesoft px-3 py-3">
+          <div className="mb-2.5 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-text2">
+            <GraduationCap size={12} className="text-gold" /> Education
+          </div>
+          <div className="space-y-3.5">
+            {p.education.map((edu, i) => (
+              <div key={i}>
+                <div className="text-[12.5px] font-bold">{edu?.school || 'School'}</div>
+                {(edu?.degree || edu?.field) && (
+                  <div className="mt-0.5 text-[11px] text-text2">
+                    {[edu.degree, edu.field].filter(Boolean).join(', ')}
+                  </div>
+                )}
+                {edu?.end && <div className="mt-0.5 text-[10.5px] text-text3">Ends {edu.end}</div>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {isOwn && (

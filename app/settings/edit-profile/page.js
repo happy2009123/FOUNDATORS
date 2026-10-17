@@ -56,6 +56,12 @@ function EditProfileForm() {
   const [website, setWebsite] = useState(profile.website || '');
   const [skills, setSkills] = useState([...(profile.skills || [])]);
   const [skillInput, setSkillInput] = useState('');
+  const [interests, setInterests] = useState([...(profile.interests || [])]);
+  const [interestInput, setInterestInput] = useState('');
+  const [experience, setExperience] = useState(Array.isArray(profile.experience) ? profile.experience : []);
+  const [education, setEducation] = useState(Array.isArray(profile.education) ? profile.education : []);
+  const [openToWork, setOpenToWork] = useState(!!profile.openToWork);
+  const [hiring, setHiring] = useState(!!profile.hiring);
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar || '');
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -140,6 +146,55 @@ function EditProfileForm() {
     setSkills((s) => s.filter((k) => k !== skill));
   }
 
+  function addInterest() {
+    const val = interestInput.trim();
+    if (!val) return;
+    if (interests.includes(val)) {
+      showToast('Interest already added');
+      return;
+    }
+    if (interests.length >= 8) {
+      showToast('Max 8 interests');
+      return;
+    }
+    vibrate('light');
+    setInterests((s) => [...s, val]);
+    setInterestInput('');
+  }
+
+  function removeInterest(interest) {
+    vibrate('light');
+    setInterests((s) => s.filter((k) => k !== interest));
+  }
+
+  function addExperience() {
+    vibrate('light');
+    setExperience((s) => [...s, { title: '', company: '', start: '', end: '', description: '' }]);
+  }
+
+  function updateExperience(index, field, value) {
+    setExperience((s) => s.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+  }
+
+  function removeExperience(index) {
+    vibrate('light');
+    setExperience((s) => s.filter((_, i) => i !== index));
+  }
+
+  function addEducation() {
+    vibrate('light');
+    setEducation((s) => [...s, { school: '', degree: '', field: '', end: '' }]);
+  }
+
+  function updateEducation(index, field, value) {
+    setEducation((s) => s.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+  }
+
+  function removeEducation(index) {
+    vibrate('light');
+    setEducation((s) => s.filter((_, i) => i !== index));
+  }
+
   async function handleSave() {
     if (!name.trim()) {
       showToast('Name cannot be empty');
@@ -190,6 +245,12 @@ function EditProfileForm() {
         website: normalizedWebsite,
         skills,
         avatar: finalAvatarUrl,
+        interests,
+        // Drop half-filled rows so empty cards never persist.
+        experience: experience.filter((e) => (e.title || '').trim() || (e.company || '').trim()),
+        education: education.filter((e) => (e.school || '').trim() || (e.degree || '').trim()),
+        openToWork,
+        hiring,
       };
 
       // updateUserProfile returns { success:false } instead of throwing -
@@ -341,6 +402,114 @@ function EditProfileForm() {
         </div>
 
         <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <h3 className="mb-3 text-[13px] font-bold">Interests</h3>
+          <p className="mb-3 text-[11.5px] text-text2">Shown on your profile and used to rank your feed and People You May Know.</p>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {interests.length === 0 && <span className="text-[12px] text-text3">No interests added yet</span>}
+            {interests.map((interest) => (
+              <span key={interest} className="flex items-center gap-1.5 rounded-full border border-brandblue/30 bg-brandblue/10 px-3 py-1 text-xs font-bold text-brandblue">
+                {interest}
+                <button onClick={() => removeInterest(interest)} className="ml-0.5 rounded-full p-0.5 text-brandblue/60 hover:text-white" aria-label={`Remove ${interest}`}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={interestInput}
+              onChange={(e) => setInterestInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addInterest(); } }}
+              placeholder="Add an interest..."
+              className="field-input flex-1"
+            />
+            <button onClick={addInterest} className="flex flex-none items-center justify-center rounded-xl border border-brandblue/30 bg-brandblue/10 px-3 text-brandblue hover:bg-brandblue/20" aria-label="Add interest">
+              <Plus size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <h3 className="mb-3 text-[13px] font-bold">Status</h3>
+          <div className="space-y-3">
+            <ToggleRow
+              label="Open to work"
+              hint="Shows a green badge on your profile — founders and recruiters can see you're looking."
+              active={openToWork}
+              onToggle={() => { vibrate('light'); setOpenToWork((v) => !v); }}
+            />
+            <ToggleRow
+              label="Hiring"
+              hint="Shows a blue hiring badge — people can reach out with roles and collaborations."
+              active={hiring}
+              onToggle={() => { vibrate('light'); setHiring((v) => !v); }}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-[13px] font-bold">Experience</h3>
+            <button onClick={addExperience} className="flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[11px] font-bold text-gold hover:bg-gold/20">
+              <Plus size={12} /> Add
+            </button>
+          </div>
+          {experience.length === 0 && <p className="text-[12px] text-text3">No experience added yet</p>}
+          <div className="space-y-3">
+            {experience.map((item, i) => (
+              <div key={i} className="rounded-xl border border-linesoft bg-white/[0.03] p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <span className="pt-1 text-[11px] font-bold text-text3">Role {i + 1}</span>
+                  <button onClick={() => removeExperience(i)} className="rounded-full p-1 text-text3 hover:text-brandred" aria-label={`Remove role ${i + 1}`}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <input value={item.title || ''} onChange={(e) => updateExperience(i, 'title', e.target.value)} placeholder="Title (e.g. Founder)" className="field-input" />
+                  <input value={item.company || ''} onChange={(e) => updateExperience(i, 'company', e.target.value)} placeholder="Company / project" className="field-input" />
+                  <div className="flex gap-2">
+                    <input value={item.start || ''} onChange={(e) => updateExperience(i, 'start', e.target.value)} placeholder="Start (e.g. 2023)" className="field-input flex-1" />
+                    <input value={item.end || ''} onChange={(e) => updateExperience(i, 'end', e.target.value)} placeholder="End (or Present)" className="field-input flex-1" />
+                  </div>
+                  <textarea value={item.description || ''} onChange={(e) => updateExperience(i, 'description', e.target.value)} placeholder="What did you do there?" rows={2} className="field-input resize-none" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-[13px] font-bold">Education</h3>
+            <button onClick={addEducation} className="flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[11px] font-bold text-gold hover:bg-gold/20">
+              <Plus size={12} /> Add
+            </button>
+          </div>
+          {education.length === 0 && <p className="text-[12px] text-text3">No education added yet</p>}
+          <div className="space-y-3">
+            {education.map((item, i) => (
+              <div key={i} className="rounded-xl border border-linesoft bg-white/[0.03] p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <span className="pt-1 text-[11px] font-bold text-text3">School {i + 1}</span>
+                  <button onClick={() => removeEducation(i)} className="rounded-full p-1 text-text3 hover:text-brandred" aria-label={`Remove school ${i + 1}`}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <input value={item.school || ''} onChange={(e) => updateEducation(i, 'school', e.target.value)} placeholder="School / university" className="field-input" />
+                  <div className="flex gap-2">
+                    <input value={item.degree || ''} onChange={(e) => updateEducation(i, 'degree', e.target.value)} placeholder="Degree" className="field-input flex-1" />
+                    <input value={item.field || ''} onChange={(e) => updateEducation(i, 'field', e.target.value)} placeholder="Field" className="field-input flex-1" />
+                  </div>
+                  <input value={item.end || ''} onChange={(e) => updateEducation(i, 'end', e.target.value)} placeholder="End year (or expected)" className="field-input" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
           <span className="text-[12px] font-bold text-text2">Firebase UID</span>
           <div className="mt-2 flex items-center gap-2 rounded-xl bg-white/5 border border-linesoft px-3 py-2.5">
             <span className="flex-1 truncate font-mono text-[13px] font-bold text-gold tracking-wider">{uid || 'N/A'}</span>
@@ -394,5 +563,24 @@ function FieldRow({ label, children }) {
       <label className="mb-1.5 block text-[12.5px] font-bold text-text2">{label}</label>
       {children}
     </div>
+  );
+}
+
+function ToggleRow({ label, hint, active, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      role="switch"
+      aria-checked={active}
+      className="flex w-full items-center gap-3 rounded-xl border border-linesoft bg-white/[0.03] px-3 py-3 text-left"
+    >
+      <span className="flex-1">
+        <span className="block text-[12.5px] font-bold">{label}</span>
+        <span className="mt-0.5 block text-[11px] text-text2">{hint}</span>
+      </span>
+      <span className={`relative flex h-6 w-11 flex-none items-center rounded-full transition-colors ${active ? 'bg-brandgreen' : 'bg-white/10'}`}>
+        <span className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-5' : 'translate-x-0.5'}`} />
+      </span>
+    </button>
   );
 }
