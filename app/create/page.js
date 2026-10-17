@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lightbulb, TrendingUp, Users, ImageIcon, X, Save, Clock, Loader2 } from 'lucide-react';
+import { Lightbulb, TrendingUp, Users, ImageIcon, X, Save, Clock, Loader2, ListChecks, Plus } from 'lucide-react';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
@@ -43,7 +43,18 @@ export default function CreatePage() {
   const [isDraft, setIsDraft] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
   const fileInputRef = useRef(null);
+
+  const buildPoll = () => {
+    if (!showPoll) return null;
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((o) => o.trim()).filter(Boolean);
+    if (!question || options.length < 2) return null;
+    return { question, options: options.slice(0, 4).map((text) => ({ text, votes: 0 })) };
+  };
 
   useEffect(() => {
     try {
@@ -128,8 +139,13 @@ export default function CreatePage() {
   };
 
   async function handlePublish() {
-    if (!text.trim() && !selectedImage && !imagePreview) {
-      showToast('Write something or add an image before posting');
+    const poll = buildPoll();
+    if (showPoll && !poll) {
+      showToast('Add a question and at least two poll options');
+      return;
+    }
+    if (!text.trim() && !selectedImage && !imagePreview && !poll) {
+      showToast('Write something, add an image, or create a poll before posting');
       return;
     }
     if (!selectedImage && imagePreview?.startsWith('blob:')) {
@@ -157,7 +173,7 @@ export default function CreatePage() {
           return;
         }
       }
-      const newId = await publishPost({ text: text.trim(), tagType: tag, imageUrl: finalImageUrl });
+      const newId = await publishPost({ text: text.trim(), tagType: tag, imageUrl: finalImageUrl, poll });
       if (!newId) return; // publishPost already rolled back + showed the error
       notification('success');
       showToast('Post published!');
@@ -223,7 +239,7 @@ export default function CreatePage() {
           </div>
           <button
             onClick={handlePublish}
-            disabled={!emailVerified || isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage && !imagePreview)}
+            disabled={!emailVerified || isPublishing || text.length > MAX_TEXT || (!text.trim() && !selectedImage && !imagePreview && !buildPoll())}
             className="rounded-full bg-gold-grad px-[18px] py-2 text-xs font-extrabold text-[#1a1300] disabled:opacity-50"
           >
             {isPublishing ? <Loader2 size={14} className="animate-spin" /> : 'Post'}
@@ -283,6 +299,52 @@ export default function CreatePage() {
           onChange={handleImageSelect}
         />
 
+        {showPoll && (
+          <div className="mt-3 rounded-2xl border border-linesoft bg-card p-3.5">
+            <div className="mb-2.5 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-text2">Poll</span>
+              <button
+                onClick={() => { setShowPoll(false); setPollQuestion(''); setPollOptions(['', '']); }}
+                className="flex h-6 w-6 items-center justify-center rounded-full text-text3 hover:bg-white/5"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <input
+              value={pollQuestion}
+              onChange={(e) => setPollQuestion(e.target.value)}
+              placeholder="Ask a question…"
+              className="mb-2.5 w-full rounded-xl border border-linesoft bg-bg2 px-3 py-2.5 text-[13px] outline-none placeholder:text-text3 focus:border-gold"
+            />
+            {pollOptions.map((opt, i) => (
+              <div key={i} className="mb-2 flex items-center gap-2">
+                <input
+                  value={opt}
+                  onChange={(e) => setPollOptions((prev) => prev.map((o, j) => (j === i ? e.target.value : o)))}
+                  placeholder={`Option ${i + 1}`}
+                  className="w-full rounded-xl border border-linesoft bg-bg2 px-3 py-2.5 text-[12.5px] outline-none placeholder:text-text3 focus:border-gold"
+                />
+                {pollOptions.length > 2 && (
+                  <button
+                    onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))}
+                    className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-text3 hover:bg-white/5"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {pollOptions.length < 4 && (
+              <button
+                onClick={() => setPollOptions((prev) => [...prev, ''])}
+                className="mt-1 flex items-center gap-1.5 text-[11.5px] font-bold text-gold"
+              >
+                <Plus size={12} /> Add option
+              </button>
+            )}
+          </div>
+        )}
+
           {!emailVerified && <p className="text-[11px] text-gold mt-1">Verify your email to post</p>}
           <div className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-text2">Tag your post</div>
         <div className="flex flex-wrap gap-2.5">
@@ -308,6 +370,13 @@ export default function CreatePage() {
           >
             <ImageIcon size={13} />
             Image
+          </button>
+          <button
+            onClick={() => setShowPoll((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-bold transition-opacity ${showPoll ? 'bg-[rgba(217,172,61,0.14)] text-gold-hi border-[rgba(217,172,61,0.4)] opacity-100' : 'text-text2 opacity-40 border-linesoft'}`}
+          >
+            <ListChecks size={13} />
+            Poll
           </button>
         </div>
       </div>
