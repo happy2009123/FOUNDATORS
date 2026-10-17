@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
-import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile, addChatMember, updateGroupMeta, removeChatMember } from '@/lib/firestore';
+import { subscribeToMessages, sendMessage as sendFS, deleteMessage as deleteFS, editMessage as editFS, deleteChat as deleteChatFS, conversationIdFor, findExistingConversation, getChatsForUser, getChat, getUserProfile, addChatMember, updateGroupMeta, removeChatMember, transferGroupOwnership } from '@/lib/firestore';
 import { useHaptics } from '@/lib/useHaptics';
 import { usePresence, isOnline, formatLastSeen } from '@/lib/presence';
 import Avatar from '@/components/Avatar';
@@ -382,9 +382,9 @@ const recordingSecondsRef = useRef(0);
     const channel = supabase
       .channel(`chat-typing:${convId}`)
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        const uid = payload?.uid;
+        const uid = payload?.userId || payload?.uid;
         if (!uid || uid === profile?.id) return;
-        if (Date.now() - (payload?.ts || 0) >= 3000) return;
+        if (Date.now() - (payload?.at || payload?.ts || 0) >= 3000) return;
         setTyping(true);
         clearTimeout(clearTimer);
         clearTimer = setTimeout(() => setTyping(false), 3000);
@@ -1107,6 +1107,28 @@ const recordingSecondsRef = useRef(0);
     }
   }
 
+  async function handleTransferOwner(memberUid) {
+    if (!convId || !isGroupOwner || !memberUid) return;
+    const memberName =
+      (chatData?.participantNames && chatData.participantNames[memberUid]) || 'this member';
+    if (!window.confirm(`Make ${memberName} the group owner? You will lose owner controls.`)) return;
+    try {
+      const res = await transferGroupOwnership(convId, memberUid);
+      if (!res.success) {
+        showToast(res.error === 'already-owner' ? 'They are already the owner' : 'Could not transfer ownership');
+        return;
+      }
+      setChatData((d) => {
+        if (!d) return d;
+        const participants = (d.participants || []).filter((p) => p !== memberUid);
+        return { ...d, participants: [memberUid, ...participants] };
+      });
+      showToast(`${memberName} is now the group owner`);
+    } catch (e) {
+      showToast('Could not transfer ownership');
+    }
+  }
+
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1787,15 +1809,26 @@ const recordingSecondsRef = useRef(0);
                         <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold">
                           {memberName}
                           {isMe ? <span className="ml-1.5 text-[11px] font-semibold text-text3">(You)</span> : null}
+                          {memberUid === (chatData.participants || [])[0] ? (
+                            <span className="ml-1.5 rounded-full border border-gold/30 bg-gold/10 px-1.5 py-0.5 text-[9px] font-bold text-gold">Owner</span>
+                          ) : null}
                         </span>
                       </button>
                       {isGroupOwner && !isMe ? (
-                        <button
-                          onClick={() => handleRemoveMember(memberUid)}
-                          className="flex-none px-2 py-1 text-[11px] font-bold text-brandred"
-                        >
-                          Remove
-                        </button>
+                        <div className="flex flex-none items-center gap-1">
+                          <button
+                            onClick={() => handleTransferOwner(memberUid)}
+                            className="px-2 py-1 text-[11px] font-bold text-gold-hi"
+                          >
+                            Make owner
+                          </button>
+                          <button
+                            onClick={() => handleRemoveMember(memberUid)}
+                            className="px-2 py-1 text-[11px] font-bold text-brandred"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   );

@@ -90,12 +90,29 @@ function CodeLine({ num, html }) {
   );
 }
 
-function PhonePreview({ code, templateName }) {
+function PhonePreview({ code, css, js, templateName }) {
   const [hasError, setHasError] = useState(false);
   const containerRef = useRef(null);
 
+  // New-format templates publish raw HTML (+ optional css/js). Legacy
+  // templates stored a React component source string. Detect which.
+  const isHtmlFormat = useMemo(() => {
+    if (css || js) return true;
+    if (!code) return false;
+    const head = code.trimStart().slice(0, 200);
+    return head.startsWith('<') || /<!DOCTYPE|<html|<div|<span|<p\b|<h[1-6]\b|<section|<button/i.test(head);
+  }, [code, css, js]);
+
+  const srcDoc = useMemo(() => {
+    if (!isHtmlFormat || !code) return null;
+    const scriptTag = js && js.trim()
+      ? `<script>try{${js.replace(/<\/script>/gi, '<\\/script>')}}catch(e){console.error(e)}</script>`
+      : '';
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a1a;color:#fff;width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}${css || ''}</style></head><body>${code}${scriptTag}</body></html>`;
+  }, [isHtmlFormat, code, css, js]);
+
   const renderedComponent = useMemo(() => {
-    if (!code) return null;
+    if (isHtmlFormat || !code) return null;
     try {
       const FORBIDDEN = /\b(fetch|XMLHttpRequest|import\(|require\(|eval\(|new Function|document\.|window\.|localStorage|sessionStorage|cookie|indexedDB)\b/;
       if (FORBIDDEN.test(code)) return null;
@@ -120,7 +137,18 @@ function PhonePreview({ code, templateName }) {
       setHasError(true);
       return null;
     }
-  }, [code]);
+  }, [code, isHtmlFormat]);
+
+  if (isHtmlFormat && srcDoc) {
+    return (
+      <iframe
+        srcDoc={srcDoc}
+        title={templateName || 'Template preview'}
+        sandbox="allow-scripts"
+        className="h-full w-full border-0"
+      />
+    );
+  }
 
   if (hasError) {
     return (
@@ -218,13 +246,26 @@ function TemplateDetailInner() {
 
   const handleCopyCode = useCallback(() => {
     if (!template?.code) return;
-    navigator.clipboard.writeText(template.code).then(() => {
+    // For HTML-format templates, copy the full document (html+css+js);
+    // legacy React templates copy just the component source.
+    const isHtml = template.css || template.js || (template.code || '').trimStart().startsWith('<');
+    let text = template.code;
+    if (isHtml) {
+      const scriptTag = template.js && template.js.trim()
+        ? `\n<script>\n${template.js}\n</script>`
+        : '';
+      const styleTag = template.css
+        ? `<style>\n${template.css}\n</style>\n`
+        : '';
+      text = `${styleTag}${template.code}${scriptTag}`;
+    }
+    navigator.clipboard.writeText(text).then(() => {
       setCopiedCode(true);
       vibrate('light');
       showToast('Code copied to clipboard!');
       setTimeout(() => setCopiedCode(false), 2000);
     });
-  }, [template?.code, vibrate, showToast]);
+  }, [template, vibrate, showToast]);
 
   const handleStar = useCallback(() => {
     if (!template) return;
@@ -335,7 +376,7 @@ function TemplateDetailInner() {
               className="overflow-hidden rounded-[24px] border-2 border-white/10"
               style={{ width: 280, height: 420 }}
             >
-              <PhonePreview code={template.code} templateName={template.name} />
+              <PhonePreview code={template.code} css={template.css} js={template.js} templateName={template.name} />
             </div>
           </div>
           <div className="flex items-center justify-center gap-1 mt-2">
@@ -518,7 +559,7 @@ function TemplateDetailInner() {
               <div className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
               <div className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
               <div className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-              <span className="ml-2 text-[9px] text-[#484f58]">{template.name}.jsx</span>
+              <span className="ml-2 text-[9px] text-[#484f58]">{template.name}{template.css || template.js || (template.code || '').trimStart().startsWith('<') ? '.html' : '.jsx'}</span>
             </div>
 
             <div className="overflow-x-auto no-scrollbar max-h-[400px] overflow-y-auto p-3">

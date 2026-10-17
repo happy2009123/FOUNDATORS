@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight, Eye, Lock, Plus, Users, ChevronUp, ChevronDown,
-  MessageCircle, Share2, TrendingUp, Clock, CheckCircle, Lightbulb, Star, X, Send, Heart, Save, RotateCcw, UserPlus,
+  MessageCircle, Share2, TrendingUp, Clock, CheckCircle, Lightbulb, Star, X, Send, Heart, Save, RotateCcw, UserPlus, Pencil, Trash2,
 } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import SubpageHeader from '@/components/SubpageHeader';
@@ -45,6 +45,7 @@ export default function Ideas() {
   const [commentLikes, setCommentLikes] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [editingId, setEditingId] = useState(null); // when set, form submits an update
   const [creating, setCreating] = useState(false);
   const [commenting, setCommenting] = useState(false);
   const [vault, setVault] = useState({ versions: [], members: [], loaded: false });
@@ -371,6 +372,43 @@ export default function Ideas() {
     if (!profile?.id) { showToast('Please sign in to submit ideas'); return; }
     setCreating(true);
     try {
+      if (editingId) {
+        // Edit: update the row in place (RLS: ideas_update_own allows the author).
+        const { error } = await getSupabase()
+          .from('ideas')
+          .update(toRow({
+            title: form.name.trim(),
+            summary: form.tagline.trim(),
+            stage: form.stage,
+            description: form.description.trim(),
+            problem: form.problem.trim(),
+            solution: form.solution.trim(),
+            audience: form.audience.trim(),
+            tech: form.tech.trim(),
+            isPrivate: !!form.isPrivate,
+          }))
+          .eq('id', editingId);
+        if (error) throw error;
+        setIdeas((prev) => prev.map((i) => {
+          if (i.id !== editingId) return i;
+          return {
+            ...i,
+            name: form.name.trim(),
+            tagline: form.tagline.trim(),
+            stage: form.stage,
+            description: form.description.trim(),
+            problem: form.problem.trim(),
+            solution: form.solution.trim(),
+            audience: form.audience.trim(),
+            tech: form.tech.trim(),
+            isPrivate: !!form.isPrivate,
+          };
+        }));
+        vibrate('medium');
+        showToast('Idea updated!');
+        setForm(EMPTY_FORM); setEditingId(null); setShowForm(false);
+        return;
+      }
       const ideaId = randomId();
       const { error } = await getSupabase()
         .from('ideas')
@@ -416,9 +454,43 @@ export default function Ideas() {
       showToast(form.isPrivate ? 'Idea saved to your vault (private)' : 'Idea published!');
     } catch (err) {
       console.error('Failed to submit idea:', err);
-      showToast('Failed to publish idea.');
+      showToast(editingId ? 'Failed to update idea.' : 'Failed to publish idea.');
     } finally {
       setCreating(false);
+    }
+  }
+
+  function startEditIdea(idea) {
+    if (!idea || idea.authorKey !== profile?.id) return;
+    setForm({
+      name: idea.name || '',
+      tagline: idea.tagline || '',
+      stage: idea.stage || 'Concept',
+      description: idea.description || '',
+      problem: idea.problem || '',
+      solution: idea.solution || '',
+      audience: idea.audience || '',
+      tech: idea.tech || '',
+      isPrivate: !!idea.isPrivate,
+    });
+    setEditingId(idea.id);
+    setShowForm(true);
+  }
+
+  async function handleDeleteIdea(idea) {
+    if (!idea || idea.authorKey !== profile?.id || vaultBusy) return;
+    if (!window.confirm(`Delete "${idea.name}"? This cannot be undone.`)) return;
+    setVaultBusy(true);
+    try {
+      const { error } = await getSupabase().from('ideas').delete().eq('id', idea.id);
+      if (error) throw error;
+      setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
+      showToast('Idea deleted');
+      if (openId === idea.id) closeIdea();
+    } catch (e) {
+      showToast('Could not delete idea');
+    } finally {
+      setVaultBusy(false);
     }
   }
 
@@ -536,9 +608,9 @@ export default function Ideas() {
         {showForm && (
           <div className="fixed inset-0 z-50 flex flex-col bg-[#020202]">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <button onClick={() => { vibrate('light'); setShowForm(false); }} className="p-1 text-text2"><X size={20} /></button>
-              <span className="text-[13px] font-extrabold">Submit Idea</span>
-              <button onClick={handleSubmitIdea} disabled={creating} className="rounded-lg bg-gold-grad px-3 py-1.5 text-[10px] font-black text-[#171100] disabled:opacity-50">{creating ? 'Publishing...' : 'Publish'}</button>
+              <button onClick={() => { vibrate('light'); setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); }} className="p-1 text-text2"><X size={20} /></button>
+              <span className="text-[13px] font-extrabold">{editingId ? 'Edit Idea' : 'Submit Idea'}</span>
+              <button onClick={handleSubmitIdea} disabled={creating} className="rounded-lg bg-gold-grad px-3 py-1.5 text-[10px] font-black text-[#171100] disabled:opacity-50">{creating ? (editingId ? 'Saving...' : 'Publishing...') : (editingId ? 'Save' : 'Publish')}</button>
             </div>
             <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
               <label className="mt-2 block text-[10px] font-bold text-text2">Name *</label>
@@ -610,6 +682,24 @@ export default function Ideas() {
                 <button onClick={() => handleShareIdea(openIdeaData)} className="rounded-xl border border-line p-2.5 text-text2 transition-colors hover:text-gold-hi"><Share2 size={15} /></button>
                 <button onClick={() => { vibrate('light'); router.push('/match/find_programmer'); }} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[11px] font-black text-[#171100]">Build team <ArrowRight size={13} /></button>
               </div>
+
+              {profile?.id && openIdeaData.authorKey === profile.id ? (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => { startEditIdea(openIdeaData); closeIdea(); }}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line bg-card py-2.5 text-[11px] font-bold text-text2 active:bg-white/5"
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteIdea(openIdeaData)}
+                    disabled={vaultBusy}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-brandred/30 bg-brandred/10 py-2.5 text-[11px] font-bold text-brandred active:bg-white/5 disabled:opacity-50"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </div>
+              ) : null}
 
               {profile?.id && openIdeaData.authorKey === profile.id ? (
                 <div className="mt-5 rounded-2xl border border-gold/25 bg-gold/[0.04] p-3.5">
