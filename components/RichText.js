@@ -17,7 +17,7 @@ export default function RichText({ text }) {
               key={i}
               onClick={(e) => {
                 e.stopPropagation();
-                router.push(`/search?q=${encodeURIComponent(part)}`);
+                router.push(`/topic/${encodeURIComponent(part.slice(1).toLowerCase())}`);
               }}
               className="font-bold text-gold hover:underline"
             >

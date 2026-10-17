@@ -1,36 +1,40 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────
-// SEARCH — real Firestore data across people, projects, posts
-// and hashtags derived from actual post text. Honors ?q= from
-// the desktop header. No seeded/fake trending entries.
+// SEARCH — server-side search across people, posts and projects
+// (lib/search.js queries the full tables, not a 60-row client
+// snapshot), hashtags derived from the recent-post pool, followed
+// topics, and localStorage history. Honors ?q= from the header.
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useCallback, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, X, Clock, TrendingUp, Hash, FolderKanban, FileText } from 'lucide-react';
+import { Search, X, Clock, TrendingUp, Hash, FolderKanban, FileText, Loader2, Bookmark } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from '@/components/Avatar';
+import { searchPeople, searchPosts, searchProjects, extractTags, fetchFollowedTopics } from '@/lib/search';
 
-function extractTags(posts) {
-  const counts = new Map();
-  posts.forEach((p) => {
-    const matches = String(p.text || '').match(/#[A-Za-z][A-Za-z0-9_]{1,30}/g) || [];
-    matches.forEach((m) => {
-      const key = m.toLowerCase();
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-  });
-  return Array.from(counts, ([text, posts]) => ({ text, posts }))
-    .sort((a, b) => b.posts - a.posts)
-    .slice(0, 8);
+const HISTORY_KEY = 'foundators.searchHistory';
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.slice(0, 10) : [];
+  } catch {
+    return [];
+  }
 }
 
-// Inner component uses useSearchParams, which requires a Suspense boundary
-// in the App Router — see the default export at the bottom.
+function saveHistory(list) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 10)));
+  } catch {}
+}
+
 function SearchInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -41,7 +45,10 @@ function SearchInner() {
   const [users, setUsers] = useState([]);
   const [posts, setPosts] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [tagPool, setTagPool] = useState([]);
+  const [followedTopics, setFollowedTopics] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const followedUsers = useStore((s) => s.followedUsers);
   const toggleFollowUser = useStore((s) => s.toggleFollowUser);
 
@@ -54,86 +61,116 @@ function SearchInner() {
   }, [urlQ]);
 
   useEffect(() => {
+    setSearchHistory(loadHistory());
+  }, []);
+
+  // One-time bootstrap: blocks (to filter results), the hashtag pool and
+  // the user's followed topics. No full table preload anymore.
+  useEffect(() => {
     let cancelled = false;
-    async function fetchAll() {
+    (async () => {
       try {
         const supabase = getSupabase();
         if (!supabase) return;
         const { data: authRes } = await supabase.auth.getUser();
         const userId = authRes?.user?.id;
-        const [usersRes, postRes, projectRes, blockedRes] = await Promise.all([
-          supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(50),
-          supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(60),
-          supabase.from('projects').select('*').order('created_at', { ascending: false }).limit(30),
+        const [tagRes, topicsRes, blockedRes] = await Promise.all([
+          supabase
+            .from('posts')
+            .select('text, created_at')
+            .order('created_at', { ascending: false })
+            .limit(300),
+          fetchFollowedTopics(supabase),
           userId
             ? supabase.from('blocks').select('blocked_id').eq('user_id', userId)
             : Promise.resolve({ data: null }),
         ]);
-        if (usersRes.error) throw usersRes.error;
-        if (postRes.error) throw postRes.error;
-        if (projectRes.error) throw projectRes.error;
-        if (blockedRes?.error) throw blockedRes.error;
-        if (!cancelled) {
-          const blockedIds = new Set((blockedRes?.data || []).map((r) => r.blocked_id));
-          setUsers(
-            mapRows(usersRes.data || []).filter(
-              (u) =>
-                !blockedIds.has(u.id) &&
-                u.id !== userId &&
-                u.status !== 'suspended'
-            )
-          );
-          setPosts(mapRows(postRes.data || []));
-          setProjects(
-            mapRows(projectRes.data || []).map((p) => ({ ...p, name: p.title || '' }))
-          );
+        if (cancelled) return;
+        if (!tagRes.error) setTagPool(mapRows(tagRes.data || []));
+        setFollowedTopics(topicsRes || []);
+        if (blockedRes?.data) {
+          // blocked ids are stored for reference by the server-search filter
+          sessionStorage.setItem('foundators.blockedIds', JSON.stringify(blockedRes.data.map((r) => r.blocked_id)));
         }
       } catch {
-        // silently fail
+        // silent — trending/trends degrade to empty
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-    fetchAll();
+    })();
     return () => { cancelled = true; };
   }, []);
 
-  const trendingTags = useMemo(() => extractTags(posts), [posts]);
+  // Debounced server search: one round of three parallel queries per pause.
+  const q = query.trim();
+  useEffect(() => {
+    if (!q) {
+      setUsers([]);
+      setPosts([]);
+      setProjects([]);
+      setSearching(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      const supabase = getSupabase();
+      if (!supabase) { setSearching(false); return; }
+      const [ppl, pst, prj] = await Promise.all([
+        searchPeople(supabase, q),
+        searchPosts(supabase, q),
+        searchProjects(supabase, q),
+      ]);
+      if (cancelled) return;
+      let blocked = [];
+      try { blocked = JSON.parse(sessionStorage.getItem('foundators.blockedIds') || '[]'); } catch {}
+      const blockedSet = new Set(blocked);
+      setUsers(ppl.filter((u) => !blockedSet.has(u.id) && u.status !== 'suspended'));
+      setPosts(pst);
+      setProjects(prj);
+      setSearching(false);
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q]);
+
+  const trendingTags = useMemo(() => extractTags(tagPool), [tagPool]);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return { users: [], tags: [], posts: [], projects: [] };
+    const ql = q.toLowerCase();
+    if (!ql) return { users: [], tags: [], posts: [], projects: [] };
     return {
-      users: users.filter(
-        (u) =>
-          String(u.name || '').toLowerCase().includes(q) ||
-          String(u.handle || '').toLowerCase().includes(q) ||
-          String(u.role || '').toLowerCase().includes(q)
-      ),
-      tags: trendingTags.filter((t) => t.text.includes(q.startsWith('#') ? q : `#${q}`)),
-      posts: posts
-        .filter((p) => String(p.text || '').toLowerCase().includes(q))
-        .slice(0, 20),
-      projects: projects
-        .filter(
-          (p) =>
-            String(p.name || '').toLowerCase().includes(q) ||
-            String(p.description || '').toLowerCase().includes(q)
-        )
-        .slice(0, 10),
+      users,
+      tags: trendingTags.filter((t) => t.text.includes(ql.startsWith('#') ? ql : `#${ql}`)),
+      posts,
+      projects,
     };
-  }, [query, users, posts, projects, trendingTags]);
+  }, [q, users, posts, projects, trendingTags]);
 
   const totalHits =
     results.users.length + results.tags.length + results.posts.length + results.projects.length;
 
   const addToHistory = useCallback((term) => {
-    setSearchHistory((prev) => [term, ...prev.filter((h) => h !== term)].slice(0, 10));
+    const t = String(term || '').trim();
+    if (!t) return;
+    setSearchHistory((prev) => {
+      const next = [t, ...prev.filter((h) => h !== t)].slice(0, 10);
+      saveHistory(next);
+      return next;
+    });
   }, []);
 
   const removeFromHistory = useCallback((term) => {
-    setSearchHistory((prev) => prev.filter((h) => h !== term));
+    setSearchHistory((prev) => {
+      const next = prev.filter((h) => h !== term);
+      saveHistory(next);
+      return next;
+    });
   }, []);
+
+  const openTopic = useCallback((tag) => {
+    const clean = String(tag || '').replace(/^#/, '').toLowerCase();
+    if (clean) router.push(`/topic/${encodeURIComponent(clean)}`);
+  }, [router]);
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
@@ -144,12 +181,14 @@ function SearchInner() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addToHistory(query); }}
             placeholder="Search people, projects, posts, tags..."
             autoFocus
             className="flex-1 bg-transparent text-[14px] text-white placeholder:text-text3 focus:outline-none"
             aria-label="Search"
           />
-          {query && (
+          {searching && <Loader2 size={15} className="animate-spin text-gold" />}
+          {query && !searching && (
             <button onClick={() => setQuery('')} className="text-text3" aria-label="Clear">
               <X size={16} />
             </button>
@@ -184,11 +223,11 @@ function SearchInner() {
                   const isFollowing = !!followedUsers[key];
                   return (
                     <div key={key} className="flex items-center gap-3 py-3">
-                      <button onClick={() => router.push(`/profile/${key}`)}>
+                      <button onClick={() => { addToHistory(query); router.push(`/profile/${key}`); }}>
                         <Avatar src={user.avatar} name={user.name} size={40} />
                       </button>
                       <button
-                        onClick={() => router.push(`/profile/${key}`)}
+                        onClick={() => { addToHistory(query); router.push(`/profile/${key}`); }}
                         className="min-w-0 flex-1 text-left"
                       >
                         <div className="flex items-center gap-1">
@@ -217,7 +256,7 @@ function SearchInner() {
                 {results.projects.map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => router.push(`/projects/${p.id}`)}
+                    onClick={() => { addToHistory(query); router.push(`/projects/${p.id}`); }}
                     className="flex w-full items-center gap-3 py-3 text-left"
                   >
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 text-gold">
@@ -238,7 +277,7 @@ function SearchInner() {
                 {results.posts.map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => router.push(`/post/${p.id}`)}
+                    onClick={() => { addToHistory(query); router.push(`/post/${p.id}`); }}
                     className="block w-full py-3 text-left"
                   >
                     <div className="flex items-center gap-2">
@@ -257,7 +296,11 @@ function SearchInner() {
               <div>
                 <h3 className="mb-2 text-[12px] font-bold text-text3">Tags</h3>
                 {results.tags.map((tag) => (
-                  <div key={tag.text} className="flex items-center gap-3 py-3">
+                  <button
+                    key={tag.text}
+                    onClick={() => { addToHistory(tag.text); openTopic(tag.text); }}
+                    className="flex w-full items-center gap-3 py-3 text-left"
+                  >
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 text-gold">
                       <Hash size={16} />
                     </div>
@@ -267,14 +310,14 @@ function SearchInner() {
                         {tag.posts} post{tag.posts === 1 ? '' : 's'}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
 
             {totalHits === 0 && (
               <div className="py-12 text-center text-[13px] text-text2">
-                No results for &ldquo;{query}&rdquo;
+                {searching ? 'Searching…' : <>No results for &ldquo;{query}&rdquo;</>}
               </div>
             )}
           </div>
@@ -309,6 +352,24 @@ function SearchInner() {
               </div>
             )}
 
+            {followedTopics.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-[12px] font-bold text-text3">Your topics</h3>
+                <div className="flex flex-wrap gap-2">
+                  {followedTopics.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => openTopic(tag)}
+                      className="flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1.5 text-[12px] font-bold text-gold"
+                    >
+                      <Bookmark size={12} />
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <h3 className="mb-2 text-[12px] font-bold text-text3">Trending tags</h3>
               {trendingTags.length === 0 ? (
@@ -320,7 +381,7 @@ function SearchInner() {
                   <div key={item.text} className="flex items-center gap-3 py-2.5">
                     <TrendingUp size={14} className="text-gold" />
                     <button
-                      onClick={() => { setQuery(item.text); addToHistory(item.text); }}
+                      onClick={() => { addToHistory(item.text); openTopic(item.text); }}
                       className="flex-1 text-left"
                     >
                       <div className="text-[13px] font-bold">{item.text}</div>

@@ -257,9 +257,10 @@ function ExploreInner() {
               </p>
             ) : (
               filteredTags.map((tag, i) => (
-                <div
+                <button
                   key={tag.tag}
-                  className="flex items-center gap-3 rounded-2xl border border-linesoft bg-card p-4"
+                  onClick={() => router.push(`/topic/${encodeURIComponent(tag.tag.toLowerCase())}`)}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-linesoft bg-card p-4 text-left transition-colors hover:border-gold/50"
                 >
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gold/10 text-2xl">
                     {tagIcon(i)}
@@ -271,7 +272,7 @@ function ExploreInner() {
                     </div>
                   </div>
                   <ArrowRight size={16} className="text-text3" />
-                </div>
+                </button>
               ))
             )}
           </div>
