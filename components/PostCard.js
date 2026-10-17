@@ -19,6 +19,7 @@ import {
   Flag,
   Copy,
   EyeOff,
+  Smile,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
@@ -28,6 +29,8 @@ import RichText from './RichText';
 import { deletePost as firestoreDeletePost, updatePost as firestoreUpdatePost, getUserProfile } from '@/lib/firestore';
 import { formatPostTime } from '@/lib/timeago';
 import { getSupabase } from '@/lib/supabase/client';
+
+const REACTION_EMOJIS = ['❤️', '👏', '💡', '🚀', '😂', '😮'];
 
 const REPORT_REASONS = [
   'Spam or misleading',
@@ -51,7 +54,7 @@ async function fetchUser(key) {
   }
 }
 
-export default memo(function PostCard({ post }) {
+export default memo(function PostCard({ post, reactions: reactionsProp, myReaction: myReactionProp }) {
   const router = useRouter();
   const [author, setAuthor] = useState(null);
   const likedMap = useStore((s) => s.likedPosts);
@@ -138,6 +141,84 @@ export default memo(function PostCard({ post }) {
     if (post.noActions || liked) return;
     handleLike();
   }, [post.noActions, liked, handleLike]);
+
+  // ---------- emoji reactions (set_post_reaction RPC) ----------
+  // `reactions` prop semantics: undefined = hydrate locally (single-post
+  // surfaces), null = "batch load in flight, don't fetch" (the feed passes
+  // null until its batched get_post_reactions result lands).
+  const [reactCounts, setReactCounts] = useState(() =>
+    reactionsProp && typeof reactionsProp === 'object' ? reactionsProp : {}
+  );
+  const [myReaction, setMyReaction] = useState(
+    () => myReactionProp ?? null
+  );
+  const [showReactTray, setShowReactTray] = useState(false);
+
+  useEffect(() => {
+    if (reactionsProp && typeof reactionsProp === 'object') setReactCounts(reactionsProp);
+  }, [reactionsProp]);
+  useEffect(() => {
+    if (myReactionProp !== undefined) setMyReaction(myReactionProp);
+  }, [myReactionProp]);
+
+  // Single-post surfaces (post page, profile tabs) hydrate their own counts.
+  useEffect(() => {
+    if (reactionsProp !== undefined || !profile?.id) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [aggRes, mineRes] = await Promise.all([
+          supabase.rpc('get_post_reactions', { p_post_ids: [post.id] }),
+          supabase.from('post_reactions').select('emoji').eq('post_id', post.id).eq('user_id', profile.id).maybeSingle(),
+        ]);
+        if (cancelled) return;
+        const counts = {};
+        (aggRes.data || []).forEach((row) => {
+          if (!counts[row.post_id]) counts[row.post_id] = {};
+          counts[row.post_id][row.emoji] = Number(row.cnt ?? row.count ?? 0);
+        });
+        setReactCounts(counts[post.id] || {});
+        if (mineRes?.data?.emoji) setMyReaction(mineRes.data.emoji);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [post.id, profile?.id, reactionsProp]);
+
+  const handleReact = useCallback(async (emoji) => {
+    if (!profile?.id) { showToast('Sign in to react'); return; }
+    const prev = myReaction;
+    const next = prev === emoji ? null : emoji;
+    setShowReactTray(false);
+    setMyReaction(next);
+    setReactCounts((c) => {
+      const n = { ...c };
+      if (prev) n[prev] = Math.max(0, (n[prev] || 0) - 1);
+      if (next) n[next] = (n[next] || 0) + 1;
+      return n;
+    });
+    try {
+      const { error } = await getSupabase()?.rpc('set_post_reaction', {
+        p_post_id: post.id,
+        p_emoji: next,
+      });
+      if (error) throw error;
+    } catch {
+      setMyReaction(prev);
+      setReactCounts((c) => {
+        const n = { ...c };
+        if (next) n[next] = Math.max(0, (n[next] || 0) - 1);
+        if (prev) n[prev] = (n[prev] || 0) + 1;
+        return n;
+      });
+      showToast('Could not save reaction');
+    }
+  }, [profile?.id, myReaction, post.id, showToast]);
+
+  const reactionEntries = Object.entries(reactCounts || {})
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
 
   function goToAuthor() {
     if (post.authorKey === profile?.id) {
@@ -384,8 +465,30 @@ export default memo(function PostCard({ post }) {
         </>
       )}
 
+      {reactionEntries.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {reactionEntries.slice(0, 3).map(([emoji, count]) => (
+            <button
+              key={emoji}
+              onClick={() => handleReact(emoji)}
+              className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold transition-colors ${
+                myReaction === emoji
+                  ? 'border-gold bg-gold/10 text-gold-hi'
+                  : 'border-linesoft bg-white/5 text-text2'
+              }`}
+              aria-label={`React ${emoji} (${count})`}
+            >
+              <span className="text-[12px] leading-none">{emoji}</span> {count}
+            </button>
+          ))}
+          {reactionEntries.length > 3 && (
+            <span className="text-[10px] text-text3">+{reactionEntries.length - 3}</span>
+          )}
+        </div>
+      )}
+
       {!post.noActions && (
-        <div className="flex items-center gap-1 pt-0.5">
+        <div className="relative flex items-center gap-1 pt-0.5">
           <button
             onClick={handleLike}
             aria-label={liked ? 'Unlike post' : 'Like post'}
@@ -442,6 +545,34 @@ export default memo(function PostCard({ post }) {
             {localShareCount}
           </button>
           <span className="flex-1" />
+          <div className="relative">
+            <button
+              onClick={() => setShowReactTray((v) => !v)}
+              aria-label="Add reaction"
+              aria-expanded={showReactTray}
+              className={`flex h-[44px] w-[44px] items-center justify-center rounded-full ${myReaction ? 'text-gold' : 'text-text2'}`}
+            >
+              {myReaction ? (
+                <span className="text-[17px] leading-none" role="img" aria-label={myReaction}>{myReaction}</span>
+              ) : (
+                <Smile size={19} />
+              )}
+            </button>
+            {showReactTray && (
+              <div className="absolute bottom-11 right-0 z-50 flex items-center gap-1 rounded-full border border-linesoft bg-card px-2 py-1.5 shadow-xl">
+                {REACTION_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleReact(emoji)}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full text-[19px] leading-none transition-transform hover:scale-125 ${myReaction === emoji ? 'bg-gold/15' : ''}`}
+                    aria-label={`React ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             onClick={() => { toggleBookmark(post.id); notification('success'); }}
             aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark post'}
@@ -490,28 +621,72 @@ function RoleChip({ icon: Icon, label }) {
 function PostPoll({ postId, poll }) {
   const votePoll = useStore((s) => s.votePoll);
   const pollVotes = useStore((s) => s.pollVotes);
+  const profileId = useStore((s) => s.profile?.id);
   const myVote = pollVotes[postId];
   const hasVoted = myVote !== undefined;
+  const [livePoll, setLivePoll] = useState(poll);
+  const [busy, setBusy] = useState(false);
 
-  const totalVotes = poll.options.reduce((sum, o) => sum + (o.votes || 0), 0) + (hasVoted ? 1 : 0);
+  useEffect(() => { setLivePoll(poll); }, [poll]);
 
-  const handleVote = (index) => {
-    if (hasVoted) return;
-    votePoll(postId, index);
+  // Hydrate tallies + my vote from the DB so a refresh shows real results.
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [postRes, voteRes] = await Promise.all([
+          supabase.from('posts').select('poll').eq('id', postId).maybeSingle(),
+          profileId
+            ? supabase.from('poll_votes').select('option_index').eq('post_id', postId).eq('user_id', profileId).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+        if (cancelled) return;
+        if (postRes?.data?.poll) setLivePoll(postRes.data.poll);
+        const opt = voteRes?.data?.option_index;
+        if (opt !== undefined && opt !== null) {
+          const cur = useStore.getState().pollVotes;
+          if (cur[postId] === undefined) useStore.setState({ pollVotes: { ...cur, [postId]: opt } });
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [postId, profileId]);
+
+  // DB counts (option.votes) already include my vote once vote_poll lands —
+  // no +1 adjustment. Optimistic bump locally, then re-sync from the server.
+  const totalVotes = (livePoll.options || []).reduce((sum, o) => sum + (o.votes || 0), 0);
+
+  const handleVote = async (index) => {
+    if (hasVoted || busy) return;
+    if (!profileId) { useStore.getState().showToast('Sign in to vote'); return; }
+    setBusy(true);
+    setLivePoll((prev) => ({
+      ...prev,
+      options: (prev.options || []).map((o, i) => (i === index ? { ...o, votes: (o.votes || 0) + 1 } : o)),
+    }));
+    await votePoll(postId, index);
+    try {
+      const { data } = await getSupabase()?.from('posts').select('poll').eq('id', postId).maybeSingle();
+      if (data?.poll) setLivePoll(data.poll);
+    } catch {}
+    setBusy(false);
   };
 
   return (
     <div className="mb-3 rounded-2xl border border-linesoft bg-card p-4">
-      <div className="text-[13px] font-bold mb-3">{poll.question}</div>
+      <div className="text-[13px] font-bold mb-3">{livePoll.question}</div>
       <div className="space-y-2">
-        {poll.options.map((option, i) => {
-          const votes = (option.votes || 0) + (hasVoted && myVote === i ? 1 : 0);
+        {(livePoll.options || []).map((option, i) => {
+          const votes = option.votes || 0;
           const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
           const isSelected = myVote === i;
           return (
             <button
               key={i}
               onClick={() => handleVote(i)}
+              disabled={hasVoted || busy}
               className={`relative w-full rounded-xl border p-3 text-left transition-all ${
                 hasVoted
                   ? isSelected ? 'border-gold bg-gold/10' : 'border-linesoft'

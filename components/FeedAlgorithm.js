@@ -155,6 +155,46 @@ export default function FeedAlgorithm() {
     });
   }, [feedType, profile, followedUsers, visiblePosts]);
 
+  // Batch-load emoji reaction counts + my reactions for the visible feed in
+  // two queries instead of per-post (each PostCard would otherwise fire its
+  // own pair). PostCard receives `null` until the batch lands so it skips
+  // its single-post hydration.
+  const [reactionsByPost, setReactionsByPost] = useState({});
+  const [myReactionsByPost, setMyReactionsByPost] = useState({});
+  const feedIdsKey = feedPosts.map((p) => p.id).join(',');
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    const ids = feedIdsKey ? feedIdsKey.split(',') : [];
+    if (!supabase || !profile?.id || ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [aggRes, mineRes] = await Promise.all([
+          supabase.rpc('get_post_reactions', { p_post_ids: ids }),
+          supabase
+            .from('post_reactions')
+            .select('post_id, emoji')
+            .in('post_id', ids)
+            .eq('user_id', profile.id),
+        ]);
+        if (cancelled) return;
+        const counts = {};
+        (aggRes.data || []).forEach((row) => {
+          if (!counts[row.post_id]) counts[row.post_id] = {};
+          counts[row.post_id][row.emoji] = Number(row.cnt ?? row.count ?? 0);
+        });
+        const mine = {};
+        (mineRes.data || []).forEach((row) => {
+          mine[row.post_id] = row.emoji;
+        });
+        setReactionsByPost(counts);
+        setMyReactionsByPost(mine);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [feedIdsKey, profile?.id]);
+
   return (
     <div className="mt-3">
       <div className="flex items-center gap-1 px-[18px] mb-3">
@@ -197,7 +237,11 @@ export default function FeedAlgorithm() {
         {feedPosts.length > 0 ? (
           feedPosts.map((post, i) => (
             <div key={post.id} ref={i === feedPosts.length - 1 ? lastRef : null}>
-              <PostCard post={post} />
+              <PostCard
+                post={post}
+                reactions={reactionsByPost[post.id] ?? null}
+                myReaction={myReactionsByPost[post.id] ?? null}
+              />
             </div>
           ))
         ) : (

@@ -10,7 +10,28 @@ import SubpageHeader from '@/components/SubpageHeader';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { getSupabase } from '@/lib/supabase/client';
-import { mapRows, randomId, toRow } from '@/lib/supabase/db';
+import { mapRows, randomId, toRow, toMillis } from '@/lib/supabase/db';
+
+function formatEventDate(value) {
+  const ms = toMillis(value);
+  if (!ms) return '';
+  const d = new Date(ms);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `Today · ${time}`;
+  const tomorrow = new Date(now.getTime() + 86400000);
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow · ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${time}`;
+}
+
+function startsInLabel(value) {
+  const ms = toMillis(value);
+  if (!ms) return null;
+  const diff = ms - Date.now();
+  if (diff <= 0 || diff > 60 * 60 * 1000) return null;
+  return `Starts in ~${Math.max(1, Math.round(diff / 60000))} min`;
+}
 
 const FILTER_TABS = ['All', 'Today', 'This Week', 'Online', 'Free'];
 const CATEGORY_OPTIONS = ['Meetup', 'Workshop', 'Hackathon', 'Pitch Night', 'Conference', 'Social'];
@@ -35,7 +56,7 @@ export default function Events() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newEvent, setNewEvent] = useState({ name: '', date: '', location: '', category: 'Meetup', description: '' });
+  const [newEvent, setNewEvent] = useState({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' });
   const [formErrors, setFormErrors] = useState({});
 
   useEffect(() => {
@@ -54,6 +75,8 @@ export default function Events() {
           location: row.location || '',
           category: row.category || '',
           date: row.date || '',
+          startsAt: row.startsAt || null,
+          reminderSent: !!row.reminderSent,
           isToday: !!row.isToday,
           price: row.price || 'Free',
           priceValue: row.priceValue || 0,
@@ -73,22 +96,64 @@ export default function Events() {
     fetchEvents();
   }, []);
 
+  // Client-side reminder: the next time I open Events, anything I'm going to
+  // that starts within the hour pings once (reminder_sent flips to true).
+  useEffect(() => {
+    if (!profile?.id || !events.length) return;
+    const now = Date.now();
+    const soon = events.find((e) => {
+      if (!e.startsAt || e.reminderSent) return false;
+      if (!(e.attendees || []).includes(profile.id)) return false;
+      const t = toMillis(e.startsAt);
+      return t > now && t <= now + 60 * 60 * 1000;
+    });
+    if (!soon) return;
+    const mins = Math.max(1, Math.round((toMillis(soon.startsAt) - now) / 60000));
+    showToast(`"${soon.name}" starts in ~${mins} min`);
+    setEvents((prev) => prev.map((e) => (e.id === soon.id ? { ...e, reminderSent: true } : e)));
+    getSupabase()
+      .from('events')
+      .update({ reminder_sent: true })
+      .eq('id', soon.id)
+      .then(() => {})
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, profile?.id]);
+
   const filteredEvents = useMemo(() => {
     let filtered = events;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter((e) => e.name?.toLowerCase().includes(q) || e.category?.toLowerCase().includes(q) || e.location?.toLowerCase().includes(q));
     }
+    const nowMs = Date.now();
     if (activeFilter === 'Today') {
-      filtered = filtered.filter((e) => e.isToday || e.date?.toLowerCase().startsWith('today'));
+      filtered = filtered.filter((e) => {
+        if (e.startsAt) return new Date(toMillis(e.startsAt)).toDateString() === new Date().toDateString();
+        return e.isToday || e.date?.toLowerCase().startsWith('today');
+      });
     } else if (activeFilter === 'This Week') {
-      filtered = filtered.filter((e) => e.isToday || e.date?.toLowerCase().startsWith('today') || e.date?.includes('Sat') || e.date?.includes('Sun') || e.date?.includes('Mon') || e.date?.includes('Tue') || e.date?.includes('Wed') || e.date?.includes('Thu') || e.date?.includes('Fri'));
+      filtered = filtered.filter((e) => {
+        if (e.startsAt) {
+          const t = toMillis(e.startsAt);
+          return t >= nowMs && t <= nowMs + 7 * 86400000;
+        }
+        return e.isToday || e.date?.toLowerCase().startsWith('today') || e.date?.includes('Sat') || e.date?.includes('Sun') || e.date?.includes('Mon') || e.date?.includes('Tue') || e.date?.includes('Wed') || e.date?.includes('Thu') || e.date?.includes('Fri');
+      });
     } else if (activeFilter === 'Online') {
       filtered = filtered.filter((e) => e.isOnline || e.location?.toLowerCase().includes('online'));
     } else if (activeFilter === 'Free') {
       filtered = filtered.filter((e) => !e.priceValue || e.priceValue === 0);
     }
-    return filtered;
+    // Real upcoming events first (by starts_at), then everything else.
+    return [...filtered].sort((a, b) => {
+      const ta = a.startsAt ? toMillis(a.startsAt) : null;
+      const tb = b.startsAt ? toMillis(b.startsAt) : null;
+      if (ta && tb) return ta - tb;
+      if (ta) return -1;
+      if (tb) return 1;
+      return 0;
+    });
   }, [events, activeFilter, searchQuery]);
 
   async function toggleRsvp(event) {
@@ -135,7 +200,7 @@ export default function Events() {
   function validateForm() {
     const errors = {};
     if (!newEvent.name.trim()) errors.name = 'Event name is required';
-    if (!newEvent.date.trim()) errors.date = 'Date is required';
+    if (!newEvent.startsAt.trim()) errors.date = 'Date & time is required';
     if (!newEvent.location.trim()) errors.location = 'Location is required';
     if (!newEvent.description.trim()) errors.description = 'Description is required';
     setFormErrors(errors);
@@ -148,6 +213,8 @@ export default function Events() {
     setCreating(true);
     try {
       const eventId = randomId();
+      const startsDate = new Date(newEvent.startsAt);
+      const displayDate = formatEventDate(startsDate);
       const { error } = await getSupabase()
         .from('events')
         .insert(toRow({
@@ -156,8 +223,9 @@ export default function Events() {
           description: newEvent.description.trim(),
           location: newEvent.location.trim(),
           category: newEvent.category,
-          date: newEvent.date.trim(),
-          isToday: newEvent.date.toLowerCase().startsWith('today'),
+          date: displayDate,
+          startsAt: startsDate.toISOString(),
+          isToday: startsDate.toDateString() === new Date().toDateString(),
           price: 'Free',
           priceValue: 0,
           creatorName: profile.name,
@@ -170,10 +238,12 @@ export default function Events() {
         id: eventId,
         name: newEvent.name.trim(),
         description: newEvent.description.trim(),
-        date: newEvent.date.trim(),
+        date: displayDate,
+        startsAt: startsDate.toISOString(),
+        reminderSent: false,
         location: newEvent.location.trim(),
         category: newEvent.category,
-        isToday: newEvent.date.toLowerCase().startsWith('today'),
+        isToday: startsDate.toDateString() === new Date().toDateString(),
         isOnline: newEvent.location.toLowerCase().includes('online'),
         price: 'Free',
         priceValue: 0,
@@ -184,7 +254,7 @@ export default function Events() {
       };
       vibrate('heavy'); notification('success');
       setEvents((prev) => [created, ...prev]);
-      setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' });
+      setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' });
       setFormErrors({}); setShowCreateForm(false);
       showToast(`"${created.name}" created successfully!`);
     } catch (err) {
@@ -212,7 +282,7 @@ export default function Events() {
             <p className="mt-2 text-[11.5px] leading-5 text-text2">{selectedEvent.description}</p>
           </div>
           <div className="mt-3 space-y-2">
-            <div className="glass-card flex items-center gap-3 p-3.5"><CalendarDays size={16} className="text-gold" /><div className="text-[12.5px] font-bold">{selectedEvent.date}</div></div>
+            <div className="glass-card flex items-center gap-3 p-3.5"><CalendarDays size={16} className="text-gold" /><div><div className="text-[12.5px] font-bold">{selectedEvent.startsAt ? formatEventDate(selectedEvent.startsAt) : selectedEvent.date}</div>{startsInLabel(selectedEvent.startsAt) && <div className="text-[10px] font-bold text-brandgreen">{startsInLabel(selectedEvent.startsAt)}</div>}</div></div>
             <div className="glass-card flex items-center gap-3 p-3.5"><MapPin size={16} className="text-gold" /><div><div className="text-[12.5px] font-bold">{selectedEvent.location}</div>{selectedEvent.isOnline && <div className="text-[10px] text-text3">Virtual Event</div>}</div></div>
             <div className="glass-card flex items-center gap-3 p-3.5"><Users size={16} className="text-gold" /><div className="text-[12.5px] font-bold">{attendees.length} attending</div></div>
           </div>
@@ -230,7 +300,7 @@ export default function Events() {
   if (showCreateForm) {
     return (
       <MainScreenShell>
-        <SubpageHeader title="Create Event" onBack={() => { setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} />
+        <SubpageHeader title="Create Event" onBack={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} />
         <div className="no-scrollbar px-[18px] pb-6">
           <div className="gold-card mt-3 overflow-hidden p-5">
             <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[rgba(217,172,61,.12)] opacity-30" />
@@ -248,7 +318,7 @@ export default function Events() {
             </div>
             <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Date & Time</label>
-              <input value={newEvent.date} onChange={(e) => setNewEvent((p) => ({ ...p, date: e.target.value }))} placeholder="e.g. Tomorrow · 6:00 PM" className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.date ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
+              <input type="datetime-local" value={newEvent.startsAt} onChange={(e) => setNewEvent((p) => ({ ...p, startsAt: e.target.value }))} className={`w-full rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors [color-scheme:dark] ${formErrors.date ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
               {formErrors.date && <p className="mt-1 text-[10px] text-brandred">{formErrors.date}</p>}
             </div>
             <div>
@@ -270,7 +340,7 @@ export default function Events() {
               {formErrors.description && <p className="mt-1 text-[10px] text-brandred">{formErrors.description}</p>}
             </div>
             <div className="flex gap-2.5 pt-2">
-              <button onClick={() => { setNewEvent({ name: '', date: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
+              <button onClick={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
               <button onClick={handleCreateEvent} disabled={creating} className="flex-1 rounded-xl bg-gold-grad py-3 text-[12px] font-black text-[#171100] disabled:opacity-50">
                 {creating ? 'Creating...' : 'Create Event'}
               </button>
@@ -339,7 +409,12 @@ export default function Events() {
                     <button onClick={() => handleShare(event)} className="flex h-8 w-8 items-center justify-center rounded-full text-text3"><Share2 size={14} /></button>
                   </div>
                   <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-text2">
-                    <span className="flex items-center gap-1"><CalendarDays size={11} /> {event.date}</span>
+                    <span className="flex items-center gap-1"><CalendarDays size={11} /> {event.startsAt ? formatEventDate(event.startsAt) : event.date}</span>
+                    {startsInLabel(event.startsAt) && (
+                      <span className="rounded-full bg-brandgreen/15 px-2 py-0.5 text-[9px] font-bold text-brandgreen">
+                        {startsInLabel(event.startsAt)}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1"><MapPin size={11} /> {event.location}</span>
                     <span className="flex items-center gap-1"><Users size={11} /> {attendees.length} attending</span>
                   </div>
