@@ -38,6 +38,9 @@ export default function FeedAlgorithm() {
   const profile = useStore((s) => s.profile);
   const followedUsers = useStore((s) => s.followedUsers);
   const posts = useStore((s) => s.posts);
+  const blockedUsers = useStore((s) => s.blockedUsers);
+  const mutedUsers = useStore((s) => s.mutedUsers);
+  const hiddenPosts = useStore((s) => s.hiddenPosts);
 
   const [firestorePosts, setFirestorePosts] = useState(() => cachedInitial?.posts || []);
   const [lastDoc, setLastDoc] = useState(() => cachedInitial?.lastDoc || null);
@@ -125,21 +128,32 @@ export default function FeedAlgorithm() {
     return [...pending, ...firestorePosts];
   }, [firestorePosts, posts]);
 
+  const visiblePosts = useMemo(() => {
+    // Moderation filter: hidden ("not interested"), blocked and muted authors
+    // are dropped before any ranking tab sees them.
+    return allPosts.filter(
+      (p) =>
+        !hiddenPosts[p.id] &&
+        !blockedUsers[p.authorKey] &&
+        !mutedUsers[p.authorKey]
+    );
+  }, [allPosts, hiddenPosts, blockedUsers, mutedUsers]);
+
   const feedPosts = useMemo(() => {
     if (feedType === 'trending') {
-      return sortByTrend(allPosts);
+      return sortByTrend(visiblePosts);
     }
     if (feedType === 'following') {
-      return allPosts.filter(
+      return visiblePosts.filter(
         (p) => followedUsers[p.authorKey] || p.authorKey === profile?.id
       );
     }
-    return [...allPosts].sort((a, b) => {
+    return [...visiblePosts].sort((a, b) => {
       const scoreA = scorePost(a, profile, followedUsers);
       const scoreB = scorePost(b, profile, followedUsers);
       return scoreB - scoreA;
     });
-  }, [feedType, profile, followedUsers, allPosts]);
+  }, [feedType, profile, followedUsers, visiblePosts]);
 
   return (
     <div className="mt-3">

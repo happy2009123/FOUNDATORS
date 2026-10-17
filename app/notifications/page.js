@@ -46,12 +46,13 @@ export default function NotificationsPage() {
   const router = useRouter();
   const notifications = useStore((s) => s.notifications);
   const markAllNotificationsRead = useStore((s) => s.markAllNotificationsRead);
+  const markNotificationsRead = useStore((s) => s.markNotificationsRead);
   const showToast = useStore((s) => s.showToast);
   const [actors, setActors] = useState({});
 
-  useEffect(() => {
-    markAllNotificationsRead();
-  }, []);
+  // NOTE: we deliberately do NOT mark everything read on mount — merely
+  // visiting the page used to clear the badge for items never seen. Items
+  // are marked read when opened (below) or via the explicit "Mark all".
 
   useEffect(() => {
     const keys = [...new Set(notifications.filter((n) => n.actorKey).map((n) => n.actorKey))];
@@ -77,6 +78,7 @@ export default function NotificationsPage() {
   });
 
   function handleOpen(n) {
+    if (!n.read) markNotificationsRead(n.id);
     if (n.linkType === 'post') router.push(`/post/${n.linkId}`);
     else if (n.linkType === 'user' || n.linkType === 'profile') router.push(`/profile/${n.linkId}`);
     else if (n.linkType === 'startup') router.push(`/startup/${n.linkId}`);

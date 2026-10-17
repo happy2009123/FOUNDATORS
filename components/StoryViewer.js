@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { X, ChevronLeft, ChevronRight, Pause, Play, Eye } from 'lucide-react';
 import { useHaptics } from '@/lib/useHaptics';
 import Avatar from './Avatar';
 import { useStore } from '@/lib/store';
@@ -12,6 +13,7 @@ const STORY_DURATION = 5000;
 export default function StoryViewer({ authors, initialAuthorKey, onClose }) {
   const { vibrate } = useHaptics();
   const profile = useStore((s) => s.profile);
+  const router = useRouter();
 
   const authorKeys = authors.map((a) => a.authorKey);
   const [currentAuthorKey, setCurrentAuthorKey] = useState(initialAuthorKey || authorKeys[0]);
@@ -45,6 +47,63 @@ export default function StoryViewer({ authors, initialAuthorKey, onClose }) {
       }
     })();
   }, [currentAuthorKey, currentItem, profile?.id, items]);
+
+  // ── Viewed by (author only): live count + full viewer list ────────
+  const [showViews, setShowViews] = useState(false);
+  const [viewers, setViewers] = useState(null);
+  const [viewCount, setViewCount] = useState(0);
+  const isOwnStory = !!profile?.id && currentAuthorKey === profile.id;
+  const currentStoryId = items[currentItem]?.id || null;
+
+  useEffect(() => {
+    if (!isOwnStory || !currentStoryId || !getSupabase()) {
+      setViewCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { count } = await getSupabase()
+          .from('story_views')
+          .select('viewer_id', { count: 'exact', head: true })
+          .eq('story_id', currentStoryId)
+          .neq('viewer_id', profile.id);
+        if (!cancelled && typeof count === 'number') setViewCount(count);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [isOwnStory, currentStoryId, profile?.id]);
+
+  useEffect(() => {
+    if (!showViews || !currentStoryId) return undefined;
+    let cancelled = false;
+    setViewers(null);
+    (async () => {
+      try {
+        const { data: rows } = await getSupabase()
+          .from('story_views')
+          .select('viewer_id')
+          .eq('story_id', currentStoryId)
+          .neq('viewer_id', profile.id)
+          .limit(50);
+        const ids = [...new Set((rows || []).map((r) => r.viewer_id))];
+        if (!ids.length) {
+          if (!cancelled) setViewers([]);
+          return;
+        }
+        const { data: profs } = await getSupabase()
+          .from('profiles')
+          .select('id, name, handle, avatar')
+          .in('id', ids);
+        if (cancelled) return;
+        const byId = Object.fromEntries((profs || []).map((p) => [p.id, p]));
+        setViewers(ids.map((id) => byId[id] || { id, name: 'Someone' }));
+      } catch {
+        if (!cancelled) setViewers([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showViews, currentStoryId, profile?.id]);
 
   const goNext = useCallback(() => {
     if (currentItem < totalItems - 1) {
@@ -129,6 +188,16 @@ export default function StoryViewer({ authors, initialAuthorKey, onClose }) {
           <div className="text-[13px] font-bold text-white">{currentAuthor.authorName}</div>
           <div className="text-[10px] text-white/60">{currentItem + 1} of {totalItems}</div>
         </div>
+        {isOwnStory && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowViews(true); }}
+            className="flex h-8 items-center gap-1 rounded-full bg-white/15 px-2.5 text-white/90"
+            aria-label="See who viewed this story"
+          >
+            <Eye size={15} />
+            <span className="text-[11px] font-bold">{viewCount}</span>
+          </button>
+        )}
         <button onClick={(e) => { e.stopPropagation(); setPaused(!paused); }} className="h-8 w-8 flex items-center justify-center text-white/80" aria-label={paused ? 'Play' : 'Pause'}>
           {paused ? <Play size={18} /> : <Pause size={18} />}
         </button>
@@ -164,6 +233,58 @@ export default function StoryViewer({ authors, initialAuthorKey, onClose }) {
       <button onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-2 top-1/2 -translate-y-1/2 z-10 hidden md:flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white/80" aria-label="Next story">
         <ChevronRight size={22} />
       </button>
+
+      {/* Viewed-by sheet (author only) */}
+      {showViews && (
+        <div
+          className="absolute inset-0 z-20 flex flex-col justify-end bg-black/60"
+          onClick={(e) => { e.stopPropagation(); setShowViews(false); }}
+        >
+          <div
+            className="rounded-t-3xl bg-card px-5 pb-8 pt-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[15px] font-bold text-white">
+                Viewed by {viewers ? viewers.length : '…'}
+              </span>
+              <button
+                onClick={() => setShowViews(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/80"
+                aria-label="Close viewers"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="max-h-[45vh] overflow-y-auto no-scrollbar">
+              {viewers === null ? (
+                <div className="py-6 text-center">
+                  <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+                </div>
+              ) : viewers.length === 0 ? (
+                <div className="py-6 text-center text-[13px] text-text3">
+                  No views yet — share your story!
+                </div>
+              ) : (
+                viewers.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => { setShowViews(false); onClose(); router.push(`/profile/${v.id}`); }}
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5"
+                  >
+                    <Avatar src={v.avatar || null} name={v.name} size={38} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13.5px] font-bold text-white">{v.name}</div>
+                      <div className="truncate text-[11px] text-text3">{v.handle || ''}</div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

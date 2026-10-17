@@ -14,6 +14,7 @@ import { mapRows } from '@/lib/supabase/db';
 import { subscribeToChats, deleteChat as deleteChatFS, createChat } from '@/lib/firestore';
 import { usePresence, isOnline, formatPresenceShort, formatChatTime } from '@/lib/presence';
 import { useHaptics } from '@/lib/useHaptics';
+import { chatMediaLabel } from '@/lib/chatMedia';
 
 const TABS = [
   { key: 'messages', label: 'All', icon: MessageCircle },
@@ -136,7 +137,8 @@ export default function MessagesPage() {
             ? formatChatTime(chat.lastMessageAt, !!chat.lastMessage)
             : formatPresenceShort(presence[otherId]),
           isGroup: !!chat.isGroup,
-          messages: chat.lastMessage ? [{ text: chat.lastMessage, who: 'them' }] : [],
+          // Never render the raw media:<kind>:… encoding in the list.
+          messages: chat.lastMessage ? [{ text: chatMediaLabel(chat.lastMessage), who: 'them' }] : [],
           chatId: convId,
           unread: myUnread,
         };

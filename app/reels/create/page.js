@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Play, RotateCcw, Timer, Zap, Loader2 } from 'lucide-react';
+import { X, Camera, Upload, Music, Type, Sparkles, Send, ChevronLeft, Pause, Play, RotateCcw, Timer, Zap, Loader2, SwitchCamera } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { uploadImage } from '@/lib/firestore';
@@ -27,6 +27,19 @@ const SOUNDS = [
   { name: 'Motivational', artist: 'Inspire' },
 ];
 
+const MAX_RECORD_SECONDS = 60;
+
+function pickRecorderMime() {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  return candidates.find((c) => { try { return MediaRecorder.isTypeSupported(c); } catch { return false; } }) || '';
+}
+
 export default function CreateReelPage() {
   const router = useRouter();
   const { vibrate, notification } = useHaptics();
@@ -45,33 +58,137 @@ export default function CreateReelPage() {
   const [showSounds, setShowSounds] = useState(false);
   const [timerIdx, setTimerIdx] = useState(0);
   const [countdown, setCountdown] = useState(0);
+  const [liveStream, setLiveStream] = useState(null);
+  const [cameraError, setCameraError] = useState(false);
+
   const fileInputRef = useRef(null);
   const recordInterval = useRef(null);
   const countdownInterval = useRef(null);
+  const streamRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef(null);
+  const facingRef = useRef('environment');
+  const liveVideoRef = useRef(null);
 
-  // Never leave timers running if the user navigates away mid-recording.
+  const stopStream = useCallback(() => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      }
+    } catch {}
+    streamRef.current = null;
+    setLiveStream(null);
+  }, []);
+
+  const ensureStream = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError(true);
+      return null;
+    }
+    if (streamRef.current && streamRef.current.active) return streamRef.current;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingRef.current, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        audio: true,
+      });
+      streamRef.current = stream;
+      setCameraError(false);
+      setLiveStream(stream);
+      return stream;
+    } catch (err) {
+      setCameraError(true);
+      showToast('Camera unavailable — you can still upload from gallery');
+      return null;
+    }
+  }, [showToast]);
+
+  // Keep the live viewfinder attached while the capture step is open.
+  useEffect(() => {
+    if (step !== 'capture') {
+      stopStream();
+      return undefined;
+    }
+    ensureStream();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  useEffect(() => {
+    const el = liveVideoRef.current;
+    if (el && liveStream) {
+      el.srcObject = liveStream;
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  }, [liveStream, step]);
+
+  // Never leave camera/timers/recorder running if the user navigates away.
   useEffect(() => () => {
     clearInterval(recordInterval.current);
     clearInterval(countdownInterval.current);
+    try {
+      if (recorderRef.current && recorderRef.current.state === 'recording') recorderRef.current.stop();
+    } catch {}
+    try {
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+    } catch {}
   }, []);
 
   const TIMER_OPTIONS = [0, 3, 10];
 
+  const beginRecording = useCallback(async () => {
+    if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      showToast('Recording is not supported here — upload a video instead');
+      setCountdown(0);
+      clearInterval(countdownInterval.current);
+      return;
+    }
+    const stream = await ensureStream();
+    if (!stream) {
+      setCountdown(0);
+      clearInterval(countdownInterval.current);
+      return;
+    }
+    vibrate('medium');
+    setIsRecording(true);
+    setRecordTime(0);
+    chunksRef.current = [];
+    try {
+      const mime = pickRecorderMime();
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size) chunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        const type = rec.mimeType || 'video/webm';
+        const blob = new Blob(chunksRef.current || [], { type });
+        chunksRef.current = [];
+        stopStream();
+        if (blob.size > 0) {
+          const ext = type.includes('mp4') ? 'mp4' : 'webm';
+          const file = new File([blob], `reel_${Date.now()}.${ext}`, { type });
+          setSelectedVideoFile(file);
+          setVideoPreview(URL.createObjectURL(blob));
+          setStep('edit');
+        } else {
+          showToast('Recording was empty — try again');
+          setStep('capture');
+        }
+      };
+      rec.start(250);
+      recorderRef.current = rec;
+    } catch (err) {
+      showToast('Could not start recording — upload a video instead');
+      setIsRecording(false);
+      stopStream();
+      return;
+    }
+    recordInterval.current = setInterval(() => {
+      setRecordTime((prev) => prev + 1);
+    }, 1000);
+  }, [ensureStream, showToast, stopStream, vibrate]);
+
   const startRecording = useCallback(() => {
-    const begin = () => {
-      vibrate('medium');
-      setIsRecording(true);
-      setRecordTime(0);
-      recordInterval.current = setInterval(() => {
-        setRecordTime((prev) => {
-          if (prev >= 60) {
-            clearInterval(recordInterval.current);
-            return 60;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    };
     const delay = TIMER_OPTIONS[timerIdx];
     if (delay > 0) {
       setCountdown(delay);
@@ -81,24 +198,41 @@ export default function CreateReelPage() {
         if (n <= 0) {
           clearInterval(countdownInterval.current);
           setCountdown(0);
-          begin();
+          beginRecording();
         } else {
           setCountdown(n);
         }
       }, 1000);
     } else {
-      begin();
+      beginRecording();
     }
-  }, [vibrate, timerIdx]);
+  }, [timerIdx, beginRecording]);
 
   const stopRecording = useCallback(() => {
     vibrate('light');
     clearInterval(countdownInterval.current);
+    clearInterval(recordInterval.current);
     setCountdown(0);
     setIsRecording(false);
-    clearInterval(recordInterval.current);
-    if (recordTime > 0) setStep('edit');
-  }, [recordTime, vibrate]);
+    const rec = recorderRef.current;
+    if (rec && rec.state === 'recording') {
+      try { rec.stop(); } catch {}
+    } else {
+      stopStream();
+      if (recordTime > 0) setStep('edit');
+    }
+  }, [recordTime, vibrate, stopStream]);
+
+  // Hard cap: auto-stop at MAX_RECORD_SECONDS.
+  useEffect(() => {
+    if (recordTime >= MAX_RECORD_SECONDS && isRecording) stopRecording();
+  }, [recordTime, isRecording, stopRecording]);
+
+  const flipCamera = useCallback(async () => {
+    facingRef.current = facingRef.current === 'environment' ? 'user' : 'environment';
+    stopStream();
+    await ensureStream();
+  }, [ensureStream, stopStream]);
 
   const handleVideoSelect = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -196,13 +330,37 @@ export default function CreateReelPage() {
                 <span className="text-[11px] font-bold text-white">{formatTime(recordTime)}</span>
               </div>
             )}
-            {!videoPreview ? (
-              <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-3 text-white/40" aria-label="Upload video">
-                <Upload size={40} />
-                <span className="text-[12px]">Upload from gallery</span>
-              </button>
+            {liveStream && !videoPreview ? (
+              <video
+                ref={liveVideoRef}
+                src={liveStream ? undefined : ''}
+                autoPlay
+                muted
+                playsInline
+                className="h-full w-full object-cover"
+                style={{ transform: facingRef.current === 'user' ? 'scaleX(-1)' : undefined }}
+              />
+            ) : !videoPreview ? (
+              <div className="flex flex-col items-center gap-3 px-6 text-center">
+                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-3 text-white/40" aria-label="Upload video">
+                  <Upload size={40} />
+                  <span className="text-[12px]">Upload from gallery</span>
+                </button>
+                {cameraError && (
+                  <span className="text-[10.5px] text-white/30">Camera permission needed to record</span>
+                )}
+              </div>
             ) : (
               <video src={videoPreview} className="w-full h-full object-cover" autoPlay muted loop />
+            )}
+            {liveStream && (
+              <button
+                onClick={flipCamera}
+                className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm"
+                aria-label="Flip camera"
+              >
+                <SwitchCamera size={16} />
+              </button>
             )}
           </div>
 
@@ -285,7 +443,7 @@ export default function CreateReelPage() {
           <div className="flex-1 flex items-center justify-center">
             <div className="relative w-full max-w-[200px] aspect-[9/16] rounded-2xl overflow-hidden bg-zinc-900">
               {videoPreview ? (
-                <video src={videoPreview} className="w-full h-full object-cover" style={{ filter: EFFECTS[selectedEffect].filter }} autoPlay muted loop />
+                <video src={videoPreview} className="w-full h-full object-cover" style={{ filter: EFFECTS[selectedEffect].filter }} autoPlay muted loop playsInline />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-purple-900 to-blue-900 flex items-center justify-center text-white/40 text-[12px]">
                   Recording preview
