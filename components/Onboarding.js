@@ -90,8 +90,9 @@ export default function Onboarding() {
     if (selectedInterests.length) updateProfile({ interests: selectedInterests });
 
     if (myId) {
-      // Interests have no profiles column in Supabase — kept in the local
-      // store only; the DB write covers the columns that exist.
+      // Migration 0013 added profiles.interests — persist onboarding picks
+      // so feed ranking and People You May Know see them (previously they
+      // only lived in the local store).
       const merged = {
         profileCompleted: true,
         updatedAt: new Date(),
@@ -100,6 +101,7 @@ export default function Onboarding() {
       if (trimmedName) merged.name = trimmedName;
       const roleLabel = ROLES.find((r) => r.key === role)?.label || role;
       if (roleLabel) merged.role = roleLabel;
+      if (selectedInterests.length) merged.interests = selectedInterests;
       await updateUserProfile(myId, merged).catch(() => {});
     }
 
