@@ -33,6 +33,7 @@ import {
   Briefcase,
   GraduationCap,
   Heart,
+  X,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -40,6 +41,8 @@ import Avatar from '@/components/Avatar';
 import ModerationSheet from '@/components/ModerationSheet';
 import FoundingBadge from '@/components/FoundingBadge';
 import BuilderScoreCard from '@/components/BuilderScoreCard';
+import StoryViewer from '@/components/StoryViewer';
+import { listHighlights, deleteHighlightsByTitle } from '@/lib/highlights';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { subscribeToUserProfile } from '@/lib/firestore';
@@ -118,6 +121,31 @@ export default function ProfileView({ userId = null }) {
   const [showModeration, setShowModeration] = useState(false);
 
   const uid = targetId;
+
+  // ── Story highlights (story_highlights table, 0013) ──
+  const [highlightRows, setHighlightRows] = useState(null);
+  const [viewingHighlight, setViewingHighlight] = useState(null);
+
+  useEffect(() => {
+    if (!uid) { setHighlightRows(null); return undefined; }
+    let cancelled = false;
+    setHighlightRows(null);
+    listHighlights(uid).then((rows) => {
+      if (!cancelled) setHighlightRows(rows);
+    });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  // Rows sharing a title form one Instagram-style ring; newest item is the cover.
+  const highlightGroups = useMemo(() => {
+    const g = {};
+    (highlightRows || []).forEach((r) => {
+      if (!r?.title) return;
+      if (!g[r.title]) g[r.title] = [];
+      g[r.title].push(r);
+    });
+    return g;
+  }, [highlightRows]);
 
   // ── LinkedIn-style connection state (0013 graph) ──
   const [connState, setConnState] = useState('none'); // none|outgoing|incoming|connected
@@ -596,6 +624,47 @@ export default function ProfileView({ userId = null }) {
             </p>
           </div>
 
+          {/* ─── Story highlights (Instagram-style rings) ─── */}
+          {uid && highlightRows !== null && Object.keys(highlightGroups).length > 0 && (
+            <div className="no-scrollbar mt-4 flex gap-3 overflow-x-auto">
+              {Object.entries(highlightGroups).map(([title, items]) => (
+                <div key={title} className="relative flex w-[68px] flex-none flex-col items-center">
+                  <button
+                    onClick={() => setViewingHighlight(title)}
+                    className="h-[62px] w-[62px] rounded-full border-2 border-gold p-[2px]"
+                    aria-label={`View highlight ${title}`}
+                  >
+                    {items[0]?.mediaUrl ? (
+                      <img src={items[0].mediaUrl} alt="" className="h-full w-full rounded-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center rounded-full bg-white/5 text-[10px] font-bold text-text2">
+                        {title.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </button>
+                  <span className="mt-1 w-full truncate text-center text-[10px] font-semibold text-text2">{title}</span>
+                  {isOwn && (
+                    <button
+                      onClick={async () => {
+                        const res = await deleteHighlightsByTitle(uid, title);
+                        if (res.success) {
+                          setHighlightRows((rows) => (rows || []).filter((r) => r.title !== title));
+                          showToast('Highlight deleted');
+                        } else {
+                          showToast(res.error || 'Could not delete highlight');
+                        }
+                      }}
+                      className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-text2"
+                      aria-label={`Delete ${title}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* ─── Tabs ─── */}
           <div className="no-scrollbar -mx-4 mt-5 flex gap-1 overflow-x-auto border-b border-linesoft px-4 sm:-mx-5 sm:px-5">
             {TABS.map((t) => (
@@ -665,6 +734,26 @@ export default function ProfileView({ userId = null }) {
           </div>
         </div>
       </div>
+
+      {viewingHighlight && highlightGroups[viewingHighlight] && (
+        <StoryViewer
+          authors={[{
+            authorKey: uid,
+            authorName: p?.name || 'User',
+            authorAvatar: p?.avatar || null,
+            highlightTitle: viewingHighlight,
+            stories: highlightGroups[viewingHighlight],
+          }]}
+          initialAuthorKey={uid}
+          isHighlight
+          onClose={() => setViewingHighlight(null)}
+          onDeleteHighlight={(title) => {
+            setViewingHighlight(null);
+            setHighlightRows((rows) => (rows || []).filter((r) => r.title !== title));
+            showToast('Highlight deleted');
+          }}
+        />
+      )}
 
       {showModeration && p && (
         <ModerationSheet
