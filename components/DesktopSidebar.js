@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Home, Compass, Film, MessageCircle, Bell, Bookmark, User, Plus, Search, Settings, TrendingUp, BarChart3, Lightbulb, Users, Briefcase, Sparkles, Bot, Mic } from 'lucide-react';
+import { Home, Compass, Film, MessageCircle, Bell, Bookmark, User, Plus, Search, Settings, TrendingUp, BarChart3, Lightbulb, Users, Briefcase, Sparkles, Bot, Mic, UserPlus } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import Logo from '@/components/Logo';
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { icon: Compass, label: 'Explore', path: '/explore' },
   { icon: Film, label: 'Reels', path: '/reels' },
   { icon: MessageCircle, label: 'Messages', path: '/messages' },
+  { icon: UserPlus, label: 'My Network', path: '/network' },
   { icon: Bell, label: 'Notifications', path: '/notifications' },
   { icon: Bookmark, label: 'Bookmarks', path: '/bookmarks' },
   { icon: TrendingUp, label: 'Trending', path: '/discover' },

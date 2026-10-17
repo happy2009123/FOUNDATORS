@@ -20,6 +20,7 @@ import {
   CompassIcon,
   Mic,
   Trophy,
+  UserPlus,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
@@ -93,6 +94,7 @@ export default function Drawer() {
           <DrawerLink icon={<FileText size={19} />} label="Drafts" onClick={() => go('/drafts')} />
           <DrawerLink icon={<Gift size={19} />} label="Gestures" onClick={() => go('/gestures')} />
           <DrawerLink icon={<MessageCircle size={19} />} label="Messages" onClick={() => go('/messages')} />
+          <DrawerLink icon={<UserPlus size={19} />} label="My Network" onClick={() => go('/network')} />
           <DrawerLink
             icon={<Bell size={19} />}
             label="Notifications"

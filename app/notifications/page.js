@@ -85,6 +85,7 @@ export default function NotificationsPage() {
     else if (n.linkType === 'discussion') router.push(`/discussion/${n.linkId}`);
     else if (n.linkType === 'project') router.push(`/projects/${n.linkId}`);
     else if (n.linkType === 'request') router.push('/collab-requests');
+    else if (n.linkType === 'network') router.push('/network');
     else if (n.linkType === 'message') router.push(`/messages/${n.linkId}`);
     else if (n.linkType === 'voice_room') router.push(`/voice/room/${n.linkId}`);
     else showToast('Opening...');

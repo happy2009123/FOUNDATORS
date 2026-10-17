@@ -25,6 +25,11 @@ import {
   Shield,
   Mic,
   Award,
+  Quote,
+  MessageSquare,
+  ThumbsUp,
+  UserCheck,
+  Clock,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import MainScreenShell from '@/components/MainScreenShell';
@@ -41,6 +46,19 @@ import { mapRows } from '@/lib/supabase/db';
 import { listMyProjects } from '@/lib/copilot';
 import { fetchHostRooms } from '@/lib/voice';
 import VoiceRoomCard from '@/components/voice/VoiceRoomCard';
+import {
+  getConnectionState,
+  sendConnectionRequest,
+  respondConnectionRequest,
+  withdrawConnectionRequest,
+  fetchEndorsements,
+  toggleEndorsement,
+  fetchRecommendations,
+  createRecommendation,
+  updateRecommendationStatus,
+  deleteRecommendation,
+} from '@/lib/network';
+import { notifyUser } from '@/lib/notify';
 
 const TABS = [
   { key: 'about', label: 'About' },
@@ -49,6 +67,7 @@ const TABS = [
   { key: 'build', label: 'Build With Me' },
   { key: 'voice', label: 'Voice' },
   { key: 'achievements', label: 'Achievements' },
+  { key: 'recommendations', label: 'Recommendations' },
   { key: 'posts', label: 'Posts' },
 ];
 
@@ -95,6 +114,86 @@ export default function ProfileView({ userId = null }) {
   const [showModeration, setShowModeration] = useState(false);
 
   const uid = targetId;
+
+  // ── LinkedIn-style connection state (0013 graph) ──
+  const [connState, setConnState] = useState('none'); // none|outgoing|incoming|connected
+  const [connRequestId, setConnRequestId] = useState(null);
+  const [connBusy, setConnBusy] = useState(false);
+
+  useEffect(() => {
+    if (isOwn || !ownUid || !uid || ownUid === uid) {
+      setConnState('none');
+      return undefined;
+    }
+    let cancelled = false;
+    getConnectionState(ownUid, uid).then((s) => {
+      if (!cancelled) {
+        setConnState(s.state);
+        setConnRequestId(s.requestId);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isOwn, ownUid, uid]);
+
+  const handleConnectClick = async () => {
+    if (connBusy) return;
+    setConnBusy(true);
+    vibrate('light');
+    try {
+      if (connState === 'outgoing') {
+        const ok = connRequestId ? await withdrawConnectionRequest(connRequestId) : false;
+        if (ok) { setConnState('none'); setConnRequestId(null); showToast('Request withdrawn'); }
+        else showToast('Could not withdraw request');
+      } else if (connState === 'none') {
+        const res = await sendConnectionRequest(uid);
+        if (res === 'sent' || res === 'pending') {
+          setConnState('outgoing');
+          showToast('Connection request sent');
+          notification('success');
+          notifyUser(uid, {
+            type: 'connection',
+            actorKey: ownUid,
+            actorName: profile?.name || 'Someone',
+            text: `${profile?.name || 'Someone'} sent you a connection request`,
+            linkType: 'network',
+            linkId: '',
+          }).catch(() => {});
+        } else if (res === 'already_connected') {
+          setConnState('connected');
+        } else {
+          showToast('Could not send request — try again');
+        }
+      }
+    } finally {
+      setConnBusy(false);
+    }
+  };
+
+  const handleConnectResponse = async (accept) => {
+    if (connBusy || !connRequestId) return;
+    setConnBusy(true);
+    vibrate('medium');
+    const result = await respondConnectionRequest(connRequestId, accept);
+    if (result) {
+      setConnState(accept ? 'connected' : 'none');
+      setConnRequestId(null);
+      showToast(accept ? `You are now connected with ${p?.name || 'this person'}` : 'Request declined');
+      if (accept) {
+        notification('success');
+        notifyUser(uid, {
+          type: 'connection',
+          actorKey: ownUid,
+          actorName: profile?.name || 'Someone',
+          text: `${profile?.name || 'Someone'} accepted your connection request`,
+          linkType: 'network',
+          linkId: '',
+        }).catch(() => {});
+      }
+    } else {
+      showToast('Could not update request — try again');
+    }
+    setConnBusy(false);
+  };
 
   useEffect(() => {
     if (!uid) return;
@@ -358,7 +457,55 @@ export default function ProfileView({ userId = null }) {
               Edit Profile
             </button>
           ) : (
-            <div className="mt-4 flex items-center gap-2">
+            <>
+              {/* ─── Connection (LinkedIn-style) ─── */}
+              {connState === 'none' && (
+                <button
+                  onClick={handleConnectClick}
+                  disabled={connBusy}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border-[1.3px] border-gold/70 bg-gold/[0.06] py-3 text-[13px] font-extrabold text-gold-hi transition-colors active:scale-[0.98] disabled:opacity-60"
+                >
+                  <UserPlus size={15} />
+                  Connect
+                </button>
+              )}
+              {connState === 'outgoing' && (
+                <button
+                  onClick={handleConnectClick}
+                  disabled={connBusy}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-linesoft bg-card py-3 text-[13px] font-extrabold text-text2 transition-colors disabled:opacity-60"
+                >
+                  <Clock size={14} />
+                  Pending — tap to withdraw
+                </button>
+              )}
+              {connState === 'incoming' && (
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    onClick={() => handleConnectResponse(false)}
+                    disabled={connBusy}
+                    className="flex-1 rounded-2xl border border-linesoft py-3 text-[13px] font-extrabold text-text2 disabled:opacity-60"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    onClick={() => handleConnectResponse(true)}
+                    disabled={connBusy}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border-[1.3px] border-gold bg-gold-grad py-3 text-[13px] font-extrabold text-[#1a1300] disabled:opacity-60"
+                  >
+                    <UserCheck size={14} />
+                    Accept
+                  </button>
+                </div>
+              )}
+              {connState === 'connected' && (
+                <div className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-transparent bg-white/5 py-3 text-[13px] font-extrabold text-text2">
+                  <UserCheck size={15} className="text-gold" />
+                  Connected
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
               <button
                 onClick={handleShare}
                 aria-label="Copy profile link"
@@ -381,7 +528,8 @@ export default function ProfileView({ userId = null }) {
                 {following ? <Check size={14} /> : <UserPlus size={14} />}
                 {following ? 'Following' : 'Follow'}
               </button>
-            </div>
+              </div>
+            </>
           )}
 
           {/* ─── Stats (tap Posts → posts tab, Followers/Following → lists) ─── */}
@@ -457,12 +605,15 @@ export default function ProfileView({ userId = null }) {
               />
             )}
             {tab === 'skills' && (
-              <SkillsSection skills={skills} isOwn={isOwn} onEdit={() => router.push('/settings/edit-profile')} />
+              <SkillsSection skills={skills} isOwn={isOwn} uid={uid} myId={ownUid} onEdit={() => router.push('/settings/edit-profile')} />
             )}
         {tab === 'projects' && <ProjectsSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/projects/new')} />}
         {tab === 'build' && <BuildWithMeSection uid={uid} isOwn={isOwn} onCreate={() => router.push('/create')} />}
             {tab === 'voice' && <VoiceSection uid={uid} isOwn={isOwn} />}
             {tab === 'achievements' && <AchievementsSection uid={uid} isOwn={isOwn} />}
+            {tab === 'recommendations' && (
+              <RecommendationsSection uid={uid} isOwn={isOwn} myId={ownUid} targetName={p?.name || ''} />
+            )}
             {tab === 'posts' && (
               <div className="flex flex-col gap-4">
                 {loadingProfile && displayPosts.length === 0 ? (
@@ -632,7 +783,39 @@ function AboutSection({ p, joined, website, isOwn, onEdit }) {
   );
 }
 
-function SkillsSection({ skills, isOwn, onEdit }) {
+function SkillsSection({ skills, isOwn, uid, myId, onEdit }) {
+  const { vibrate } = useHaptics();
+  const [endors, setEndors] = useState({ counts: {}, mine: new Set() });
+
+  useEffect(() => {
+    if (!skills.length || !uid) return undefined;
+    let cancelled = false;
+    fetchEndorsements(uid, myId || null).then((e) => {
+      if (!cancelled) setEndors(e);
+    });
+    return () => { cancelled = true; };
+  }, [uid, myId, skills.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onEndorse = async (skill) => {
+    if (isOwn || !myId || myId === uid) return;
+    vibrate('light');
+    const res = await toggleEndorsement(uid, skill, myId);
+    if (res === 'added') {
+      setEndors((prev) => ({
+        counts: { ...prev.counts, [skill]: (prev.counts[skill] || 0) + 1 },
+        mine: new Set([...prev.mine, skill]),
+      }));
+    } else if (res === 'removed') {
+      setEndors((prev) => {
+        const counts = { ...prev.counts };
+        counts[skill] = Math.max(0, (counts[skill] || 0) - 1);
+        const mine = new Set(prev.mine);
+        mine.delete(skill);
+        return { counts, mine };
+      });
+    }
+  };
+
   if (!skills.length) {
     return (
       <TabEmpty
@@ -644,10 +827,13 @@ function SkillsSection({ skills, isOwn, onEdit }) {
       />
     );
   }
+  const canEndorse = !isOwn && !!myId && myId !== uid;
   return (
     <div className="rounded-2xl border border-linesoft bg-card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-[12px] font-bold text-text2">Skills & Interests</span>
+        <span className="text-[12px] font-bold text-text2">
+          Skills &amp; Interests{canEndorse ? ' — tap to endorse' : ''}
+        </span>
         {isOwn && (
           <button
             onClick={onEdit}
@@ -659,15 +845,338 @@ function SkillsSection({ skills, isOwn, onEdit }) {
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        {skills.map((skill) => (
-          <span
-            key={skill}
-            className="rounded-full border border-gold/30 bg-gold/[0.08] px-3 py-1.5 text-[11.5px] font-bold text-gold-hi"
-          >
-            {skill}
-          </span>
-        ))}
+        {skills.map((skill) => {
+          const count = endors.counts[skill] || 0;
+          const mine = endors.mine.has(skill);
+          if (!canEndorse) {
+            return (
+              <span
+                key={skill}
+                className="flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/[0.08] px-3 py-1.5 text-[11.5px] font-bold text-gold-hi"
+              >
+                {skill}
+                {count > 0 && (
+                  <span className="flex items-center gap-0.5 text-[10px] text-gold/80">
+                    <ThumbsUp size={9} />
+                    {count}
+                  </span>
+                )}
+              </span>
+            );
+          }
+          return (
+            <button
+              key={skill}
+              onClick={() => onEndorse(skill)}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-bold transition-all active:scale-95 ${
+                mine
+                  ? 'border-transparent bg-gold-grad text-[#1a1300]'
+                  : 'border-gold/30 bg-gold/[0.08] text-gold-hi'
+              }`}
+              aria-label={mine ? `Unendorse ${skill}` : `Endorse ${skill}`}
+            >
+              <ThumbsUp size={11} />
+              {skill}
+              {count > 0 && <span className="text-[10px] opacity-80">· {count}</span>}
+            </button>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+// ── Written recommendations (LinkedIn-style, 0013 recommendations) ──
+// status flow: author writes → 'pending' → target approves → 'published'
+// (or declines → 'hidden'). The target can hide/unhide; author/target can
+// delete. Visibility of published rows requires migration 0014.
+function RecommendationsSection({ uid, isOwn, myId, targetName = '' }) {
+  const { vibrate, notification } = useHaptics();
+  const showToast = useStore((s) => s.showToast);
+  const myProfile = useStore((s) => s.profile);
+  const [items, setItems] = useState(undefined); // undefined = loading
+  const [authors, setAuthors] = useState({});
+  const [writing, setWriting] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!uid) { setItems([]); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchRecommendations(uid);
+      if (cancelled) return;
+      const visible = isOwn ? rows : rows.filter((r) => r.status === 'published');
+      setItems(visible);
+      const ids = [...new Set(visible.map((r) => r.author_id))];
+      if (ids.length) {
+        try {
+          const sb = getSupabase();
+          if (sb) {
+            const { data } = await sb.from('profiles').select('id, name, avatar, role, verified').in('id', ids);
+            if (!cancelled && data) {
+              const map = {};
+              mapRows(data).forEach((r) => { map[r.id] = r; });
+              setAuthors(map);
+            }
+          }
+        } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [uid, isOwn]);
+
+  const setStatus = async (id, status, action) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await updateRecommendationStatus(id, status);
+    if (ok) {
+      if (isOwn) {
+        setItems((prev) => (prev || []).map((r) => (r.id === id ? { ...r, status } : r))
+          .filter((r) => (isOwn ? true : r.status === 'published')));
+      }
+      if (action) showToast(action);
+      vibrate('light');
+      if (status === 'published' && isOwn) {
+        const rec = (items || []).find((r) => r.id === id);
+        if (rec) {
+          notifyUser(rec.author_id, {
+            type: 'recommendation',
+            actorKey: uid,
+            actorName: myProfile?.name || 'Someone',
+            text: `${myProfile?.name || 'Someone'} published your recommendation`,
+            linkType: 'profile',
+            linkId: uid,
+          }).catch(() => {});
+        }
+      }
+    } else {
+      showToast('Could not update — try again');
+    }
+    setBusy(false);
+  };
+
+  const handleRemove = async (id) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await deleteRecommendation(id);
+    if (ok) {
+      setItems((prev) => (prev || []).filter((r) => r.id !== id));
+      showToast('Recommendation removed');
+    } else {
+      showToast('Could not remove — try again');
+    }
+    setBusy(false);
+  };
+
+  const handleSubmitDraft = async () => {
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    const id = await createRecommendation(uid, text, 'pending');
+    setBusy(false);
+    if (id) {
+      setDraft('');
+      setWriting(false);
+      notification('success');
+      showToast('Sent — awaiting their approval');
+      notifyUser(uid, {
+        type: 'recommendation',
+        actorKey: myId,
+        actorName: myProfile?.name || 'Someone',
+        text: `${myProfile?.name || 'Someone'} wrote you a recommendation`,
+        linkType: 'profile',
+        linkId: uid,
+      }).catch(() => {});
+    } else {
+      showToast('Could not send — try again');
+    }
+  };
+
+  if (items === undefined) {
+    return <div className="skeleton h-32 w-full rounded-2xl" />;
+  }
+
+  const pending = isOwn ? items.filter((r) => r.status === 'pending') : [];
+  const published = items.filter((r) => r.status === 'published');
+  const hidden = isOwn ? items.filter((r) => r.status === 'hidden') : [];
+
+  return (
+    <div className="space-y-4">
+      {/* Write (viewing someone else) */}
+      {!isOwn && myId && myId !== uid && !writing && (
+        <button
+          onClick={() => setWriting(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border-[1.3px] border-gold/70 bg-gold/[0.06] py-3 text-[13px] font-extrabold text-gold-hi active:scale-[0.98]"
+        >
+          <Quote size={14} />
+          Write a recommendation
+        </button>
+      )}
+      {writing && (
+        <div className="rounded-2xl border border-linesoft bg-card p-4">
+          <div className="mb-2 text-[12px] font-bold text-text2">
+            Recommend {targetName || 'them'}
+          </div>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.slice(0, 600))}
+            placeholder="What was it like working with them?"
+            className="min-h-[96px] w-full rounded-xl border border-linesoft bg-white/[0.03] p-3 text-[13px] text-white placeholder:text-text3 focus:border-gold focus:outline-none"
+            autoFocus
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <span className="flex-1 text-[10.5px] text-text3">{draft.length}/600</span>
+            <button
+              onClick={() => { setWriting(false); setDraft(''); }}
+              className="rounded-full border border-linesoft px-4 py-2 text-[11.5px] font-bold text-text2"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmitDraft}
+              disabled={busy || !draft.trim()}
+              className="rounded-full bg-gold px-4 py-2 text-[11.5px] font-bold text-[#1a1300] disabled:opacity-50"
+            >
+              {busy ? 'Sending…' : 'Send for approval'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pending approvals (own profile) */}
+      {pending.length > 0 && (
+        <div className="rounded-2xl border border-gold/30 bg-gold/[0.04] p-4">
+          <div className="mb-3 flex items-center gap-1.5 text-[12px] font-bold text-gold">
+            <Clock size={12} />
+            Awaiting your approval ({pending.length})
+          </div>
+          <div className="space-y-4">
+            {pending.map((rec) => (
+              <RecCard
+                key={rec.id}
+                rec={rec}
+                author={authors[rec.author_id]}
+                actions={
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => setStatus(rec.id, 'hidden', 'Declined')}
+                      disabled={busy}
+                      className="rounded-full border border-linesoft px-3.5 py-1.5 text-[11.5px] font-bold text-text2 disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      onClick={() => setStatus(rec.id, 'published', 'Recommendation published')}
+                      disabled={busy}
+                      className="rounded-full bg-gold px-4 py-1.5 text-[11.5px] font-bold text-[#1a1300] disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Published */}
+      {published.length === 0 && pending.length === 0 && !writing ? (
+        <TabEmpty
+          icon={Quote}
+          title="No recommendations yet"
+          body={
+            isOwn
+              ? 'Recommendations are written by people who worked with you — they appear here once you approve them.'
+              : 'Be the first to recommend them.'
+          }
+          action={!isOwn && myId && myId !== uid ? 'Write one' : null}
+          onAction={!isOwn && myId && myId !== uid ? () => setWriting(true) : null}
+        />
+      ) : (
+        published.map((rec) => (
+          <RecCard
+            key={rec.id}
+            rec={rec}
+            author={authors[rec.author_id]}
+            actions={
+              isOwn ? (
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => handleRemove(rec.id)}
+                    disabled={busy}
+                    className="rounded-full border border-linesoft px-3.5 py-1.5 text-[11.5px] font-bold text-text2 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setStatus(rec.id, 'hidden', 'Hidden from your profile')}
+                    disabled={busy}
+                    className="rounded-full border border-linesoft px-3.5 py-1.5 text-[11.5px] font-bold text-text2 disabled:opacity-50"
+                  >
+                    Hide
+                  </button>
+                </div>
+              ) : null
+            }
+          />
+        ))
+      )}
+
+      {/* Hidden (own) */}
+      {hidden.length > 0 && (
+        <div className="rounded-2xl border border-linesoft bg-white/[0.02] p-4 opacity-80">
+          <div className="mb-3 text-[12px] font-bold text-text3">Hidden ({hidden.length})</div>
+          <div className="space-y-4">
+            {hidden.map((rec) => (
+              <RecCard
+                key={rec.id}
+                rec={rec}
+                author={authors[rec.author_id]}
+                actions={
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => setStatus(rec.id, 'published', 'Visible again')}
+                      disabled={busy}
+                      className="rounded-full border border-gold/40 px-3.5 py-1.5 text-[11.5px] font-bold text-gold disabled:opacity-50"
+                    >
+                      Show
+                    </button>
+                    <button
+                      onClick={() => handleRemove(rec.id)}
+                      disabled={busy}
+                      className="rounded-full border border-linesoft px-3.5 py-1.5 text-[11.5px] font-bold text-text2 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecCard({ rec, author, actions }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2.5">
+        <Avatar src={author?.avatar} name={author?.name || 'Someone'} size={34} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[13px] font-bold">{author?.name || 'Someone'}</span>
+            {author?.verified && <span className="text-[10px] text-gold">&#10003;</span>}
+          </div>
+          {author?.role && <div className="truncate text-[11px] text-text3">{author.role}</div>}
+        </div>
+        <Quote size={14} className="flex-none text-gold/60" />
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-text2">{rec.content}</p>
+      {actions}
     </div>
   );
 }
