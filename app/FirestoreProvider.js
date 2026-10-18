@@ -28,6 +28,21 @@ export default function FirestoreProvider({ children }) {
     // Heartbeat my own lastSeen so others can show "Online"/"Last seen".
     startPresenceHeartbeat(userId);
 
+    // ── Settings: hydrate the user_settings row so privacy prefs (typing
+    // indicator, read receipts, online status) match this account on every
+    // device, not only after the settings screen was visited. ──
+    getSupabase()
+      .from('user_settings')
+      .select('settings')
+      .eq('user_id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.settings && useStore.getState().updateSettings) {
+          useStore.getState().updateSettings(data.settings);
+        }
+      })
+      .catch(() => {});
+
     const unsubs = [];
 
     // ── Own profile: subscribe to updates ────────

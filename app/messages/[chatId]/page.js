@@ -48,6 +48,9 @@ export default function ChatPage() {
   const contact = useStore((s) => s.contacts[chatId]);
   const markContactRead = useStore((s) => s.markContactRead);
   const showToast = useStore((s) => s.showToast);
+  // Privacy toggles (persisted under user_settings.settings.privacy by the
+  // privacy settings page): gate outbound typing signals and read receipts.
+  const privacyPrefs = useStore((s) => s.settings?.privacy);
   const { vibrate, notification } = useHaptics();
 
   const [input, setInput] = useState('');
@@ -302,13 +305,17 @@ const recordingSecondsRef = useRef(0);
     if (!supabase) return;
     const markRead = async () => {
       try {
-        const { error: msgError } = await supabase
-          .from('chat_messages')
-          .update({ read: true })
-          .eq('chat_id', convId)
-          .eq('read', false)
-          .neq('sender_key', profile.id);
-        if (msgError) throw msgError;
+        // Read receipts OFF → never flip read=true (the other side keeps
+        // seeing a single tick), but the unread badge still clears below.
+        if (privacyPrefs?.showReadReceipts !== false) {
+          const { error: msgError } = await supabase
+            .from('chat_messages')
+            .update({ read: true })
+            .eq('chat_id', convId)
+            .eq('read', false)
+            .neq('sender_key', profile.id);
+          if (msgError) throw msgError;
+        }
         // unread_by is a single jsonb map, so the counter has to be rewritten
         // read-modify-write: read the row, then set my own key back to 0.
         const chat = await getChat(convId);
@@ -324,7 +331,7 @@ const recordingSecondsRef = useRef(0);
       }
     };
     markRead();
-  }, [convId, profile?.id]);
+  }, [convId, profile?.id, privacyPrefs?.showReadReceipts]);
 
   // Live message reactions for this conversation (table from migration 0004).
   // If the migration has not been run yet the query fails quietly and the
@@ -462,7 +469,11 @@ const recordingSecondsRef = useRef(0);
       // saw a single tick forever. Mark newly arrived foreign messages read
       // on every snapshot (rules allow participants to update 'read').
       const me = useStore.getState().profile?.id;
+      const privacy = useStore.getState().settings?.privacy;
       if (!me || !supabase) return;
+      // Receipts OFF → skip the read flip entirely (badge clearing is a
+      // separate chat_messages/chats update handled on mount).
+      if (privacy?.showReadReceipts === false) return;
       msgs.forEach((m) => {
         if (m.read !== false || m.senderKey === me) return;
         if (markedReadRef.current.has(m.id)) return;
@@ -549,16 +560,17 @@ const recordingSecondsRef = useRef(0);
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
-    if (convId && profile?.id) {
+    if (convId && profile?.id && privacyPrefs?.showTypingIndicator !== false) {
       // Ephemeral typing signal: the chats table has no typing column, so it
       // travels over the same realtime broadcast channel we listen on above.
+      // Suppressed when "Typing indicator" is off in privacy settings.
       typingChannelRef.current?.send({
         type: 'broadcast',
         event: 'typing',
         payload: { userId: profile.id, at: Date.now() },
       });
     }
-  }, [convId, profile?.id]);
+  }, [convId, profile?.id, privacyPrefs?.showTypingIndicator]);
 
   const handleCopy = useCallback((text) => {
     navigator.clipboard?.writeText(text);

@@ -9,6 +9,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { signOutFully } from '@/lib/authActions';
 import { sendPasswordReset } from '@/lib/supabase/auth';
+import { getSupabase } from '@/lib/supabase/client';
 import { submitFeedback } from '@/lib/feedback';
 import { isPushSupported, enablePushNotifications, disablePushNotifications } from '@/lib/push';
 import AuthSkeleton from '@/components/AuthSkeleton';
@@ -27,6 +28,8 @@ export default function SettingsPage() {
   const router = useRouter();
   const settings = useStore((s) => s.settings);
   const toggleSetting = useStore((s) => s.toggleSetting);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
   const [showFeedback, setShowFeedback] = useState(false);
   const [fbCategory, setFbCategory] = useState('general');
@@ -70,6 +73,35 @@ export default function SettingsPage() {
   }
 
   if (!ready) return <AuthSkeleton />;
+
+  // Privacy toggles live under user_settings.settings.privacy (same row the
+  // dedicated privacy page uses), so both screens always agree with the DB.
+  const togglePrivacy = async (key) => {
+    const current = settings.privacy?.[key] ?? settings[key];
+    const next = { ...(settings.privacy || {}), [key]: !current };
+    updateSettings({ privacy: next });
+    if (!profile?.id) return;
+    try {
+      const supabase = getSupabase();
+      if (!supabase) return;
+      const { data: existing } = await supabase
+        .from('user_settings')
+        .select('settings')
+        .eq('user_id', profile.id)
+        .maybeSingle();
+      const merged = { ...((existing && existing.settings) || {}), privacy: next };
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert(
+          { user_id: profile.id, settings: merged, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to persist privacy setting:', err);
+      showToast('Could not save setting');
+    }
+  };
 
   async function handleLogout() {
     await signOutFully();
@@ -133,7 +165,12 @@ export default function SettingsPage() {
 
         <SectionLabel>Privacy</SectionLabel>
         {PRIVACY_ROWS.map((r) => (
-          <SettingRow key={r.key} label={r.label} on={settings[r.key]} onToggle={() => toggleSetting(r.key)} />
+          <SettingRow
+            key={r.key}
+            label={r.label}
+            on={settings.privacy?.[r.key] ?? settings[r.key]}
+            onToggle={() => togglePrivacy(r.key)}
+          />
         ))}
         <button
           onClick={() => router.push('/settings/blocked')}

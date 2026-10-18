@@ -33,6 +33,7 @@ import {
   Briefcase,
   GraduationCap,
   Heart,
+  Lock,
   X,
 } from 'lucide-react';
 import PostCard from '@/components/PostCard';
@@ -121,6 +122,29 @@ export default function ProfileView({ userId = null }) {
   const [showModeration, setShowModeration] = useState(false);
 
   const uid = targetId;
+
+  // ── Private profile gate: the OWNER's privacy setting hides everything
+  // below the header from people who don't follow them. Own profile and
+  // followers see it normally. ──
+  const [targetPrivate, setTargetPrivate] = useState(false);
+  const privateLocked = !!targetPrivate && !isOwn && !following;
+  useEffect(() => {
+    setTargetPrivate(false);
+    if (!uid || isOwn) return undefined;
+    const supabase = getSupabase();
+    if (!supabase) return undefined;
+    let cancelled = false;
+    supabase
+      .from('user_settings')
+      .select('settings')
+      .eq('user_id', uid)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data?.settings?.privacy?.privateProfile) setTargetPrivate(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [uid, isOwn]);
 
   // ── Story highlights (story_highlights table, 0013) ──
   const [highlightRows, setHighlightRows] = useState(null);
@@ -678,6 +702,7 @@ export default function ProfileView({ userId = null }) {
           )}
 
           {/* ─── Tabs ─── */}
+          {!privateLocked && (
           <div className="no-scrollbar -mx-4 mt-5 flex gap-1 overflow-x-auto border-b border-linesoft px-4 sm:-mx-5 sm:px-5">
             {TABS.map((t) => (
               <button
@@ -693,9 +718,22 @@ export default function ProfileView({ userId = null }) {
               </button>
             ))}
           </div>
+          )}
 
           {/* ─── Tab content ─── */}
           <div className="pb-10 pt-4">
+            {privateLocked ? (
+              <div className="flex flex-col items-center gap-3 rounded-2xl border border-linesoft bg-card px-5 py-10 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/5">
+                  <Lock size={22} className="text-gold" />
+                </div>
+                <div className="text-[14px] font-extrabold">This profile is private</div>
+                <div className="max-w-[270px] text-[11.5px] text-text2">
+                  {p?.name ? `${p.name} has` : 'They have'} a private account. Follow {p?.name || 'them'} to see posts, skills and projects.
+                </div>
+              </div>
+            ) : (
+              <>
             {tab === 'about' && (
               <AboutSection
                 p={p}
@@ -742,6 +780,8 @@ export default function ProfileView({ userId = null }) {
                   />
                 )}
               </div>
+            )}
+              </>
             )}
           </div>
         </div>
