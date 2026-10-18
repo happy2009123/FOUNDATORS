@@ -11,6 +11,7 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows, randomId, toRow, ts } from '@/lib/supabase/db';
+import { startStripeCheckout, confirmStripeCheckout } from '@/lib/checkout';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -157,6 +158,42 @@ export default function ChallengesContent() {
     }
     fetchChallenges();
   }, []);
+
+  // Return from Stripe Checkout (?checkout=success|cancel) — verify the
+  // session server-side (approves the entry) and clean the URL.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('checkout');
+    if (!mode) return;
+    const sessionId = params.get('session_id');
+    params.delete('checkout');
+    params.delete('session_id');
+    const qs = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    if (mode === 'cancel') {
+      showToast('Checkout cancelled — your pending entry stays until you leave.');
+      return;
+    }
+    if (mode === 'success' && sessionId) {
+      confirmStripeCheckout(sessionId).then((out) => {
+        const uid = useStore.getState().profile?.id;
+        if (out?.approved) {
+          showToast('Payment confirmed — your entry is approved!');
+          setChallenges((prev) => prev.map((c) => c.id !== out.challengeId ? c : ({
+            ...c,
+            entries: (c.entries || []).map((e) => (
+              e.user_id === uid ? { ...e, payment_status: 'approved', paid_amount: out.amount } : e
+            )),
+          })));
+        } else if (out?.notConfigured) {
+          showToast('Payment received — pending admin approval.');
+        } else {
+          showToast("We're confirming your payment — refresh in a moment.");
+        }
+      });
+    }
+  }, [showToast]);
 
   const earnedIds = useMemo(
     () => new Set(earned.map((a) => a.challengeId).filter(Boolean)),
@@ -336,6 +373,14 @@ export default function ChallengesContent() {
       })));
       notification('success');
       if (challenge.isPaid && challenge.price > 0) {
+        // Paid entry → Stripe Checkout; the entry already exists as pending,
+        // so the success confirmation / webhook can approve it by id.
+        // Without Stripe keys the server 503s and we keep the manual flow.
+        const out = await startStripeCheckout(challenge.id);
+        if (out?.url) {
+          window.location.href = out.url;
+          return;
+        }
         showToast(`Payment pending admin approval for ${challenge.name}`);
       } else {
         showToast(`Joined ${challenge.name}!`);
