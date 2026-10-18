@@ -45,7 +45,7 @@ import StoryViewer from '@/components/StoryViewer';
 import { listHighlights, deleteHighlightsByTitle } from '@/lib/highlights';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
-import { subscribeToUserProfile } from '@/lib/firestore';
+import { subscribeToUserProfile, recordEvent } from '@/lib/firestore';
 import { getSupabase } from '@/lib/supabase/client';
 import { subscribeQuery } from '@/lib/supabase/realtime';
 import { mapRows } from '@/lib/supabase/db';
@@ -166,6 +166,18 @@ export default function ProfileView({ userId = null }) {
     });
     return () => { cancelled = true; };
   }, [isOwn, ownUid, uid]);
+
+  // Record a profile view once per viewer per session (own views don't count) —
+  // feeds Profile Views + the Audience locations rollup on /analytics.
+  useEffect(() => {
+    if (!uid || !ownUid || uid === ownUid) return;
+    const key = `foundators.pview.${uid}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {}
+    recordEvent('profile_viewed', { targetId: uid, userId: ownUid });
+  }, [uid, ownUid]);
 
   const handleConnectClick = async () => {
     if (connBusy) return;

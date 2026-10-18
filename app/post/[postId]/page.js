@@ -11,7 +11,7 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import Avatar from '@/components/Avatar';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRow, toMillis } from '@/lib/supabase/db';
-import { getUserProfile, subscribeToComments } from '@/lib/firestore';
+import { getUserProfile, subscribeToComments, recordEvent } from '@/lib/firestore';
 import { formatPostTime } from '@/lib/timeago';
 import { initialsAvatar } from '@/lib/avatar';
 
@@ -29,6 +29,7 @@ export default function PostCommentsPage() {
   const { postId } = useParams();
   const router = useRouter();
   const posts = useStore((s) => s.posts);
+  const profile = useStore((s) => s.profile);
   const comments = useStore((s) => s.commentsByPost[postId] || []);
   const addComment = useStore((s) => s.addComment);
   const editComment = useStore((s) => s.editComment);
@@ -95,6 +96,20 @@ export default function PostCommentsPage() {
   useEffect(() => {
     if (post?.authorKey) fetchUser(post.authorKey).then(setAuthor);
   }, [post?.authorKey]);
+
+  // Count a view once per post per session (own views don't count) — bumps
+  // view_count (analytics reads it) + records post_viewed for weekly deltas.
+  useEffect(() => {
+    if (!postId || !post?.id || !profile?.id) return;
+    if (post.authorKey === profile.id) return;
+    const key = `foundators.viewed.${postId}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {}
+    getSupabase().rpc('increment_post_view', { p_post_id: postId }).catch(() => {});
+    recordEvent('post_viewed', { postId, userId: profile.id });
+  }, [postId, post?.id, post?.authorKey, profile?.id]);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [postId]);
 

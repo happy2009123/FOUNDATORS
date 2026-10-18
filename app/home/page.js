@@ -37,6 +37,26 @@ const quick = [
  const [matches, setMatches] = useState([]);
  const [userProjects, setUserProjects] = useState([]);
  const lastFetchedProfile = useRef(null);
+ // Real network counts for the "Build with the network" tiles (were hardcoded).
+ const [counts, setCounts] = useState({ builders: null, projects: null, opportunities: null });
+ const unreadTotal = useStore((s) => Object.values(s.unreadByContact || {}).reduce((a, b) => a + (b || 0), 0));
+
+ useEffect(() => {
+   let cancelled = false;
+   (async () => {
+     const sb = getSupabase();
+     if (!sb) return;
+     const count = (q) => q.then(({ count }) => (count ?? 0)).catch(() => null);
+     const [builders, projects, opportunities] = await Promise.all([
+       count(sb.from('profiles').select('id', { count: 'exact', head: true })),
+       count(sb.from('projects').select('id', { count: 'exact', head: true })),
+       count(sb.from('opportunities').select('id', { count: 'exact', head: true }).eq('status', 'open')),
+     ]);
+     if (!cancelled) setCounts({ builders, projects, opportunities });
+   })();
+   return () => { cancelled = true; };
+ }, []);
+
 
  useEffect(() => {
    if (!profile?.id) return;
@@ -129,7 +149,7 @@ const quick = [
        <div className="no-scrollbar flex gap-3 overflow-x-auto">{radar.map((r)=><button key={r.name} onClick={()=>router.push(r.href)} className="gold-card min-w-[220px] p-4 text-left"><div className="flex items-center justify-between"><span className="rounded-full bg-gold-grad px-2 py-1 text-[10px] font-black text-[#171100]">{r.score} match</span><r.icon size={17} className="text-gold"/></div><div className="mt-4 text-[14px] font-extrabold">{r.title}</div><div className="mt-1 text-[12px] font-semibold">{r.name}</div><div className="mt-1 text-[10.5px] text-text2">{r.meta}</div></button>)}</div>
      )}
    </Section>
-   <Section title="Build with the network" action="Open projects" onClick={()=>router.push('/projects')}><div className="grid grid-cols-2 gap-2.5"><Mini icon={Code2} title="Programmers" value="128 projects" onClick={()=>router.push('/programmers')}/><Mini icon={Users} title="Teams" value="64 looking now" onClick={()=>router.push('/projects')}/><Mini icon={Coins} title="Opportunities" value="246 live" onClick={()=>router.push('/opportunities')}/><Mini icon={MessageCircle} title="Messages" value="3 new" onClick={()=>router.push('/messages')}/></div></Section>
+    <Section title="Build with the network" action="Open projects" onClick={()=>router.push('/projects')}><div className="grid grid-cols-2 gap-2.5"><Mini icon={Code2} title="Programmers" value={counts.builders == null ? '…' : `${counts.builders} builders`} onClick={()=>router.push('/programmers')}/><Mini icon={Users} title="Teams" value={counts.projects == null ? '…' : `${counts.projects} projects`} onClick={()=>router.push('/projects')}/><Mini icon={Coins} title="Opportunities" value={counts.opportunities == null ? '…' : `${counts.opportunities} live`} onClick={()=>router.push('/opportunities')}/><Mini icon={MessageCircle} title="Messages" value={unreadTotal > 0 ? `${unreadTotal} new` : 'All read'} onClick={()=>router.push('/messages')}/></div></Section>
    <Section title="Ask the Network" action="Ask" onClick={()=>router.push('/create')}><button onClick={()=>router.push('/create')} className="glass-card flex w-full items-center gap-3 p-4 text-left"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-line text-gold"><Plus size={18}/></span><span className="flex-1"><span className="block text-[13px] font-bold">What do you need help with?</span><span className="block text-[10.5px] text-text3">&ldquo;I need a Flutter developer in Kolkata...&rdquo;</span></span><ArrowRight size={16} className="text-text3"/></button></Section>
     <FeedAlgorithm />
     {useStore.getState().posts.length === 0 && (
