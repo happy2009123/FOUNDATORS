@@ -1,9 +1,9 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────
-// MATCH BY INTENT — real candidates, real scoring.
-// Scores come from intent→skill relevance, profile depth,
-// verification and skill overlap (never array index). The main
+// MATCH BY INTENT — real candidates, real signals.
+// Ranking comes from intent→keyword hits and shared-skill overlap
+// (rendered as counts, never an invented percentage). The main
 // action is a collaboration request with a personal message;
 // accepted requests open a real chat.
 // ─────────────────────────────────────────────────────────────
@@ -55,19 +55,15 @@ function scoreCandidate(u, intent, myProfile) {
   const hay = `${(u.skills || []).join(' ')} ${u.role || ''} ${u.bio || ''} ${u.name || ''}`.toLowerCase();
   const terms = INTENT_TERMS[intent] || [];
   const hits = terms.filter((t) => hay.includes(t));
-  let score = 55 + Math.min(30, hits.length * 10);
-  if (u.verified) score += 5;
-  if (u.foundingNumber) score += 4;
-  if (u.bio && String(u.bio).length > 20) score += 3;
-  if (u.avatar) score += 3;
   const mine = (myProfile?.skills || []).map((s) => String(s).toLowerCase()).filter(Boolean);
   const overlap = mine.filter((s) => hay.includes(s));
-  score += Math.min(6, overlap.length * 2);
   const reason =
     hits.slice(0, 3).join(', ') ||
     overlap.slice(0, 3).join(', ') ||
     (u.role ? String(u.role) : 'Open to connect');
-  return { score: Math.min(99, score), reason };
+  // Real signals only: how many intent keywords their profile hits + how many
+  // of MY skills they share. Rendered as plain counts, never an invented %.
+  return { hits: hits.length, shared: overlap.length, reason };
 }
 
 export default function IntentMatch() {
@@ -96,7 +92,7 @@ export default function IntentMatch() {
           .filter((u) => u.id !== me && u.status !== 'suspended');
         const scored = all
           .map((u) => ({ ...u, _m: scoreCandidate(u, intent, profile) }))
-          .sort((a, b) => b._m.score - a._m.score)
+          .sort((a, b) => (b._m.hits + b._m.shared) - (a._m.hits + a._m.shared))
           .slice(0, 8);
         setUsers(scored);
         if (me && scored.length) {
@@ -209,9 +205,13 @@ export default function IntentMatch() {
                           <div className="truncate text-[13.5px] font-extrabold">{u.name}</div>
                           <div className="truncate text-[10px] text-text2">{u.role || 'Builder'}</div>
                         </div>
-                        <span className="flex-none rounded-full bg-gold-grad px-2 py-1 text-[9px] font-black text-[#171100]">
-                          {u._m.score}%
-                        </span>
+                        {(u._m.shared > 0 || u._m.hits > 0) && (
+                          <span className="flex-none rounded-full bg-gold-grad px-2 py-1 text-[9px] font-black text-[#171100]">
+                            {u._m.shared > 0
+                              ? `${u._m.shared} shared skill${u._m.shared > 1 ? 's' : ''}`
+                              : `${u._m.hits} relevant skill${u._m.hits > 1 ? 's' : ''}`}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1 truncate text-[9.5px] text-gold-hi">
                         {u._m.reason}

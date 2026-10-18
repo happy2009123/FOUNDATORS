@@ -56,7 +56,7 @@ export default function Events() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newEvent, setNewEvent] = useState({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' });
+  const [newEvent, setNewEvent] = useState({ name: '', startsAt: '', location: '', category: 'Meetup', description: '', price: '' });
   const [formErrors, setFormErrors] = useState({});
 
   useEffect(() => {
@@ -215,6 +215,8 @@ export default function Events() {
       const eventId = randomId();
       const startsDate = new Date(newEvent.startsAt);
       const displayDate = formatEventDate(startsDate);
+      const priceNum = Math.max(0, Math.round(Number(newEvent.price) || 0));
+      const priceLabel = priceNum > 0 ? `$${priceNum}` : 'Free';
       const { error } = await getSupabase()
         .from('events')
         .insert(toRow({
@@ -226,8 +228,8 @@ export default function Events() {
           date: displayDate,
           startsAt: startsDate.toISOString(),
           isToday: startsDate.toDateString() === new Date().toDateString(),
-          price: 'Free',
-          priceValue: 0,
+          price: priceLabel,
+          priceValue: priceNum,
           creatorName: profile.name,
           isOnline: newEvent.location.toLowerCase().includes('online'),
           hostId: profile.id,
@@ -245,8 +247,8 @@ export default function Events() {
         category: newEvent.category,
         isToday: startsDate.toDateString() === new Date().toDateString(),
         isOnline: newEvent.location.toLowerCase().includes('online'),
-        price: 'Free',
-        priceValue: 0,
+        price: priceLabel,
+        priceValue: priceNum,
         creatorKey: profile.id,
         creatorName: profile.name,
         attendees: [profile.id],
@@ -254,7 +256,7 @@ export default function Events() {
       };
       vibrate('heavy'); notification('success');
       setEvents((prev) => [created, ...prev]);
-      setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' });
+      setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '', price: '' });
       setFormErrors({}); setShowCreateForm(false);
       showToast(`"${created.name}" created successfully!`);
     } catch (err) {
@@ -300,7 +302,7 @@ export default function Events() {
   if (showCreateForm) {
     return (
       <MainScreenShell>
-        <SubpageHeader title="Create Event" onBack={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} />
+        <SubpageHeader title="Create Event" onBack={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '', price: '' }); setFormErrors({}); setShowCreateForm(false); }} />
         <div className="no-scrollbar px-[18px] pb-6">
           <div className="gold-card mt-3 overflow-hidden p-5">
             <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[rgba(217,172,61,.12)] opacity-30" />
@@ -335,12 +337,16 @@ export default function Events() {
               </div>
             </div>
             <div>
+              <label className="mb-1.5 block text-[11px] font-bold text-text2" htmlFor="ev-price">Price (USD — 0 for free)</label>
+              <input id="ev-price" type="number" min="0" step="1" value={newEvent.price} onChange={(e) => setNewEvent((p) => ({ ...p, price: e.target.value }))} placeholder="0" className="w-full rounded-xl border border-linesoft bg-card px-4 py-3 text-[12.5px] outline-none transition-colors focus:border-gold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+            </div>
+            <div>
               <label className="mb-1.5 block text-[11px] font-bold text-text2">Description</label>
               <textarea value={newEvent.description} onChange={(e) => setNewEvent((p) => ({ ...p, description: e.target.value }))} placeholder="Tell people what this event is about..." rows={4} className={`w-full resize-none rounded-xl border bg-card px-4 py-3 text-[12.5px] outline-none transition-colors placeholder:text-text3 ${formErrors.description ? 'border-brandred' : 'border-linesoft focus:border-gold'}`} />
               {formErrors.description && <p className="mt-1 text-[10px] text-brandred">{formErrors.description}</p>}
             </div>
             <div className="flex gap-2.5 pt-2">
-              <button onClick={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
+              <button onClick={() => { setNewEvent({ name: '', startsAt: '', location: '', category: 'Meetup', description: '', price: '' }); setFormErrors({}); setShowCreateForm(false); }} className="flex-1 rounded-xl border border-linesoft bg-card py-3 text-[12px] font-bold text-text2">Cancel</button>
               <button onClick={handleCreateEvent} disabled={creating} className="flex-1 rounded-xl bg-gold-grad py-3 text-[12px] font-black text-[#171100] disabled:opacity-50">
                 {creating ? 'Creating...' : 'Create Event'}
               </button>

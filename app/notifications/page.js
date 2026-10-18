@@ -82,7 +82,6 @@ export default function NotificationsPage() {
     if (n.linkType === 'post') router.push(`/post/${n.linkId}`);
     else if (n.linkType === 'user' || n.linkType === 'profile') router.push(`/profile/${n.linkId}`);
     else if (n.linkType === 'startup') router.push(`/startup/${n.linkId}`);
-    else if (n.linkType === 'discussion') router.push(`/discussion/${n.linkId}`);
     else if (n.linkType === 'project') router.push(`/projects/${n.linkId}`);
     else if (n.linkType === 'request') router.push('/collab-requests');
     else if (n.linkType === 'network') router.push('/network');
