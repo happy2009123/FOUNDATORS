@@ -102,26 +102,22 @@ const quick = [
     return () => { cancelled = true; };
   }, [profile?.id, refreshTick]);
 
-  const radar = matches.length > 0
-    ? matches
-        .map((u) => {
-          let s = 58 + Math.min(14, (u.skills || []).length * 3);
-          if (u.verified) s += 10;
-          if (u.bio && String(u.bio).length > 20) s += 6;
-          if (u.foundingNumber) s += 5;
-          return {
-            score: `${Math.min(99, s)}%`,
-            title: u.role || 'Community member',
-            name: u.name || 'Unknown',
-            meta: u.role || u.bio?.slice(0, 40) || 'Founder',
-            icon: UserPlus,
-            href: `/profile/${u.id}`,
-            _s: s,
-          };
-        })
-        .sort((a, b) => b._s - a._s)
-        .map(({ _s, ...rest }) => rest)
-    : [];
+ const mySkills = new Set((profile?.skills || []).map((s) => String(s).toLowerCase()));
+ const radar = matches.length > 0
+   ? matches
+       .map((u) => {
+         const shared = (u.skills || []).filter((s) => mySkills.has(String(s).toLowerCase())).length;
+         return {
+           shared,
+           title: u.role || 'Community member',
+           name: u.name || 'Unknown',
+           meta: u.role || u.bio?.slice(0, 40) || 'Founder',
+           icon: UserPlus,
+           href: `/profile/${u.id}`,
+         };
+       })
+       .sort((a, b) => b.shared - a.shared)
+   : [];
 
  const mission = userProjects.length > 0
    ? { title: userProjects[0].text.slice(0, 40), progress: 0 }
@@ -146,7 +142,7 @@ const quick = [
          <button onClick={()=>router.push('/match')} className="mt-2 rounded-full bg-gold-grad px-4 py-2 text-[11px] font-bold text-[#171100]">Explore matches</button>
        </div>
      ) : (
-       <div className="no-scrollbar flex gap-3 overflow-x-auto">{radar.map((r)=><button key={r.name} onClick={()=>router.push(r.href)} className="gold-card min-w-[220px] p-4 text-left"><div className="flex items-center justify-between"><span className="rounded-full bg-gold-grad px-2 py-1 text-[10px] font-black text-[#171100]">{r.score} match</span><r.icon size={17} className="text-gold"/></div><div className="mt-4 text-[14px] font-extrabold">{r.title}</div><div className="mt-1 text-[12px] font-semibold">{r.name}</div><div className="mt-1 text-[10.5px] text-text2">{r.meta}</div></button>)}</div>
+       <div className="no-scrollbar flex gap-3 overflow-x-auto">{radar.map((r)=><button key={r.name} onClick={()=>router.push(r.href)} className="gold-card min-w-[220px] p-4 text-left"><div className="flex items-center justify-between">{r.shared>0 && <span className="rounded-full bg-gold-grad px-2 py-1 text-[10px] font-black text-[#171100]">{r.shared} shared skill{r.shared>1?'s':''}</span>}<r.icon size={17} className={`text-gold ${r.shared>0?'ml-auto':''}`}/></div><div className="mt-4 text-[14px] font-extrabold">{r.title}</div><div className="mt-1 text-[12px] font-semibold">{r.name}</div><div className="mt-1 text-[10.5px] text-text2">{r.meta}</div></button>)}</div>
      )}
    </Section>
     <Section title="Build with the network" action="Open projects" onClick={()=>router.push('/projects')}><div className="grid grid-cols-2 gap-2.5"><Mini icon={Code2} title="Programmers" value={counts.builders == null ? '…' : `${counts.builders} builders`} onClick={()=>router.push('/programmers')}/><Mini icon={Users} title="Teams" value={counts.projects == null ? '…' : `${counts.projects} projects`} onClick={()=>router.push('/projects')}/><Mini icon={Coins} title="Opportunities" value={counts.opportunities == null ? '…' : `${counts.opportunities} live`} onClick={()=>router.push('/opportunities')}/><Mini icon={MessageCircle} title="Messages" value={unreadTotal > 0 ? `${unreadTotal} new` : 'All read'} onClick={()=>router.push('/messages')}/></div></Section>

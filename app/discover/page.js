@@ -10,6 +10,7 @@ import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
+import { useStore } from '@/lib/store';
 
 const filters=['All','Co-founder','Programmer','Investor','Mentor','Freelancer'];
 
@@ -41,6 +42,9 @@ export default function DiscoverPage(){
  const scrollRef=useRef(null);
  const [users, setUsers] = useState({});
  const [loading, setLoading] = useState(true);
+ const profile = useStore((s) => s.profile);
+ const showToast = useStore((s) => s.showToast);
+ const ensureContactForUser = useStore((s) => s.ensureContactForUser);
 
  // Shared fetch so pull-to-refresh reloads the list (the old handler was a
  // 1200ms timer that refreshed nothing — this effect ran exactly once).
@@ -80,33 +84,37 @@ export default function DiscoverPage(){
  }, [loadUsers]);
 
  const matches = useMemo(() => {
+   // Real signal: how many of this person's skills overlap MINE. No
+   // invented percentage - sorted by overlap, shown as a shared-skills chip.
+   const mySkills = new Set((profile?.skills || []).map((s) => String(s).toLowerCase()));
    return Object.values(users)
      .map((u) => {
-       let s = 58 + Math.min(14, (u.skills || []).length * 3);
-       if (u.verified) s += 10;
-       if (u.bio && String(u.bio).length > 20) s += 6;
-       if (u.foundingNumber) s += 5;
-       if (u.avatar) s += 3;
+       const shared = (u.skills || []).filter((s) => mySkills.has(String(s).toLowerCase())).length;
        return {
          key: u.id,
-         score: Math.min(99, s),
+         shared,
          type: matchType(u),
          reason: (u.skills || []).slice(0, 3).join(' + ') || (u.role ? String(u.role) : 'General'),
          need: 'Open to connect',
          location: u.location || 'Unknown',
        };
      })
-     .sort((a, b) => b.score - a.score);
- }, [users]);
+     .sort((a, b) => b.shared - a.shared);
+ }, [users, profile?.skills]);
 
  const list=useMemo(()=>matches.filter(m=>{
    const user = users[m.key];
    if (!user) return false;
    if (filter!=='All' && m.type!==filter) return false;
    if (q && !`${user.name||''} ${user.role||''} ${m.reason}`.toLowerCase().includes(q.toLowerCase())) return false;
-   if (near && m.location!=='Bangalore') return false;
+   if (near) {
+     // Compare against MY location (city part before the comma), not a
+     // hardcoded city. Toggle is guarded below when no location is set.
+     const city = String(profile?.location || '').toLowerCase().split(',')[0].trim();
+     if (city && !String(m.location || '').toLowerCase().includes(city)) return false;
+   }
    return true;
- }),[filter,q,near,matches,users]);
+ }),[filter,q,near,matches,users,profile?.location]);
 
  return <MainScreenShell><TopBar/>
   <PullToRefresh onRefresh={handleRefresh}>
@@ -119,7 +127,7 @@ export default function DiscoverPage(){
    <div className="mt-4 flex items-center gap-2 rounded-2xl border border-linesoft bg-card px-3.5 py-3">
     <Search size={17} className="text-text3"/>
     <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search people or skills..." className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-text3"/>
-    <button onClick={()=>setNear(!near)} className={`rounded-full p-2 ${near?'bg-gold-grad text-[#171100]':'bg-white/5 text-text3'}`} aria-label="Toggle nearby filter"><Filter size={14}/></button>
+    <button onClick={()=>{ if(!near && !String(profile?.location||'').trim()){ showToast('Add your location in Edit profile to filter nearby'); return; } setNear(!near); }} className={`rounded-full p-2 ${near?'bg-gold-grad text-[#171100]':'bg-white/5 text-text3'}`} aria-label="Toggle nearby filter"><Filter size={14}/></button>
    </div>
    <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto">{filters.map(f=><button key={f} onClick={()=>setFilter(f)} className={`whitespace-nowrap rounded-full border px-3.5 py-2 text-[11px] font-bold ${filter===f?'border-transparent bg-gold-grad text-[#171100]':'border-linesoft text-text2'}`}>{f}</button>)}</div>
    <div className="mt-5 flex items-center justify-between">
@@ -131,7 +139,7 @@ export default function DiscoverPage(){
     <EmptyState icon={Users} title="No matches found" description="Try adjusting your search or filters." />
    ) : (
     <div className="mt-3 space-y-3 stagger-children">
-     {list.map(m=>{const user=users[m.key];return <MatchCard key={m.key} match={m} user={user} onOpen={()=>router.push(`/profile/${m.key}`)} onConnect={()=>router.push('/messages')} onInvite={()=>router.push('/create')}/>})}
+     {list.map(m=>{const user=users[m.key];return <MatchCard key={m.key} match={m} user={user} onOpen={()=>router.push(`/profile/${m.key}`)} onConnect={()=>{const key=ensureContactForUser(user.id, user); router.push(`/messages/${key}`);}} onInvite={()=>router.push('/create')}/>})}
     </div>
    )}
    <div className="mt-6 mb-2 grid grid-cols-2 gap-2.5 stagger-children">
@@ -147,6 +155,6 @@ export default function DiscoverPage(){
  </MainScreenShell>
 }
 
-function MatchCard({match,user,onOpen,onConnect,onInvite}){return <div className="gold-card p-4"><div className="flex gap-3"><Avatar src={user?.avatar} name={user?.name} size={48} className="rounded-2xl" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><button onClick={onOpen} className="text-[14px] font-extrabold">{user?.name}</button><div className="text-[10.5px] text-text2">{user?.role}</div></div><div className="rounded-full bg-gold-grad px-2 py-1 text-[9.5px] font-black text-[#171100]">{match.score}%</div></div><div className="mt-2 text-[10.5px] text-gold-hi">{match.type} · {match.reason}</div><div className="mt-1 text-[10px] text-text3">{match.need}</div></div></div><div className="mt-3 flex gap-2"><button onClick={onConnect} className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]">Connect</button><button onClick={onInvite} className="flex-1 rounded-xl border border-line py-2.5 text-[10.5px] font-bold text-gold-hi">Invite to project</button></div></div>}
+function MatchCard({match,user,onOpen,onConnect,onInvite}){return <div className="gold-card p-4"><div className="flex gap-3"><Avatar src={user?.avatar} name={user?.name} size={48} className="rounded-2xl" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><button onClick={onOpen} className="text-[14px] font-extrabold">{user?.name}</button><div className="text-[10.5px] text-text2">{user?.role}</div></div>{match.shared>0 && <span className="rounded-full bg-gold-grad px-2 py-1 text-[9.5px] font-black text-[#171100]">{match.shared} shared skill{match.shared>1?'s':''}</span>}</div><div className="mt-2 text-[10.5px] text-gold-hi">{match.type} · {match.reason}</div><div className="mt-1 text-[10px] text-text3">{match.need}</div></div></div><div className="mt-3 flex gap-2"><button onClick={onConnect} className="flex-1 rounded-xl bg-gold-grad py-2.5 text-[10.5px] font-black text-[#171100]">Connect</button><button onClick={onInvite} className="flex-1 rounded-xl border border-line py-2.5 text-[10.5px] font-bold text-gold-hi">Invite to project</button></div></div>}
 
 function Action({icon:Icon,title,onClick}){return <button onClick={onClick} className="glass-card flex flex-col items-center gap-2 p-3 text-center"><Icon size={18} className="text-gold"/><span className="text-[10px] font-bold text-text2">{title}</span></button>}
