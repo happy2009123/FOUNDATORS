@@ -20,6 +20,15 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { sanitize } from '@/lib/security';
 import { getUserProfile } from '@/lib/firestore';
 import { initialsAvatar } from '@/lib/avatar';
+import {
+  getGestureTemplate,
+  incrementGestureTemplateView,
+  toggleGestureStar,
+  forkGestureTemplate,
+  listTemplateComments,
+  addTemplateComment,
+  likeGestureComment,
+} from '@/lib/gestures';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -188,35 +197,46 @@ function TemplateDetailInner() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [author, setAuthor] = useState(null);
+  const [template, setTemplate] = useState(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(true);
 
-  const communityTemplates = useStore((s) => s.communityTemplates);
-  const starTemplate = useStore((s) => s.starTemplate);
-  const forkTemplate = useStore((s) => s.forkTemplate);
   const showToast = useStore((s) => s.showToast);
-  const templateComments = useStore((s) => s.templateComments);
-  const addTemplateComment = useStore((s) => s.addTemplateComment);
-  const likeComment = useStore((s) => s.likeComment);
-  const featuredTemplates = useStore((s) => s.featuredTemplates);
-  const toggleFeatured = useStore((s) => s.toggleFeatured);
   const profile = useStore((s) => s.profile);
-  const getTemplateAnalytics = useStore((s) => s.getTemplateAnalytics);
-  const premiumTemplates = useStore((s) => s.premiumTemplates);
-  const templatePrice = useStore((s) => s.templatePrice);
-
   const userKey = useStore((s) => s.profile?.id);
 
-  const template = useMemo(
-    () => communityTemplates.find((t) => t.id === templateId) || null,
-    [communityTemplates, templateId]
-  );
+  // Load the template + its comments from Supabase so detail links survive
+  // reloads; count a view once per browser session.
+  useEffect(() => {
+    if (!templateId) { setLoadingTemplate(false); return undefined; }
+    let cancelled = false;
+    setLoadingTemplate(true);
+    getGestureTemplate(templateId).then((row) => {
+      if (cancelled) return;
+      setTemplate(row);
+      setLoadingTemplate(false);
+      if (row && !sessionStorage.getItem(`gtv:${templateId}`)) {
+        sessionStorage.setItem(`gtv:${templateId}`, '1');
+        incrementGestureTemplateView(templateId);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [templateId]);
 
   useEffect(() => {
     if (template?.authorKey) fetchUser(template.authorKey).then(setAuthor);
   }, [template?.authorKey]);
 
   const [commentAuthors, setCommentAuthors] = useState({});
+  const [comments, setComments] = useState([]);
 
-  const comments = useMemo(() => templateComments?.[template?.id] || [], [templateComments, template?.id]);
+  useEffect(() => {
+    if (!templateId) return undefined;
+    let cancelled = false;
+    listTemplateComments(templateId).then((rows) => {
+      if (!cancelled) setComments(rows);
+    });
+    return () => { cancelled = true; };
+  }, [templateId]);
 
   useEffect(() => {
     const keys = [...new Set(comments.map((c) => c.authorKey).filter(Boolean))];
@@ -239,10 +259,14 @@ function TemplateDetailInner() {
     [codeLines]
   );
 
-  const analytics = useMemo(
-    () => (template ? getTemplateAnalytics(template.id) : null),
-    [template, getTemplateAnalytics]
-  );
+  const analytics = template
+    ? {
+        totalViews: template.views || 0,
+        stars: template.stars || 0,
+        forks: template.forks || 0,
+        comments: comments.length,
+      }
+    : null;
 
   const handleCopyCode = useCallback(() => {
     if (!template?.code) return;
@@ -268,19 +292,33 @@ function TemplateDetailInner() {
   }, [template, vibrate, showToast]);
 
   const handleStar = useCallback(() => {
-    if (!template) return;
+    if (!template || !userKey) return;
     vibrate('light');
     notification('success');
-    starTemplate(template.id, userKey);
-  }, [template, vibrate, notification, starTemplate]);
+    setTemplate((t) => {
+      if (!t) return t;
+      const starred = t.starredBy?.[userKey];
+      return {
+        ...t,
+        stars: starred ? Math.max(0, t.stars - 1) : t.stars + 1,
+        starredBy: { ...(t.starredBy || {}), [userKey]: !starred },
+      };
+    });
+    toggleGestureStar(template.id, userKey).then((newStars) => {
+      if (typeof newStars === 'number') {
+        setTemplate((t) => (t ? { ...t, stars: newStars } : t));
+      }
+    });
+  }, [template, userKey, vibrate, notification]);
 
   const handleFork = useCallback(() => {
     if (!template) return;
     vibrate('medium');
     notification('success');
-    forkTemplate(template.id);
+    setTemplate((t) => (t ? { ...t, forks: (t.forks || 0) + 1 } : t));
+    forkGestureTemplate(template.id);
     showToast(`Forked "${template.name}"! It's now in your templates.`);
-  }, [template, vibrate, notification, forkTemplate, showToast]);
+  }, [template, vibrate, notification, showToast]);
 
   const handleUseTemplate = useCallback(() => {
     if (!template) return;
@@ -288,14 +326,40 @@ function TemplateDetailInner() {
     router.push(`/gestures/create?templateId=${template.id}`);
   }, [template, vibrate, router]);
 
-  const handleAddComment = () => {
-    if (!commentText.trim() || !template) return;
-    addTemplateComment(template.id, { authorKey: profile?.id, text: commentText.trim() });
+  const handleAddComment = async () => {
+    const text = commentText.trim();
+    if (!text || !template || !profile?.id) return;
     setCommentText('');
     vibrate('light');
+    const { id, error } = await addTemplateComment(template.id, { authorKey: profile.id, text });
+    if (error || !id) {
+      showToast('Could not post comment');
+      setCommentText(text);
+      return;
+    }
+    setComments((rows) => [
+      ...rows,
+      { id, templateId: template.id, authorKey: profile.id, text, likes: 0, createdAt: new Date().toISOString() },
+    ]);
+  };
+
+  const handleLikeComment = (commentId) => {
+    vibrate('light');
+    likeGestureComment(commentId);
+    setComments((rows) => rows.map((c) => (c.id === commentId ? { ...c, likes: (c.likes || 0) + 1 } : c)));
   };
 
   if (ready === false || !ready) return <AuthSkeleton />;
+
+  if (loadingTemplate) {
+    return (
+      <MainScreenShell>
+        <div className="flex-1 flex items-center justify-center py-24">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+        </div>
+      </MainScreenShell>
+    );
+  }
 
   if (!template) {
     return (
@@ -461,30 +525,10 @@ function TemplateDetailInner() {
                   <div className="text-[9px] text-text3">Comments</div>
                 </div>
               </div>
-              {analytics.dailyViews.length > 0 && (
-                <div className="mt-3 border-t border-linesoft pt-3">
-                  <div className="text-[10px] text-text3 mb-2">Last 7 days</div>
-                  <div className="flex items-end gap-1 h-12">
-                    {analytics.dailyViews.map((d, i) => {
-                      const maxViews = Math.max(...analytics.dailyViews.map((x) => x.views), 1);
-                      const height = (d.views / maxViews) * 100;
-                      return (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                          <div
-                            className="w-full rounded-t bg-gold/30 min-h-[2px]"
-                            style={{ height: `${Math.max(height, 5)}%` }}
-                          />
-                          <div className="text-[7px] text-text3">{d.date.split('-')[2]}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {premiumTemplates?.[template?.id] && (
+              {template?.isPremium && template?.price > 0 && (
                 <div className="mt-3 border-t border-linesoft pt-3 flex items-center gap-2">
                   <span className="text-[10px] font-bold text-gold">Premium Template</span>
-                  <span className="text-[12px] font-black text-gold">${templatePrice?.[template?.id] || 0}</span>
+                  <span className="text-[12px] font-black text-gold">${template.price}</span>
                 </div>
               )}
             </div>
@@ -618,13 +662,13 @@ function TemplateDetailInner() {
                       />
                       <div className="flex-1">
                         <span className="text-[11px] font-bold">{commenter?.name || 'Anonymous'}</span>
-                        <span className="ml-2 text-[9px] text-text3">{comment.createdAt}</span>
+                        <span className="ml-2 text-[9px] text-text3">{comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ''}</span>
                       </div>
                     </div>
                     <p className="mt-2 text-[11px] leading-4 text-text2">{comment.text}</p>
                     <div className="mt-2 flex items-center gap-3">
                       <button
-                        onClick={() => { vibrate('light'); likeComment(template.id, comment.id); }}
+                        onClick={() => handleLikeComment(comment.id)}
                         className="flex items-center gap-1 text-[10px] text-text3 hover:text-gold transition-colors"
                       >
                         <Heart size={12} /> {comment.likes}

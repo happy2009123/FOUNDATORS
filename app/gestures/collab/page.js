@@ -9,6 +9,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { useStore } from '@/lib/store';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
+import { createGestureCollab } from '@/lib/gestures';
 
 const CATEGORIES = [
   { key: 'birthday', label: 'Birthday', emoji: '🎂' },
@@ -309,7 +310,7 @@ function Step3({ data, collabId, onDone }) {
 export default function CollabPage() {
   const router = useRouter();
   const ready = useRequireAuth();
-  const createCollab = useStore((s) => s.createCollab);
+  const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
   const { vibrate } = useHaptics();
 
@@ -349,10 +350,14 @@ export default function CollabPage() {
       showToast('Please enter a card title');
       return;
     }
+    if (!profile?.id) {
+      showToast('Please sign in to create a card');
+      return;
+    }
     vibrate('light');
     setCreating(true);
     try {
-      const id = await createCollab({
+      const { id, error } = await createGestureCollab({
         title: data.title.trim(),
         templateKey: data.templateKey,
         category: data.category,
@@ -361,7 +366,9 @@ export default function CollabPage() {
           : [],
         themeKey: data.themeKey,
         deadline: data.deadline || null,
+        ownerKey: profile.id,
       });
+      if (error || !id) throw new Error(error || 'create failed');
       setCollabId(id);
       setStep(3);
     } catch (err) {
@@ -369,7 +376,7 @@ export default function CollabPage() {
     } finally {
       setCreating(false);
     }
-  }, [data, createCollab, showToast, vibrate]);
+  }, [data, profile?.id, showToast, vibrate]);
 
   const handleBack = useCallback(() => {
     vibrate('light');

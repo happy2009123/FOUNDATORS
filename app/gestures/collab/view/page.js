@@ -19,6 +19,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
 import { getUserProfile } from '@/lib/firestore';
+import { getGestureCollab, listGestureSignatures, closeGestureCollab } from '@/lib/gestures';
 
 async function fetchUser(key) {
   try {
@@ -36,8 +37,6 @@ function CollabViewInner() {
   const ready = useRequireAuth();
   const { vibrate, notification } = useHaptics();
 
-  const collabGestures = useStore((s) => s.collabGestures);
-  const closeCollab = useStore((s) => s.closeCollab);
   const showToast = useStore((s) => s.showToast);
   const profile = useStore((s) => s.profile);
 
@@ -45,11 +44,24 @@ function CollabViewInner() {
   const [showSignatures, setShowSignatures] = useState(false);
   const [owner, setOwner] = useState(null);
   const [sigAuthors, setSigAuthors] = useState({});
+  const [collab, setCollab] = useState(null);
+  const [signatures, setSignatures] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const collab = useMemo(
-    () => collabGestures.find((c) => c.id === id) || null,
-    [collabGestures, id]
-  );
+  // Load the card + signatures from Supabase so shared view links survive
+  // reloads.
+  useEffect(() => {
+    if (!id) { setLoading(false); return undefined; }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([getGestureCollab(id), listGestureSignatures(id)]).then(([row, sigs]) => {
+      if (cancelled) return;
+      setCollab(row);
+      setSignatures(sigs || []);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [id]);
 
   const template = useMemo(
     () => (collab ? TEMPLATES.find((t) => t.key === collab.templateKey) : null),
@@ -66,23 +78,23 @@ function CollabViewInner() {
   }, [collab?.ownerKey]);
 
   useEffect(() => {
-    if (!collab) return;
-    const keys = [...new Set(collab.signatures.map((s) => s.authorKey).filter(Boolean))];
+    if (!signatures.length) return;
+    const keys = [...new Set(signatures.map((s) => s.authorKey).filter(Boolean))];
     keys.forEach((key) => {
       if (!sigAuthors[key]) {
         fetchUser(key).then((u) => { if (u) setSigAuthors((prev) => ({ ...prev, [key]: u })); });
       }
     });
-  }, [collab]);
+  }, [signatures]);
 
   const recipientNames = useMemo(() => {
     if (!collab) return '';
     return collab.recipients.join(', ');
   }, [collab]);
 
-  const isOwner = collab && profile?.key === collab.ownerKey;
+  const isOwner = collab && profile?.id === collab.ownerKey;
 
-  const isFull = collab && collab.signatures.length >= collab.maxSigners;
+  const isFull = collab && signatures.length >= collab.maxSigners;
   const isPastDeadline = collab && collab.deadline && new Date(collab.deadline) < new Date();
   const cardClosed = collab && (!collab.isOpen || isFull || isPastDeadline);
 
@@ -120,13 +132,15 @@ function CollabViewInner() {
     }
   }, [collab, handleCopyLink]);
 
-  const handleCloseCard = useCallback(() => {
+  const handleCloseCard = useCallback(async () => {
     if (!collab) return;
-    closeCollab(collab.id);
+    const { error } = await closeGestureCollab(collab.id);
+    if (error) { showToast('Could not close the card. Try again.'); return; }
+    setCollab((c) => (c ? { ...c, isOpen: false } : c));
     vibrate('medium');
     notification('success');
     showToast('Card closed! No more signatures accepted.');
-  }, [collab, closeCollab, vibrate, notification, showToast]);
+  }, [collab, vibrate, notification, showToast]);
 
   const handleAddSignature = useCallback(() => {
     if (!collab) return;
@@ -135,6 +149,16 @@ function CollabViewInner() {
   }, [collab, vibrate, router]);
 
   if (ready === false || !ready) return <AuthSkeleton />;
+
+  if (loading) {
+    return (
+      <MainScreenShell>
+        <div className="flex-1 flex items-center justify-center py-24">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+        </div>
+      </MainScreenShell>
+    );
+  }
 
   if (!collab) {
     return (
@@ -155,7 +179,7 @@ function CollabViewInner() {
   }
 
   const TemplateComponent = template?.component;
-  const sigCount = collab.signatures.length;
+  const sigCount = signatures.length;
   const maxSigners = collab.maxSigners;
 
   return (
@@ -273,7 +297,7 @@ function CollabViewInner() {
               Signatures ({sigCount}/{maxSigners})
             </div>
             <div className="space-y-2.5">
-              {collab.signatures.map((sig, i) => {
+              {signatures.map((sig, i) => {
                 const author = sigAuthors[sig.authorKey];
                 return (
                   <div

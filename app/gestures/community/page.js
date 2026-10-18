@@ -8,6 +8,7 @@ import ScrollToTop from '@/components/ScrollToTop';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import { getUserProfile } from '@/lib/firestore';
+import { listGestureTemplates, toggleGestureStar } from '@/lib/gestures';
 
 const CATEGORIES = [
   { key: 'all', label: 'All' },
@@ -46,12 +47,18 @@ export default function CommunityTemplatesPage() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [sortBy, setSortBy] = useState('stars');
   const [authors, setAuthors] = useState({});
+  const [communityTemplates, setCommunityTemplates] = useState([]);
 
-  const communityTemplates = useStore((s) => s.communityTemplates);
-  const starTemplate = useStore((s) => s.starTemplate);
   const userKey = useStore((s) => s.profile?.id);
-  const featuredTemplates = useStore((s) => s.featuredTemplates);
   const { vibrate } = useHaptics();
+
+  useEffect(() => {
+    let cancelled = false;
+    listGestureTemplates().then((rows) => {
+      if (!cancelled) setCommunityTemplates(rows);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const keys = [...new Set(communityTemplates.map((t) => t.authorKey).filter(Boolean))];
@@ -86,10 +93,24 @@ export default function CommunityTemplatesPage() {
     return templates;
   }, [communityTemplates, activeCategory, search, sortBy]);
 
-  function handleStar(e, templateId) {
+  async function handleStar(e, templateId) {
     e.stopPropagation();
+    if (!userKey) return;
     vibrate('light');
-    starTemplate(templateId, userKey);
+    // Optimistic flip, then the RPC recomputes the real total server-side.
+    setCommunityTemplates((rows) => rows.map((t) => {
+      if (t.id !== templateId) return t;
+      const starred = t.starredBy?.[userKey];
+      return {
+        ...t,
+        stars: starred ? Math.max(0, t.stars - 1) : t.stars + 1,
+        starredBy: { ...(t.starredBy || {}), [userKey]: !starred },
+      };
+    }));
+    const newStars = await toggleGestureStar(templateId, userKey);
+    if (typeof newStars === 'number') {
+      setCommunityTemplates((rows) => rows.map((t) => (t.id === templateId ? { ...t, stars: newStars } : t)));
+    }
   }
 
   return (
@@ -210,7 +231,7 @@ export default function CommunityTemplatesPage() {
                     className="glass-card overflow-hidden text-left"
                   >
                     <div className="px-3 pt-3 pb-2">
-                      {featuredTemplates?.includes(t.id) && (
+                      {t.isFeatured && (
                         <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-[rgba(217,172,61,0.15)] px-2 py-0.5 text-[9px] font-bold text-gold">
                           ⭐ Featured
                         </div>

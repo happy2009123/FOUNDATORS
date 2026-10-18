@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { TrendingUp, ArrowLeft, Eye, Heart, Share2 } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import ScrollToTop from '@/components/ScrollToTop';
 import { useStore } from '@/lib/store';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
+import { listGestureInstances } from '@/lib/gestures';
 
 const TIME_TABS = [
   { key: 'today', label: 'Today' },
@@ -24,7 +25,16 @@ export default function TrendingPage() {
   const router = useRouter();
   const scrollRef = useRef(null);
   const [timeTab, setTimeTab] = useState('week');
-  const gestures = useStore((s) => s.gestures);
+  // Global feed of real gestures from Supabase — ranked by reactions/views.
+  const [gestures, setGestures] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listGestureInstances({ limit: 60 }).then((rows) => {
+      if (!cancelled) setGestures(rows);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const sorted = useMemo(() => {
     const now = Date.now();

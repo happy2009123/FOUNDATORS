@@ -8,6 +8,7 @@ import { useHaptics } from '@/lib/useHaptics';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
 import ShareModal from '@/components/gestures/ShareModal';
 import { getUserProfile } from '@/lib/firestore';
+import { getGestureInstance, reactToGestureInstance, incrementGestureInstanceView } from '@/lib/gestures';
 
 async function fetchUser(key) {
   try {
@@ -30,21 +31,33 @@ function GestureViewPage() {
   const router = useRouter();
   const params = useSearchParams();
   const gestureId = params.get('id');
-  const gestures = useStore((s) => s.gestures);
-  const reactToGesture = useStore((s) => s.reactToGesture);
-  const incrementGestureViews = useStore((s) => s.incrementGestureViews);
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
   const [showShare, setShowShare] = useState(false);
   const [author, setAuthor] = useState(null);
+  const [gesture, setGesture] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const gesture = useMemo(() => gestures.find((g) => g.id === gestureId), [gestures, gestureId]);
   const template = useMemo(() => gesture ? TEMPLATES.find((t) => t.key === gesture.templateKey) : null, [gesture]);
   const theme = useMemo(() => gesture ? THEMES[gesture.customizations?.themeKey || 'gold'] : THEMES.gold, [gesture]);
 
+  // Load the shared gesture from Supabase so the link survives reloads.
   useEffect(() => {
-    if (gestureId) incrementGestureViews(gestureId);
-  }, [gestureId, incrementGestureViews]);
+    if (!gestureId) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    getGestureInstance(gestureId).then((row) => {
+      if (cancelled) return;
+      setGesture(row);
+      setLoading(false);
+      // Count the view once per browser session, like the old store did.
+      if (row && !sessionStorage.getItem(`gv:${gestureId}`)) {
+        sessionStorage.setItem(`gv:${gestureId}`, '1');
+        incrementGestureInstanceView(gestureId);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [gestureId]);
 
   useEffect(() => {
     if (gesture?.authorKey) fetchUser(gesture.authorKey).then(setAuthor);
@@ -52,10 +65,19 @@ function GestureViewPage() {
 
   const gestureUrl = typeof window !== 'undefined' ? `${window.location.origin}/gestures/view?id=${gestureId}` : '';
 
-  function handleReact(type) {
-    reactToGesture(gestureId, type);
+  async function handleReact(type) {
+    const next = await reactToGestureInstance(gestureId, type);
+    if (next) setGesture((g) => (g ? { ...g, reactions: next } : g));
     notification('success');
     vibrate('light');
+  }
+
+  if (loading) {
+    return (
+      <div className="stage-frame flex min-h-[100dvh] items-center justify-center bg-[#0a0a0a]">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+      </div>
+    );
   }
 
   if (!gesture || !template) {

@@ -18,6 +18,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
 import { getUserProfile } from '@/lib/firestore';
+import { getGestureCollab, listGestureSignatures, signGestureCollab } from '@/lib/gestures';
 
 async function fetchUser(key) {
   try {
@@ -35,8 +36,7 @@ function SignCollabInner() {
   const ready = useRequireAuth();
   const { vibrate, notification } = useHaptics();
 
-  const collabGestures = useStore((s) => s.collabGestures);
-  const signCollab = useStore((s) => s.signCollab);
+  const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
 
   const [name, setName] = useState('');
@@ -45,11 +45,24 @@ function SignCollabInner() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
   const [owner, setOwner] = useState(null);
+  const [collab, setCollab] = useState(null);
+  const [signatures, setSignatures] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const collab = useMemo(
-    () => collabGestures.find((c) => c.id === id) || null,
-    [collabGestures, id]
-  );
+  // Load the shared card + its signatures from Supabase so sign links
+  // survive reloads.
+  useEffect(() => {
+    if (!id) { setLoading(false); return undefined; }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([getGestureCollab(id), listGestureSignatures(id)]).then(([row, sigs]) => {
+      if (cancelled) return;
+      setCollab(row);
+      setSignatures(sigs || []);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [id]);
 
   const template = useMemo(
     () => (collab ? TEMPLATES.find((t) => t.key === collab.templateKey) : null),
@@ -65,20 +78,32 @@ function SignCollabInner() {
     if (collab?.ownerKey) fetchUser(collab.ownerKey).then(setOwner);
   }, [collab?.ownerKey]);
 
-  const isClosed = collab && (!collab.isOpen || collab.signatures.length >= collab.maxSigners || (collab.deadline && new Date(collab.deadline) < new Date()));
-
-  const handleSign = useCallback(() => {
-    if (!name.trim() || !message.trim() || !collab) return;
+  const handleSign = useCallback(async () => {
+    if (!name.trim() || !message.trim() || !collab || !profile?.id) return;
+    const sigName = name.trim();
+    const sigMessage = message.trim();
     vibrate('medium');
-    notification('success');
-    signCollab(collab.id, { name: name.trim(), message: message.trim() });
+    const { id: sigId, error } = await signGestureCollab(collab.id, {
+      authorKey: profile.id,
+      name: sigName,
+      message: sigMessage,
+    });
+    if (error || !sigId) {
+      showToast('Could not sign the card. Try again.');
+      return;
+    }
+    setSignatures((rows) => [
+      ...rows,
+      { id: sigId, collabId: collab.id, authorKey: profile.id, name: sigName, message: sigMessage, createdAt: new Date().toISOString() },
+    ]);
     setHasSigned(true);
     setShowSuccess(true);
+    notification('success');
     showToast('Your signature has been added!');
-  }, [name, message, collab, vibrate, notification, signCollab, showToast]);
+  }, [name, message, collab, profile?.id, vibrate, notification, showToast]);
 
   const handleCopyLink = useCallback(() => {
-    const url = `${window.location.origin}/gestures/collab/${collab?.id}`;
+    const url = `${window.location.origin}/gestures/collab/sign?id=${collab?.id}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       vibrate('light');
@@ -88,6 +113,16 @@ function SignCollabInner() {
   }, [collab, vibrate, showToast]);
 
   if (ready === false || !ready) return <AuthSkeleton />;
+
+  if (loading) {
+    return (
+      <MainScreenShell>
+        <div className="flex-1 flex items-center justify-center py-24">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+        </div>
+      </MainScreenShell>
+    );
+  }
 
   if (!collab) {
     return (
@@ -108,7 +143,7 @@ function SignCollabInner() {
   }
 
   const TemplateComponent = template?.component;
-  const sigCount = collab.signatures.length;
+  const sigCount = signatures.length;
   const maxSigners = collab.maxSigners;
   const isFull = sigCount >= maxSigners;
   const isPastDeadline = collab.deadline && new Date(collab.deadline) < new Date();
@@ -284,7 +319,7 @@ function SignCollabInner() {
             </div>
 
             <div className="space-y-2.5">
-              {collab.signatures.map((sig, i) => (
+              {signatures.map((sig, i) => (
                 <div
                   key={i}
                   className="rounded-xl border border-[#2a2a2a] bg-[#111111] p-3.5"

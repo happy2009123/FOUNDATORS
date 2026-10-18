@@ -1,20 +1,33 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Sparkles, Eye, TrendingUp, Code2, Users } from 'lucide-react';
 import MainScreenShell from '@/components/MainScreenShell';
 import ScrollToTop from '@/components/ScrollToTop';
 import { useStore } from '@/lib/store';
 import { TEMPLATES, CATEGORIES, THEMES } from '@/components/gestures/GestureTemplates';
+import { listGestureInstances } from '@/lib/gestures';
 import { useHaptics } from '@/lib/useHaptics';
 
 export default function GesturesContent() {
   const router = useRouter();
   const scrollRef = useRef(null);
   const [activeCategory, setActiveCategory] = useState('all');
-  const gestures = useStore((s) => s.gestures);
+  const profile = useStore((s) => s.profile);
+  const [myGestures, setMyGestures] = useState([]);
   const { vibrate } = useHaptics();
+
+  useEffect(() => {
+    if (!profile?.id) { setMyGestures([]); return undefined; }
+    let cancelled = false;
+    listGestureInstances({ authorKey: profile.id, limit: 20 }).then((rows) => {
+      if (!cancelled) setMyGestures(rows);
+    });
+    return () => { cancelled = true; };
+  }, [profile?.id]);
+
+  const gestures = myGestures;
 
   const filtered = useMemo(
     () => activeCategory === 'all' ? TEMPLATES : TEMPLATES.filter((t) => t.category === activeCategory),
