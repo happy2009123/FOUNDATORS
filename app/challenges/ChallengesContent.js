@@ -568,10 +568,10 @@ export default function ChallengesContent() {
               <Plus size={15} /> Create Challenge
             </button>
             <div className="mt-5 grid grid-cols-4 gap-2">
-              <Stat n="0" l="Points" icon={Medal} />
-              <Stat n="-" l="Rank" icon={Trophy} />
-              <Stat n="0" l="Badges" icon={Award} />
-              <Stat n="0 days" l="Streak" icon={Flame} />
+              <Stat n={earnedPoints.toLocaleString()} l="Points" icon={Medal} />
+              <Stat n={String(joinedCount)} l="Joined" icon={Trophy} />
+              <Stat n={String(earned.length)} l="Badges" icon={Award} />
+              <Stat n={String(createdCount)} l="Created" icon={Flame} />
             </div>
           </>
         ) : (
