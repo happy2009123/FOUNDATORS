@@ -9,6 +9,7 @@ import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
 import AuthSkeleton from '@/components/AuthSkeleton';
 import { TEMPLATES, THEMES } from '@/components/gestures/GestureTemplates';
+import { createGestureInstance, publishGestureTemplate } from '@/lib/gestures';
 
 export default function CreateGesturePageWrapper() {
   return (
@@ -23,8 +24,7 @@ function CreateGesturePage() {
   const router = useRouter();
   const params = useSearchParams();
   const initialTemplate = params.get('template');
-  const createGesture = useStore((s) => s.createGesture);
-  const publishTemplate = useStore((s) => s.publishTemplate);
+  const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
   const { vibrate, notification } = useHaptics();
 
@@ -47,29 +47,42 @@ function CreateGesturePage() {
   async function handleGenerate() {
     if (!toName.trim()) { showToast('Enter a name for the recipient'); return; }
     if (scheduleEnabled && (!scheduledDate || !scheduledTime)) { showToast('Pick a date and time for delivery'); return; }
+    if (!profile?.id) { showToast('Please sign in to create a gesture'); return; }
     setGenerating(true);
     vibrate('light');
-    await new Promise((r) => setTimeout(r, 600));
-    const customizations = { name: toName.trim(), message: message.trim(), themeKey };
-    if (scheduleEnabled && scheduledDate && scheduledTime) {
-      customizations.scheduledDate = scheduledDate;
-      customizations.scheduledTime = scheduledTime;
-    }
-    const id = createGesture({ templateKey: selectedKey, customizations });
-    notification('success');
-    if (publishToCommunity) {
-      publishTemplate({
-        name: templateName || template.name,
-        description: templateDesc,
-        category: template.category,
-        code: template?.component?.toString?.() || '/* Template code */',
+    try {
+      const customizations = { name: toName.trim(), message: message.trim(), themeKey };
+      if (scheduleEnabled && scheduledDate && scheduledTime) {
+        customizations.scheduledDate = scheduledDate;
+        customizations.scheduledTime = scheduledTime;
+      }
+      const { id, error } = await createGestureInstance({
+        authorKey: profile.id,
+        templateKey: selectedKey,
+        customizations,
       });
-      showToast('Published to community!');
+      if (error || !id) throw new Error(error || 'create failed');
+      notification('success');
+      if (publishToCommunity) {
+        const pub = await publishGestureTemplate({
+          name: templateName || template?.name || 'Untitled template',
+          description: templateDesc,
+          category: template?.category || 'hi',
+          code: '/* Built-in template remix */',
+          authorKey: profile.id,
+        });
+        if (pub?.id) showToast('Published to community!');
+      }
+      if (scheduleEnabled && scheduledDate && scheduledTime) {
+        showToast(`Gesture scheduled for ${scheduledDate} at ${scheduledTime}`);
+      }
+      router.push(`/gestures/view?id=${id}`);
+    } catch (err) {
+      console.error('Failed to create gesture:', err);
+      showToast('Could not create the gesture. Try again.');
+    } finally {
+      setGenerating(false);
     }
-    if (scheduleEnabled && scheduledDate && scheduledTime) {
-      showToast(`Gesture scheduled for ${scheduledDate} at ${scheduledTime}`);
-    }
-    router.push(`/gestures/view?id=${id}`);
   }
 
   if (!ready) return <AuthSkeleton />;

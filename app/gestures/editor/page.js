@@ -8,6 +8,7 @@ import AuthSkeleton from '@/components/AuthSkeleton';
 import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { useStore } from '@/lib/store';
+import { publishGestureTemplate } from '@/lib/gestures';
 
 const DEFAULT_HTML = `<div class="card">
   <div class="emoji">🎉</div>
@@ -55,7 +56,7 @@ function LineNumbers({ count }) {
 
 export default function EditorPage() {
   const ready = useRequireAuth();
-  const publishTemplate = useStore((s) => s.publishTemplate);
+  const profile = useStore((s) => s.profile);
   const showToast = useStore((s) => s.showToast);
   const router = useRouter();
   const { vibrate } = useHaptics();
@@ -173,16 +174,22 @@ export default function EditorPage() {
       showToast('Template name is required');
       return;
     }
+    if (!profile?.id) {
+      showToast('Please sign in to publish');
+      return;
+    }
     setPublishing(true);
     try {
-      await publishTemplate({
+      const { error } = await publishGestureTemplate({
         name: pubName.trim(),
         description: pubDesc.trim(),
         category: pubCategory.toLowerCase(),
         code: htmlCode,
         css: cssCode,
         js: jsCode,
+        authorKey: profile.id,
       });
+      if (error) throw new Error(error);
       vibrate('light');
       showToast('Published to community!');
       setShowPublish(false);

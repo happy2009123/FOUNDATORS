@@ -11,6 +11,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useHaptics } from '@/lib/useHaptics';
 import { getUserProfile } from '@/lib/firestore';
 import { initialsAvatar } from '@/lib/avatar';
+import { listGestureTemplates, listGestureCollabs } from '@/lib/gestures';
 
 const CATEGORY_BADGE = {
   hi: 'bg-[rgba(0,200,83,0.12)] text-[#00c853]',
@@ -27,6 +28,14 @@ const STATUS_BADGE = {
   closed: 'bg-[rgba(158,158,158,0.12)] text-[#9e9e9e]',
 };
 
+function formatShortDate(d) {
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
 async function fetchUser(key) {
   try {
     const res = await getUserProfile(key);
@@ -42,31 +51,41 @@ function CreatorProfileInner() {
   const ready = useRequireAuth();
   const { vibrate } = useHaptics();
 
-  const creatorKey = searchParams.get('key') || 'arjun';
+  const creatorKey = searchParams.get('key');
 
-  const communityTemplates = useStore((s) => s.communityTemplates);
-  const collabGestures = useStore((s) => s.collabGestures);
   const followedCreators = useStore((s) => s.followedCreators);
   const toggleFollowCreator = useStore((s) => s.toggleFollowCreator);
-  const getCreatorStats = useStore((s) => s.getCreatorStats);
 
   const [person, setPerson] = useState(null);
-  const stats = getCreatorStats(creatorKey);
+  const [templates, setTemplates] = useState([]);
+  const [collabs, setCollabs] = useState([]);
   const isFollowed = !!followedCreators[creatorKey];
 
+  const stats = useMemo(() => {
+    const totalStars = templates.reduce((sum, t) => sum + (t.stars || 0), 0);
+    const totalForks = templates.reduce((sum, t) => sum + (t.forks || 0), 0);
+    return {
+      templateCount: templates.length,
+      collabCount: collabs.length,
+      totalStars,
+      totalForks,
+    };
+  }, [templates, collabs]);
+
   useEffect(() => {
+    if (!creatorKey) return undefined;
     fetchUser(creatorKey).then(setPerson);
+    let cancelled = false;
+    Promise.all([
+      listGestureTemplates({ authorKey: creatorKey }),
+      listGestureCollabs({ ownerKey: creatorKey }),
+    ]).then(([tpls, cls]) => {
+      if (cancelled) return;
+      setTemplates(tpls || []);
+      setCollabs(cls || []);
+    });
+    return () => { cancelled = true; };
   }, [creatorKey]);
-
-  const templates = useMemo(
-    () => communityTemplates.filter((t) => t.authorKey === creatorKey),
-    [communityTemplates, creatorKey]
-  );
-
-  const collabs = useMemo(
-    () => collabGestures.filter((c) => c.ownerKey === creatorKey),
-    [collabGestures, creatorKey]
-  );
 
   if (!ready) return <AuthSkeleton />;
 
@@ -263,7 +282,7 @@ function CreatorProfileInner() {
                       <div className="text-[12px] font-extrabold leading-tight">{c.title}</div>
                       <div className="mt-1 flex items-center gap-2 text-[10px] text-text3">
                         <Users size={11} />
-                        {c.signatures.length} signatures
+                        {c.deadline ? `Deadline ${formatShortDate(c.deadline)}` : 'Collaboration card'}
                       </div>
                     </div>
                     <span
