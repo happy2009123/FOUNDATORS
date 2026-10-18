@@ -95,7 +95,7 @@ export default function BuilderScoreCard({ uid, profile = null }) {
             ))}
           </ul>
           <p className="mt-2.5 text-[10.5px] leading-relaxed text-text3">
-            Calculated live from real Firestore activity — never stored, never
+            Calculated live from real platform activity — never stored, never
             editable, identical for everyone who views this profile.
           </p>
         </div>

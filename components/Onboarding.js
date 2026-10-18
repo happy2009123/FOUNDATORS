@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, ArrowLeft, Check, Sparkles, Users, Rocket, Code2, Lightbulb, Target, UserPlus } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, Sparkles, Users, Rocket, Code2, Lightbulb, Target, UserPlus, Share2, Copy } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { useStore } from '@/lib/store';
 import { useHaptics } from '@/lib/useHaptics';
@@ -10,6 +10,7 @@ import Avatar from '@/components/Avatar';
 import { updateUserProfile } from '@/lib/firestore';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
+import { referralLinkFor } from '@/lib/referrals';
 
 const STEPS = ['welcome', 'role', 'interests', 'follow', 'done'];
 
@@ -266,6 +267,48 @@ export default function Onboarding() {
             <p className="mt-2 text-[14px] text-text2 max-w-[280px]">
               Your feed is ready. Start exploring, connecting, and building.
             </p>
+            {myId && (
+              <div className="mt-6 w-full max-w-[320px] rounded-2xl border border-gold/30 bg-gold/[0.06] p-4">
+                <div className="mb-1.5 flex items-center justify-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-gold">
+                  <UserPlus size={13} /> Grow your circle
+                </div>
+                <p className="mb-3 text-[12px] leading-relaxed text-text2">
+                  Invite a co-founder — you both start connected when they join.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const link = referralLinkFor(myId);
+                      try {
+                        if (navigator.share) {
+                          await navigator.share({ title: 'Join me on Foundators', text: "Let's build something — join me:", url: link });
+                        } else {
+                          await navigator.clipboard.writeText(link);
+                          showToast('Invite link copied');
+                        }
+                      } catch {
+                        try { await navigator.clipboard.writeText(link); showToast('Invite link copied'); } catch {}
+                      }
+                    }}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gold-grad py-2.5 text-[12.5px] font-extrabold text-[#1a1300]"
+                  >
+                    <Share2 size={14} /> Share link
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(referralLinkFor(myId));
+                        showToast('Invite link copied');
+                      } catch { showToast('Could not copy link'); }
+                    }}
+                    className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-xl border border-gold/40 text-gold"
+                    aria-label="Copy invite link"
+                  >
+                    <Copy size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

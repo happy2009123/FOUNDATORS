@@ -2,9 +2,9 @@
 
 // ─────────────────────────────────────────────────────────────
 // INVITE — your personal referral link, how the loop works and
-// who joined because of you (live from users/{uid}/invites).
+// who joined because of you (live from referral_invites).
 // Activated founders (posted or created a project) are worth
-// +3 Builder Score points each.
+// +3 Builder Score points each (BUILDER_WEIGHTS.activatedReferral).
 // ─────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
@@ -17,6 +17,7 @@ import { useRequireAuth } from '@/lib/useRequireAuth';
 import { useStore } from '@/lib/store';
 import { timeAgo } from '@/lib/admin';
 import { referralLinkFor, subscribeMyInvites } from '@/lib/referrals';
+import { BUILDER_WEIGHTS } from '@/lib/builderScore';
 
 export default function InvitePage() {
   const ready = useRequireAuth();
@@ -76,7 +77,7 @@ export default function InvitePage() {
           <p className="mt-2 text-[12.5px] leading-relaxed text-text2">
             Every founder who joins through your link and then{' '}
             <b className="text-text1">posts or creates a project</b> earns you{' '}
-            <b className="text-gold-hi">+3 Builder Score points</b> — no points for ghost
+            <b className="text-gold-hi">+{BUILDER_WEIGHTS.activatedReferral} Builder Score points</b> — no points for ghost
             signups.
           </p>
           <button
@@ -107,10 +108,11 @@ export default function InvitePage() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-3 grid grid-cols-4 gap-2 text-center">
           <Tile n={String(invites.length)} l="Joined" />
           <Tile n={String(activated)} l="Activated" />
-          <Tile n={`+${activated * 3}`} l="Score pts" gold />
+          <Tile n={String(pending)} l="Pending" />
+          <Tile n={`+${activated * BUILDER_WEIGHTS.activatedReferral}`} l="Score pts" gold />
         </div>
 
         <div className="mt-4 rounded-2xl border border-linesoft bg-card p-4">
@@ -142,7 +144,7 @@ export default function InvitePage() {
               {invites.map((inv) => (
                 <button
                   key={inv.id}
-                  onClick={() => router.push(`/profile/${inv.id}`)}
+                  onClick={() => router.push(`/profile/${inv.invitedUid || inv.id}`)}
                   className="flex items-center gap-2.5 rounded-2xl border border-linesoft bg-card p-3 text-left active:bg-white/5"
                 >
                   <Avatar src={inv.invitedAvatar || null} name={inv.invitedName || `Founder ${inv.id.slice(0, 4)}`} size={32} />
@@ -161,7 +163,7 @@ export default function InvitePage() {
                         : 'bg-white/5 text-text3'
                     }`}
                   >
-                    {inv.activated ? '+3 ✓' : 'pending'}
+                    {inv.activated ? `+${BUILDER_WEIGHTS.activatedReferral} ✓` : 'pending'}
                   </span>
                 </button>
               ))}

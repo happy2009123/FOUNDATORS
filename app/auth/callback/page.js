@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabase } from '@/lib/supabase/client';
+import { rememberReferralCode, recordInviteIfAny } from '@/lib/referrals';
 
 // OAuth / email-link landing page.
 // - popup=1: exchanged inside the Google popup, session postMessage'd to the
@@ -19,6 +20,10 @@ export default function AuthCallbackPage() {
     const popup = params.get('popup') === '1';
     const nextRaw = params.get('next') || '/home';
     const next = nextRaw.startsWith('/') ? nextRaw : '/home';
+    // Referral rides along the redirect (appended by lib/supabase/auth.js) —
+    // stash it so the invite can be recorded once the session exists.
+    const ref = params.get('ref');
+    if (ref) rememberReferralCode(ref);
 
     (async () => {
       if (errorDescription) {
@@ -56,6 +61,17 @@ export default function AuthCallbackPage() {
       if (exchangeError) {
         setError(exchangeError);
         return;
+      }
+      // Email-confirmation signups have no session until this exchange —
+      // record the invite HERE or the referral is lost forever.
+      // Best-effort: fires before the redirect; the row is keyed by uid so a
+      // duplicate later attempt is an idempotent upsert.
+      try {
+        const { data } = await supabase?.auth.getSession();
+        const uid = data?.session?.user?.id;
+        if (uid) recordInviteIfAny(uid);
+      } catch {
+        // attribution is best-effort
       }
       window.location.replace(next);
     })();
