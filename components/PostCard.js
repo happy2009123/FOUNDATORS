@@ -427,17 +427,6 @@ export default memo(function PostCard({ post, reactions: reactionsProp, myReacti
         </div>
       )}
 
-      {post.stat && (
-        <div className="mb-3 rounded-2xl border border-linesoft bg-[rgba(46,204,113,0.04)] px-3.5 py-3">
-          <div className="mb-0.5 text-[11px] text-text2">{post.stat.label}</div>
-          <div className="mb-0.5 text-[26px] font-extrabold">{post.stat.value}</div>
-          <div className="text-xs font-bold text-brandgreen">{post.stat.delta}</div>
-          <svg className="mt-1.5 h-[26px] w-full" viewBox="0 0 200 30" preserveAspectRatio="none">
-            <polyline points="0,26 30,22 60,24 90,15 120,17 150,6 200,2" fill="none" stroke="#2ecc71" strokeWidth="2" />
-          </svg>
-        </div>
-      )}
-
       {post.looking && (
         <>
           <div className="mb-3 flex flex-wrap gap-2">
@@ -456,12 +445,6 @@ export default memo(function PostCard({ post, reactions: reactionsProp, myReacti
               </>
             )}
           </div>
-          <button
-            onClick={() => showToast(`Collaboration request sent to ${author?.name?.split(' ')[0] || 'user'}`)}
-            className="w-full rounded-[9px] border-[1.4px] border-brandblue py-[11px] text-sm font-bold text-brandblue active:bg-[rgba(91,141,255,0.12)]"
-          >
-            Collaborate
-          </button>
         </>
       )}
 

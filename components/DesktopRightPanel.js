@@ -6,16 +6,8 @@ import { Flame, UserPlus, ArrowRight, MapPin, AtSign } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import { getSupabase } from '@/lib/supabase/client';
 import { mapRows } from '@/lib/supabase/db';
+import { extractTags } from '@/lib/search';
 import { useStore } from '@/lib/store';
-
-const FALLBACK_TAGS = [
-  { tag: 'AI', posts: 1240 },
-  { tag: 'StartupLife', posts: 890 },
-  { tag: 'ReactNative', posts: 567 },
-  { tag: 'Funding', posts: 423 },
-  { tag: 'Design', posts: 312 },
-  { tag: 'OpenSource', posts: 289 },
-];
 
 const QUICK_LINKS = [
   '/opportunities',
@@ -31,6 +23,7 @@ export default function DesktopRightPanel() {
   const followedUsers = useStore((s) => s.followedUsers);
   const myId = useStore((s) => s.profile?.id);
   const [users, setUsers] = useState({});
+  const [trendingTags, setTrendingTags] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +40,16 @@ export default function DesktopRightPanel() {
           const blockedSnap = await supabase.from('blocks').select('blocked_id').eq('user_id', userId);
           if (blockedSnap.error) throw blockedSnap.error;
           blockedIds = new Set((blockedSnap.data || []).map((r) => r.blocked_id));
+        }
+        // Real hashtag frequency from recent posts (same helper /explore uses).
+        const postSnap = await supabase
+          .from('posts')
+          .select('text')
+          .order('created_at', { ascending: false })
+          .limit(300);
+        if (postSnap.error) throw postSnap.error;
+        if (!cancelled) {
+          setTrendingTags(extractTags((postSnap.data || []).map((r) => ({ text: r.text })), 6));
         }
         if (!cancelled) {
           const map = {};
@@ -81,14 +84,17 @@ export default function DesktopRightPanel() {
           <Flame size={13} /> Trending
         </div>
         <div className="mt-3 space-y-2">
-          {FALLBACK_TAGS.map((t) => (
+          {trendingTags.length === 0 && (
+            <p className="text-[11.5px] text-text3">No hashtags yet — posts with tags show up here.</p>
+          )}
+          {trendingTags.map((t) => (
             <button
-              key={t.tag}
-              onClick={() => router.push(`/explore?q=${encodeURIComponent(t.tag)}`)}
+              key={t.text}
+              onClick={() => router.push(`/topic/${encodeURIComponent(t.text.replace('#', ''))}`)}
               className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/[0.04]"
             >
-              <span className="text-[13px] font-bold">#{t.tag}</span>
-              <span className="text-[10.5px] text-text3">{t.posts.toLocaleString()} posts</span>
+              <span className="text-[13px] font-bold">{t.text}</span>
+              <span className="text-[10.5px] text-text3">{t.posts.toLocaleString()} {t.posts === 1 ? 'post' : 'posts'}</span>
             </button>
           ))}
         </div>

@@ -30,6 +30,7 @@ export default function DesktopSidebar() {
   const profile = useStore((s) => s.profile);
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const unreadCount = useStore((s) => s.notifications.filter((n) => !n.read).length);
+  const unreadMsgs = useStore((s) => Object.values(s.unreadByContact || {}).reduce((a, b) => a + (b || 0), 0));
 
   return (
     <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-[240px] flex-col border-r border-linesoft bg-card z-50">
@@ -55,8 +56,8 @@ export default function DesktopSidebar() {
             >
               <Icon size={20} strokeWidth={active ? 2.2 : 1.6} />
               <span>{item.label}</span>
-              {item.label === 'Messages' && (
-                <span className="ml-auto h-5 min-w-[20px] rounded-full bg-gold px-1.5 flex items-center justify-center text-[11px] font-bold text-[#1a1300]">3</span>
+              {item.label === 'Messages' && unreadMsgs > 0 && (
+                <span className="ml-auto h-5 min-w-[20px] rounded-full bg-gold px-1.5 flex items-center justify-center text-[11px] font-bold text-[#1a1300]">{unreadMsgs}</span>
               )}
               {item.label === 'Notifications' && unreadCount > 0 && (
                 <span className="ml-auto h-5 min-w-[20px] rounded-full bg-brandred px-1.5 flex items-center justify-center text-[11px] font-bold text-white">{unreadCount}</span>
