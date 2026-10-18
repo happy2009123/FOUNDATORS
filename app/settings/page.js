@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X, Gift } from 'lucide-react';
 import SubpageHeader from '@/components/SubpageHeader';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useRequireAuth } from '@/lib/useRequireAuth';
@@ -109,6 +109,15 @@ export default function SettingsPage() {
           className="flex w-full items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold"
         >
           <span>Bookmarks</span>
+          <ChevronRight className="h-4 w-4 text-text3" />
+        </button>
+        <button
+          onClick={() => router.push('/invite')}
+          className="flex w-full items-center justify-between border-b border-linesoft py-3.5 text-[13.5px] font-semibold"
+        >
+          <span className="flex items-center gap-2">
+            <Gift className="h-4 w-4 text-gold" /> Invite friends
+          </span>
           <ChevronRight className="h-4 w-4 text-text3" />
         </button>
 

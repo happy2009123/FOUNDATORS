@@ -27,6 +27,28 @@ export default function SignupPage() {
     rememberReferralFromUrl();
   }, []);
 
+  // "Invited by" social proof — resolve the ref code to a name.
+  const [inviterName, setInviterName] = useState('');
+  const [inviterId, setInviterId] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URL(window.location.href).searchParams;
+        const ref = params.get('ref') || sessionStorage.getItem('foundators_ref');
+        if (!ref) return;
+        setInviterId(ref.slice(0, 128));
+        const { data } = await getSupabase()
+          ?.from('profiles')
+          .select('name')
+          .eq('id', ref.slice(0, 128))
+          .maybeSingle();
+        if (!cancelled && data?.name) setInviterName(data.name);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Already signed in? Never show the signup form — go straight home.
   useEffect(() => {
     if (!hydrated || !authReady) return;
@@ -148,6 +170,15 @@ export default function SignupPage() {
       <h1 className="mb-[22px] text-[26px] font-extrabold leading-tight">
         Create your <span className="text-gold-gradient animate-shimmer">Foundators</span> account
       </h1>
+
+      {inviterId && (
+        <div className="mb-4 rounded-2xl border border-gold/30 bg-gold/[0.06] px-4 py-3 text-center">
+          <span className="text-[13px] font-bold text-gold-hi">
+            {inviterName ? `${inviterName} invited you to Foundators` : 'You were invited to Foundators'}
+          </span>
+          <p className="mt-0.5 text-[11px] text-text2">Join with one account — your mutual network lights up after signup.</p>
+        </div>
+      )}
 
       <div className="rounded-[26px] border border-line bg-gradient-to-b from-[rgba(217,172,61,0.05)] to-transparent p-[26px] text-left shadow-[0_0_40px_-10px_rgba(184,134,11,0.2)]">
         <Field icon={User} placeholder="Full name" value={name} onChange={setName} ariaLabel="Full name" />
