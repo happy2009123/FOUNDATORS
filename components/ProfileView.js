@@ -475,6 +475,18 @@ export default function ProfileView({ userId = null }) {
             <div className="mt-1 text-[13px] font-bold text-gold-hi">
               {p?.handle || '@user'}
             </div>
+            {p?.memberCode && (
+              <div
+                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[10px] font-extrabold tracking-wider text-gold cursor-pointer"
+                title="Tap to copy your member code"
+                onClick={() => {
+                  try { navigator.clipboard?.writeText(p.memberCode); } catch {}
+                }}
+              >
+                {p.memberCode}
+                <span className="text-[8px] font-bold opacity-70">TAP TO COPY</span>
+              </div>
+            )}
             {p?.role && (
               <div className="mt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-text2">
                 {p.role}
