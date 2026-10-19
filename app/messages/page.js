@@ -373,11 +373,22 @@ export default function MessagesPage() {
           <button
             onClick={() => {
               vibrate('light');
-              showToast('Compose a new message');
+              setShowUserSearch(true);
             }}
+            aria-label="New message"
             className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi"
           >
             <PenSquare size={19} />
+          </button>
+          <button
+            onClick={() => {
+              vibrate('light');
+              router.push('/messages/create-group');
+            }}
+            aria-label="New group"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-gold-hi"
+          >
+            <Users size={19} />
           </button>
           <button
             onClick={() => {
@@ -534,7 +545,15 @@ export default function MessagesPage() {
             <EmptyState icon={Archive} title="No archived chats" description="Swipe a conversation to archive it — it will wait for you here." />
           )}
           {pinnedRows.length === 0 && unpinnedRows.length === 0 && tab !== 'archived' && (
-            <EmptyState icon={MessageCircle} title="No conversations yet" description="Start a conversation to connect with people." />
+            <div className="flex flex-col items-center">
+              <EmptyState icon={MessageCircle} title="No conversations yet" description="Start a conversation to connect with people." />
+              <button
+                onClick={() => { vibrate('light'); router.push('/messages/create-group'); }}
+                className="mt-1 rounded-full bg-gold-grad px-5 py-2.5 text-[12px] font-extrabold text-[#1a1300]"
+              >
+                Create a group
+              </button>
+            </div>
           )}
 
           {/* Pinned Section */}
