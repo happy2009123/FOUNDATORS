@@ -24,7 +24,7 @@ select setval(
   'public.member_code_seq',
   greatest(
     coalesce(
-      (select max(nullif(regexp_replace(member_code, '[^0-9]', ''), '')::int)
+       (select max(nullif(regexp_replace(member_code, '[^0-9]', '', 'g'), '')::int)
        from public.profiles),
       0
     ) + 1,
