@@ -863,9 +863,16 @@ const recordingSecondsRef = useRef(0);
     const p = sendPayload();
     if (!p) return;
     nearBottomRef.current = true;
+    let url;
     try {
-      const url = await uploadChatAudio(blob);
-      await sendFS(p.convId, {
+      url = await uploadChatAudio(blob, profile?.id);
+    } catch (err) {
+      console.error('[chat] voice upload failed', err);
+      showToast(`Voice upload failed: ${err?.message || 'network error'}`);
+      return;
+    }
+    try {
+      const r = await sendFS(p.convId, {
         text: buildAudioText(url, seconds),
         senderKey: profile.id,
         senderName: profile.name,
@@ -874,9 +881,14 @@ const recordingSecondsRef = useRef(0);
         participantNames: p.participantNames,
         participantAvatars: p.participantAvatars,
       });
+      if (!r.success) {
+        showToast(`Voice not sent: ${r.error}`);
+        return;
+      }
       notification('success');
     } catch (err) {
-      showToast('Voice message failed to send');
+      console.error('[chat] voice send failed', err);
+      showToast('Voice not sent — try again');
     }
   }, [sendPayload, profile, sendFS, notification, showToast, vibrate]);
 
@@ -925,12 +937,16 @@ const recordingSecondsRef = useRef(0);
     const p = sendPayload();
     if (!p) return;
     setSendingDoc(true);
+    let url;
     try {
-      const url = await uploadChatFile(file, profile.id);
-      setDocPreview(null);
-      selectedDocRef.current = null;
-      nearBottomRef.current = true;
-      await sendFS(p.convId, {
+      url = await uploadChatFile(file, profile.id);
+    } catch (err) {
+      console.error('[chat] file upload failed', err);
+      showToast(`Upload failed: ${err?.message || 'network error'}`);
+      return;
+    }
+    try {
+      const r = await sendFS(p.convId, {
         text: buildFileText(url, file.name),
         senderKey: profile.id,
         senderName: profile.name,
@@ -939,10 +955,17 @@ const recordingSecondsRef = useRef(0);
         participantNames: p.participantNames,
         participantAvatars: p.participantAvatars,
       });
+      if (!r.success) {
+        showToast(`Message not sent: ${r.error}`);
+        return;
+      }
+      setDocPreview(null);
+      selectedDocRef.current = null;
+      nearBottomRef.current = true;
       notification('success');
     } catch (err) {
       console.error('[chat] file send failed', err);
-      showToast('File failed to upload - try again');
+      showToast('Message not sent — try again');
     } finally {
       setSendingDoc(false);
     }
@@ -954,12 +977,16 @@ const recordingSecondsRef = useRef(0);
     const p = sendPayload();
     if (!p) return;
     setSendingImage(true);
+    let url;
     try {
-      const url = await uploadChatImage(file, profile.id);
-      setShowImagePreview(null);
-      selectedFileRef.current = null;
-      nearBottomRef.current = true;
-      await sendFS(p.convId, {
+      url = await uploadChatImage(file, profile.id);
+    } catch (err) {
+      console.error('[chat] image upload failed', err);
+      showToast(`Upload failed: ${err?.message || 'network error'}`);
+      return;
+    }
+    try {
+      const r = await sendFS(p.convId, {
         text: buildImageText(url),
         senderKey: profile.id,
         senderName: profile.name,
@@ -968,10 +995,17 @@ const recordingSecondsRef = useRef(0);
         participantNames: p.participantNames,
         participantAvatars: p.participantAvatars,
       });
+      if (!r.success) {
+        showToast(`Message not sent: ${r.error}`);
+        return;
+      }
+      setShowImagePreview(null);
+      selectedFileRef.current = null;
+      nearBottomRef.current = true;
       notification('success');
     } catch (err) {
       console.error('[chat] image send failed', err);
-      showToast('Image failed to upload - try again');
+      showToast('Message not sent — try again');
     } finally {
       setSendingImage(false);
     }
