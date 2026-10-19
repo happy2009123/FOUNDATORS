@@ -214,7 +214,7 @@ export default function MessagesPage() {
     if (!userSearch.trim()) return allUsers;
     const q = userSearch.toLowerCase();
     return allUsers.filter((u) =>
-      u.uniqueId?.toLowerCase().includes(q) ||
+      u.memberCode?.toLowerCase().includes(q) ||
       u.name?.toLowerCase().includes(q) ||
       u.handle?.toLowerCase().includes(q)
     );
@@ -229,7 +229,7 @@ export default function MessagesPage() {
     setNewConvo('');
     const lower = val.toLowerCase();
     const matchedUser = filteredUsers.find(
-      (u) => u.uniqueId?.toLowerCase() === lower || u.name?.toLowerCase().includes(lower) || u.handle?.toLowerCase().includes(lower)
+      (u) => u.memberCode?.toLowerCase() === lower || u.name?.toLowerCase().includes(lower) || u.handle?.toLowerCase().includes(lower)
     );
     if (!matchedUser) {
       showToast('Try a name or ID like FD001, FD002...');
@@ -252,7 +252,7 @@ export default function MessagesPage() {
     return allUsers.filter(
       (u) =>
         u.id !== profile?.id &&
-        (u.uniqueId?.toLowerCase().includes(q) ||
+        (u.memberCode?.toLowerCase().includes(q) ||
           u.name?.toLowerCase().includes(q) ||
           u.handle?.toLowerCase().includes(q))
     );
@@ -445,10 +445,10 @@ export default function MessagesPage() {
                 )}
               </div>
               <div className="max-h-[240px] overflow-y-auto">
-                {allUsers.length === 0 && (
+                {filteredUsers.length === 0 && (
                   <div className="py-4 text-center text-[12px] text-text3">No users found</div>
                 )}
-                {allUsers.map((u) => (
+                {filteredUsers.map((u) => (
                   <button
                     key={u.id}
                     onClick={async () => {
@@ -464,9 +464,9 @@ export default function MessagesPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[13px] font-bold text-white">{u.name}</span>
-                        <span className="rounded-full bg-gold/15 px-1.5 py-px text-[9px] font-extrabold text-gold">
-                          {u.uniqueId}
-                        </span>
+                          <span className="rounded-full bg-gold/15 px-1.5 py-px text-[9px] font-extrabold text-gold">
+                            {u.memberCode}
+                          </span>
                       </div>
                       <span className="text-[11px] text-text3">{u.handle}</span>
                     </div>
@@ -682,7 +682,7 @@ export default function MessagesPage() {
                       <Avatar src={u.avatar} name={u.name} size={36} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-bold">{u.name}</div>
-                        <div className="truncate text-[11px] text-text3">{u.uniqueId || u.handle}</div>
+                        <div className="truncate text-[11px] text-text3">{u.memberCode || u.handle}</div>
                       </div>
                       <div
                         className={`flex h-5 w-5 flex-none items-center justify-center rounded-full border ${
