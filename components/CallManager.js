@@ -18,6 +18,7 @@ import CallScreen from './CallScreen';
 import Avatar from '@/components/Avatar';
 import { initialsAvatar } from '@/lib/avatar';
 import { startIncomingRing, startRingbackTune } from '@/lib/ringtone';
+import { beginCallKeepAwake, endCallKeepAwake } from '@/lib/callKeepAwake';
 
 const RING_TIMEOUT_MS = 45000;
 const OFFER_STALE_MS = 45000;
@@ -119,6 +120,10 @@ export default function CallManager() {
     const updateCall = (next) => {
       callRef.current = next;
       setCall(next);
+      // Background survival: wake-lock on web + Android foreground service
+      // while any call UI is up; released the moment the call is torn down.
+      if (next) beginCallKeepAwake();
+      else endCallKeepAwake();
     };
 
     const clearOutgoingTimer = () => {
@@ -484,6 +489,7 @@ export default function CallManager() {
       teardownMesh();
       callRef.current = null;
       setCall(null);
+      endCallKeepAwake();
     };
   }, [isLoggedIn, myUid]);
 
