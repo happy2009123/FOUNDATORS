@@ -21,6 +21,7 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/splash-screen": "^7.0.5",
     "@capacitor/status-bar": "^7.0.6",
+    "@capawesome-team/capacitor-android-foreground-service": "^8.1.0",
     "@supabase/supabase-js": "^2.117.3",
     "dompurify": "^3.4.14",
     "isomorphic-dompurify": "^4.1.0",
