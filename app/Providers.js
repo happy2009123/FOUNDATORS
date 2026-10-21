@@ -16,6 +16,7 @@ import Toast from '@/components/Toast';
 import Drawer from '@/components/Drawer';
 import OfflineBanner from '@/components/OfflineBanner';
 import CookieBanner from '@/components/CookieBanner';
+import InstallPrompt from '@/components/InstallPrompt';
 import SkipToContent from '@/components/SkipToContent';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import EmailVerificationBanner from '@/components/EmailVerificationBanner';
@@ -32,6 +33,16 @@ export default function Providers({ children }) {
   const isLoggedIn = useStore((s) => s.isLoggedIn);
   const authReady = useStore((s) => s.authReady);
   const profileCompleted = useStore((s) => s.profileCompleted);
+  const notifications = useStore((s) => s.notifications);
+  const unreadByContact = useStore((s) => s.unreadByContact);
+
+  // Tab title badge: (N) Foundators when unread notifications + messages.
+  useEffect(() => {
+    const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
+    const unreadMsgs = Object.values(unreadByContact || {}).reduce((a, b) => a + (b || 0), 0);
+    const total = unreadNotifs + unreadMsgs;
+    document.title = total > 0 ? `(${total}) Foundators` : 'Foundators';
+  }, [notifications, unreadByContact]);
 
   useEffect(() => {
     initErrorTracking();
@@ -81,6 +92,7 @@ export default function Providers({ children }) {
         <Toast />
         <CallManager />
         <CookieBanner />
+        <InstallPrompt />
       </FirestoreProvider>
     </ErrorBoundary>
   );

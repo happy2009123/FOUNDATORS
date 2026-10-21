@@ -122,7 +122,7 @@ export default function CallManager() {
       setCall(next);
       // Background survival: wake-lock on web + Android foreground service
       // while any call UI is up; released the moment the call is torn down.
-      if (next) beginCallKeepAwake();
+      if (next) beginCallKeepAwake(() => handlersRef.current?.hangupCall());
       else endCallKeepAwake();
     };
 
