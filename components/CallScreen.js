@@ -52,7 +52,7 @@ export default function CallScreen({
   return (
     <div className="dark-surface fixed inset-0 z-[500] flex flex-col bg-gradient-to-b from-zinc-900 to-black">
       {videoLive ? (
-        <div className="relative flex-1 bg-black">
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
           {/* muted: audio plays exactly once through CallManager's <audio>
               element - an unmuted <video> playing the same stream double-
               renders the audio track (phasing/garble/perceived lag). */}
@@ -86,7 +86,9 @@ export default function CallScreen({
           )}
         </div>
       )}
-      <div className="pb-12 px-6">
+      {/* flex-none: the control row must never shrink or get pushed past
+          the fixed (non-scrollable) viewport on wide screens. */}
+      <div className="flex-none pb-12 px-6">
         <div className="flex items-center justify-center gap-6">
           {/* Camera toggle shows for every active call: on a voice call it
               acquires the camera and promotes the call to video for both
