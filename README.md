@@ -1,5 +1,7 @@
 # Foundators
 
+> **Current status (2026):** the live production app is at **https://foundators-flame.vercel.app** and runs on **Supabase** (Postgres + Auth + Realtime + Storage) with a hardened RLS model — *not* on localStorage. The prototype-era notes below ("no backend", seed data) are outdated; see `SUPABASE_ARCHITECTURE.md`, `DATABASE_SCHEMA.md`, and `SECURITY_RLS.md` for the real architecture, and `MIGRATION_RUNBOOK.md` for deployments.
+
 A social network for founders — built with Next.js 14 (App Router), Tailwind CSS, and Zustand.
 
 This is a real, deployable web app converted from the original prototype. All state
