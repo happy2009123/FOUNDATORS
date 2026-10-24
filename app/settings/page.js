@@ -198,7 +198,11 @@ export default function SettingsPage() {
         <SectionLabel>Account</SectionLabel>
         <button
           onClick={async () => {
-            const email = useStore.getState().profile?.email;
+            let email = null;
+            try {
+              const { data } = await getSupabase()?.auth.getSession();
+              email = data?.session?.user?.email || null;
+            } catch {}
             if (!email) {
               showToast('No email on this account');
               return;
