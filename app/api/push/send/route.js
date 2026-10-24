@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { getTokenVerifier, isAuthVerifierConfigured } from '@/lib/supabase/server';
 import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
@@ -43,6 +44,22 @@ export async function POST(request) {
     return NextResponse.json({ error: 'missing notificationId' }, { status: 400 });
   }
 
+  // Only the actor who triggered the notification (or its recipient) may
+  // fan it out — without this anyone could replay IDs and spam pushes.
+  if (!isAuthVerifierConfigured()) {
+    return NextResponse.json({ ok: false, sent: 0, error: 'not configured' }, { status: 503 });
+  }
+  const authHeader = request.headers.get('authorization') || '';
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!jwt) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const { data: authData, error: authErr } = await getTokenVerifier().auth.getUser(jwt);
+  const caller = authData?.user;
+  if (authErr || !caller) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -68,6 +85,9 @@ export async function POST(request) {
     .maybeSingle();
   if (error || !notif) {
     return NextResponse.json({ error: 'notification not found' }, { status: 404 });
+  }
+  if (notif.actor_key !== caller.id && notif.user_id !== caller.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   const recipientId = notif.user_id || notif.userId;
   const text = notif.text || '';

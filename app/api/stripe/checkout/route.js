@@ -105,11 +105,10 @@ export async function POST(req) {
       }
     }
 
-    // Absolute URLs for Stripe redirects - origin of this app.
-    const origin =
-      req.headers.get('origin') ||
-      `https://${req.headers.get('host')}` ||
-      'https://foundators-flame.vercel.app';
+    // Absolute URLs for Stripe redirects. Server-side constant only — a
+    // client-controlled Origin/Host header would let an attacker point
+    // post-payment redirects at a phishing site behind a real Stripe page.
+    const origin = (process.env.NEXT_PUBLIC_APP_URL || 'https://foundators-flame.vercel.app').replace(/\/+$/, '');
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',

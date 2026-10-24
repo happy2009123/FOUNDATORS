@@ -1,23 +1,12 @@
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
-import { getTokenVerifier, isAuthVerifierConfigured, isSupabaseAdminConfigured } from '@/lib/supabase/server';
+import { getTokenVerifier, isAuthVerifierConfigured } from '@/lib/supabase/server';
 import { clientIp, rateLimit, retryAfterHeaders } from '@/lib/apiRateLimit';
 
 export const runtime = 'nodejs';
 
-// Diagnostic: lets us see (without exposing secrets) which server env vars
-// are present on this deployment. Used to debug 401s from POST.
-export async function GET() {
-  return NextResponse.json({
-    adminConfigured: isSupabaseAdminConfigured(),
-    authVerifierConfigured: isAuthVerifierConfigured(),
-    cloudinaryConfigured: Boolean(
-      (process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) &&
-        process.env.CLOUDINARY_API_KEY &&
-        process.env.CLOUDINARY_API_SECRET
-    ),
-  });
-}
+// (Diagnostic GET removed: it leaked which server secrets are configured
+// to unauthenticated callers.)
 
 // Supabase access tokens are verified server-side (admin client when the
 // secret key is present, otherwise the anon client validates via GoTrue);

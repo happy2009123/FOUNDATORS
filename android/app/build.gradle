@@ -16,10 +16,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            // Store credentials live in ~/.gradle/gradle.properties on the
+            // build machine — never in this repo.
+            def storeFilePath = project.findProperty('foundatorsStoreFile')
+            if (storeFilePath != null) {
+                storeFile file(storeFilePath)
+                storePassword project.findProperty('foundatorsStorePassword')
+                keyAlias project.findProperty('foundatorsKeyAlias')
+                keyPassword project.findProperty('foundatorsKeyPassword')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (project.findProperty('foundatorsStoreFile') != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

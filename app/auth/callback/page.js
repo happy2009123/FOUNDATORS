@@ -19,7 +19,15 @@ export default function AuthCallbackPage() {
     const errorDescription = params.get('error_description');
     const popup = params.get('popup') === '1';
     const nextRaw = params.get('next') || '/home';
-    const next = nextRaw.startsWith('/') ? nextRaw : '/home';
+    // Same-origin paths only: startsWith('/') alone accepts protocol-relative
+    // URLs like //evil.com (open redirect → post-login phishing).
+    let next = '/home';
+    try {
+      const u = new URL(nextRaw, window.location.origin);
+      if (u.origin === window.location.origin) next = `${u.pathname}${u.search}${u.hash}`;
+    } catch {
+      next = '/home';
+    }
     // Referral rides along the redirect (appended by lib/supabase/auth.js) —
     // stash it so the invite can be recorded once the session exists.
     const ref = params.get('ref');

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { Suspense, useCallback, useMemo, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -39,8 +39,6 @@ const CATEGORY_BADGE = {
   missyou: 'bg-[rgba(255,87,34,0.12)] text-[#ff5722]',
   congrats: 'bg-[rgba(76,175,80,0.12)] text-[#4caf50]',
 };
-
-const GOLD_THEME = { primary: '#D9AC3D', bg: '#1a1300', accent: '#f5d780' };
 
 async function fetchUser(key) {
   try {
@@ -100,11 +98,13 @@ function CodeLine({ num, html }) {
 }
 
 function PhonePreview({ code, css, js, templateName }) {
-  const [hasError, setHasError] = useState(false);
-  const containerRef = useRef(null);
-
-  // New-format templates publish raw HTML (+ optional css/js). Legacy
-  // templates stored a React component source string. Detect which.
+  // New-format templates publish raw HTML (+ optional css/js) and render in
+  // a sandboxed iframe. Legacy templates stored a React SOURCE string — it
+  // used to be executed via new Function() in the app origin, which was a
+  // stored-XSS / account-takeover vector (any user could publish a template
+  // that ran arbitrary JS for every viewer). Never execute template code;
+  // legacy templates now show a static notice (the source panel below still
+  // displays the full code).
   const isHtmlFormat = useMemo(() => {
     if (css || js) return true;
     if (!code) return false;
@@ -120,34 +120,6 @@ function PhonePreview({ code, css, js, templateName }) {
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a1a;color:#fff;width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}${css || ''}</style></head><body>${code}${scriptTag}</body></html>`;
   }, [isHtmlFormat, code, css, js]);
 
-  const renderedComponent = useMemo(() => {
-    if (isHtmlFormat || !code) return null;
-    try {
-      const FORBIDDEN = /\b(fetch|XMLHttpRequest|import\(|require\(|eval\(|new Function|document\.|window\.|localStorage|sessionStorage|cookie|indexedDB)\b/;
-      if (FORBIDDEN.test(code)) return null;
-      const fn = new Function(
-        'React',
-        'useState',
-        'useEffect',
-        'useRef',
-        'useCallback',
-        'useMemo',
-        `return ${code}`
-      );
-      const Component = fn(React, React.useState, React.useEffect, React.useRef, React.useCallback, React.useMemo);
-      if (typeof Component !== 'function') return null;
-      const element = React.createElement(Component, {
-        name: 'Kabir',
-        message: 'Wishing you all the best!',
-        theme: GOLD_THEME,
-      });
-      return element;
-    } catch {
-      setHasError(true);
-      return null;
-    }
-  }, [code, isHtmlFormat]);
-
   if (isHtmlFormat && srcDoc) {
     return (
       <iframe
@@ -159,31 +131,11 @@ function PhonePreview({ code, css, js, templateName }) {
     );
   }
 
-  if (hasError) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center px-6">
-        <div className="text-2xl mb-2">👁️</div>
-        <div className="text-[11px] font-bold text-white/70">Preview not available</div>
-        <div className="text-[10px] text-white/40 mt-1">The template code couldn&apos;t be rendered in the preview</div>
-      </div>
-    );
-  }
-
-  if (!renderedComponent) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-[11px] text-white/40">Loading preview...</div>
-      </div>
-    );
-  }
-
   return (
-    <div
-      ref={containerRef}
-      className="dark-surface w-full h-full overflow-hidden"
-      style={{ background: '#0a0a1a' }}
-    >
-      {renderedComponent}
+    <div className="flex flex-col items-center justify-center h-full text-center px-6">
+      <div className="text-2xl mb-2">👁️</div>
+      <div className="text-[11px] font-bold text-white/70">Preview not available</div>
+      <div className="text-[10px] text-white/40 mt-1">See the source code below for the full implementation</div>
     </div>
   );
 }
