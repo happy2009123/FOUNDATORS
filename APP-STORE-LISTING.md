@@ -46,7 +46,7 @@ Unlike generic social networks, Foundators is built specifically for builders. E
 
 🤖 **AI Assistant** — Get help with your ideas, business plans, and technical questions.
 
-🔐 **Privacy First** — Your data stays on your device. End-to-end encryption coming soon.
+🔐 **Privacy First** — Your data is stored on secure servers — export or delete it anytime from Settings.
 
 **BUILT FOR BUILDERS**
 
@@ -100,7 +100,7 @@ Secondary: Business
 Everyone
 
 ## Privacy Policy URL
-https://foundators.app/privacy
+https://foundators-flame.vercel.app/privacy
 
 ## Support URL
-https://foundators.app/help
+https://foundators-flame.vercel.app/help
