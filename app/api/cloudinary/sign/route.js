@@ -39,7 +39,7 @@ const UID_SCOPED_ROOTS = ['stories', 'reels'];
 export async function POST(req) {
   // Signed upload URLs gate paid Cloudinary bandwidth - cap per-IP before
   // any token/crypto work.
-  const rl = rateLimit(`cloudinary:ip:${clientIp(req)}`, { limit: 60, windowMs: 60000 });
+  const rl = await rateLimit(`cloudinary:ip:${clientIp(req)}`, { limit: 60, windowMs: 60000 });
   if (!rl.ok) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rl) });
   }

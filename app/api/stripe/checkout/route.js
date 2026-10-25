@@ -26,7 +26,7 @@ function userClient(jwt) {
 }
 
 export async function POST(req) {
-  const rl = rateLimit(`stripe:checkout:${clientIp(req)}`, { limit: 10, windowMs: 60000 });
+  const rl = await rateLimit(`stripe:checkout:${clientIp(req)}`, { limit: 10, windowMs: 60000 });
   if (!rl.ok) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rl) });
   }

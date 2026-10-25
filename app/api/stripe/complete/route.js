@@ -18,7 +18,7 @@ async function verifyUser(jwt) {
 // re-verifies the payment directly against Stripe (never trusts the client),
 // so entries are approved even before a webhook is configured.
 export async function POST(req) {
-  const rl = rateLimit(`stripe:complete:${clientIp(req)}`, { limit: 30, windowMs: 60000 });
+  const rl = await rateLimit(`stripe:complete:${clientIp(req)}`, { limit: 30, windowMs: 60000 });
   if (!rl.ok) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rl) });
   }
