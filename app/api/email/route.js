@@ -65,7 +65,7 @@ function welcomeHtml(name) {
 export async function POST(req) {
   // Email abuse = burned Resend quota + spam complaints. IP cap first,
   // per-user cap after token verification (see below).
-  const rlIp = rateLimit(`email:ip:${clientIp(req)}`, { limit: 20, windowMs: 3600000 });
+  const rlIp = await rateLimit(`email:ip:${clientIp(req)}`, { limit: 20, windowMs: 3600000 });
   if (!rlIp.ok) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rlIp) });
   }
@@ -84,7 +84,7 @@ export async function POST(req) {
   if (auth.error) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
-  const rlUser = rateLimit(`email:u:${auth.user.uid}`, { limit: 10, windowMs: 3600000 });
+  const rlUser = await rateLimit(`email:u:${auth.user.uid}`, { limit: 10, windowMs: 3600000 });
   if (!rlUser.ok) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: retryAfterHeaders(rlUser) });
   }
